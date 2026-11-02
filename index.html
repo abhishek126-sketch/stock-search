@@ -48,6 +48,12 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 .csr{padding:8px 10px;border-radius:10px;margin:6px 0;background:#f8fafc;border-left:4px solid #cbd5e1}.csr.pass{border-color:#16a34a}.csr.fail{border-color:#dc2626}.csr small{color:var(--mut);display:block;margin-top:2px}.csL{display:inline-block;width:22px;height:22px;border-radius:6px;background:var(--pri);color:#fff;text-align:center;margin-right:4px}
 #live{max-width:1100px;margin:8px auto 0;padding:0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;font-size:13px;color:var(--mut)}#live .btn{padding:6px 10px;font-size:13px}#updBtn:disabled{opacity:.7}
 .tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;background:#e0f2fe;color:#075985;margin-left:6px;vertical-align:middle}
+.gq{display:inline-block;min-width:15px;height:15px;line-height:15px;margin-left:2px;border-radius:50%;background:#ccfbf1;color:#0f766e;font-size:10px;font-weight:700;text-align:center;cursor:pointer;vertical-align:super;padding:0 1px}.gq:hover{background:#0f766e;color:#fff}
+#gpop{position:fixed;z-index:99;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:10px 12px;font-size:13px}#gpop p{margin:6px 0}
+.gloss>div{padding:8px 0;border-bottom:1px solid #e2e8f0}.gloss dt{font-weight:700}.gloss dd{margin:2px 0 0}
+.rn{display:inline-block;min-width:24px;height:24px;line-height:24px;border-radius:6px;background:#0f766e;color:#fff;text-align:center;font-size:13px;margin-right:4px}
+.how{margin:8px 0}.how summary{cursor:pointer;color:#0f766e;font-size:13px}.how>div{font-size:12.5px;margin-top:4px}
+.scen{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}.sc{border-radius:10px;padding:10px;text-align:center;display:flex;flex-direction:column;gap:2px}.sc.bear{background:#fee2e2}.sc.base{background:#e0f2fe}.sc.bull{background:#dcfce7}.sc .px2{font-size:17px;font-weight:700}.sc .pp{font-weight:700}
 </style></head>
 <body>
 <header><div class="hrow"><h1>📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="setBtn">⚙ Settings</button></div>
@@ -57,7 +63,7 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <div id="msg"></div>
 <div id="home">
  <div class="card"><h2>Watchlist & quick picks</h2><div class="chips" id="chips"></div><p class="mut" id="dsinfo">Loading stock list…</p></div>
- <div class="card"><div class="tabs" id="ltabs"><button data-t="cs" class="on">📊 CANSLIM leaders</button><button data-t="sec">🏭 Sectors</button></div><div id="lists"><p class="mut">Loading…</p></div></div>
+ <div class="card"><div class="tabs" id="ltabs"><button data-t="cs" class="on">📊 CANSLIM leaders</button><button data-t="sec">🏭 Sectors</button><a class="btn sec" href="#glossary" style="text-decoration:none;margin-left:auto">📖 Glossary</a></div><div id="lists"><p class="mut">Loading…</p></div></div>
  <div class="card disc"><b>Educational tool only — not personal investment advice.</b> Scores are generated automatically from public data using fixed rules. They do not consider your goals, risk tolerance or taxes. Consult a SEBI-registered investment adviser before investing.</div>
 </div>
 <div id="view" hidden></div>
@@ -77,6 +83,6 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <li><b>Generate token</b>, copy it (starts with <code>github_pat_</code>), paste into ⚙ Settings here and Save.</li></ol>
 <p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
-<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script>
+<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
 </body></html>

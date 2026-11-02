@@ -10,7 +10,7 @@ TYPES = ('quarterlyTotalRevenue,quarterlyNetIncome,quarterlyDilutedEPS,trailingP
          'trailingMarketCap,annualStockholdersEquity,annualTotalDebt,annualEBIT,annualTotalAssets,'
          'annualCurrentLiabilities,annualNetIncome,annualTotalRevenue,annualOperatingCashFlow,annualFreeCashFlow,'
          'annualInterestExpense,annualAccountsReceivable,annualInventory,annualDilutedEPS,annualDilutedAverageShares,'
-         'annualOperatingIncome,annualCashAndCashEquivalents,annualGrossProfit,quarterlyOperatingIncome')
+         'annualOperatingIncome,annualCashAndCashEquivalents,annualGrossProfit,quarterlyOperatingIncome,annualCurrentAssets,annualResearchAndDevelopment,annualCapitalExpenditure')
 
 def get(url, tries=4):
     for i in range(tries):
@@ -40,7 +40,7 @@ def analysts(q):
     if not c: return None
     for i in range(5):
         try:
-            r = json.loads(OP.open(f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{q}?modules=recommendationTrend,financialData,assetProfile,defaultKeyStatistics&crumb={urllib.parse.quote(c)}', timeout=25).read())
+            r = json.loads(OP.open(f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{q}?modules=recommendationTrend,financialData,assetProfile,defaultKeyStatistics,summaryDetail,calendarEvents&crumb={urllib.parse.quote(c)}', timeout=25).read())
             break
         except Exception as e:
             if i == 4: print('analyst fail', q, e); return None
@@ -58,7 +58,14 @@ def analysts(q):
     PROFILE[q] = {'industry': ap.get('industry'), 'sector': ap.get('sector'), 'insiders': rk('heldPercentInsiders'),
                   'institutions': rk('heldPercentInstitutions'), 'shares': rk('sharesOutstanding'), 'bookValue': rk('bookValue'),
                   'ocfTTM': raw('operatingCashflow'), 'fcfTTM': raw('freeCashflow'), 'cash': raw('totalCash'), 'debt': raw('totalDebt'),
-                  'opMargins': raw('operatingMargins'), 'profitMargins': raw('profitMargins'), 'asOf': int(time.time())}
+                  'opMargins': raw('operatingMargins'), 'profitMargins': raw('profitMargins'),
+                  'beta': rk('beta') if rk('beta') is not None else ((res[0].get('summaryDetail') or {}).get('beta') or {}).get('raw'),
+                  'currentRatio': raw('currentRatio'), 'revGrowth': raw('revenueGrowth'), 'earnGrowth': raw('earningsGrowth'),
+                  'fwdEps': rk('forwardEps'), 'peg': rk('pegRatio'), 'grossMargins': raw('grossMargins'),
+                  'summary': (ap.get('longBusinessSummary') or '')[:700] or None, 'employees': ap.get('fullTimeEmployees'),
+                  'earnDates': [x.get('raw') for x in (((res[0].get('calendarEvents') or {}).get('earnings') or {}).get('earningsDate') or []) if isinstance(x, dict)],
+                  'exDiv': (((res[0].get('calendarEvents') or {}).get('exDividendDate')) or {}).get('raw') if isinstance((res[0].get('calendarEvents') or {}).get('exDividendDate'), dict) else None,
+                  'asOf': int(time.time())}
     t0 = next((t for t in tr if t.get('period') == '0m'), None)
     if t0 and sum(t0.get(k) or 0 for k in ('strongBuy','buy','hold','sell','strongSell')) > 0:
         a['trend'] = {k: t0.get(k) or 0 for k in ('strongBuy','buy','hold','sell','strongSell')}

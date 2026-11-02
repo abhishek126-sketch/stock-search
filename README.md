@@ -33,3 +33,6 @@ plus CANSLIM-leaders and sector browsing lists on the home screen. Promoter pled
 * Separate concurrency groups (no cancelling; at most one queued run each); publishing uses force-with-lease and rebases on conflict so the two jobs never overwrite each other.
 * **GitHub cron is best-effort**: scheduled runs are often delayed 5–30 min (sometimes more) at busy times and may occasionally be skipped; schedules in public repos also pause after 60 days without repository activity.
 * The app checks `meta.json` every 60 s while visible and re-renders silently when newer data lands. **Update now** triggers `workflow_dispatch` with your own fine-grained token (this repo only, Actions: Read and write), stored only in your browser.
+
+## 25-point research report (v7)
+Each stock page has a numbered, collapsible 25-section report (executive summary → conflicts) with a jump bar, CANSLIM/Graham/Buffett/Fisher/Lynch scores out of 100 with "How calculated" expanders, model-generated 12-month scenarios, an editable CAGR calculator, a PDF download (vendored jsPDF, MIT), and tappable `?` glossary popovers (`glossary.js`, plus the `#glossary` page). Missing data is shown as NA and is never estimated. Educational only, not personal investment advice.

@@ -334,7 +334,7 @@ function drawChart() {
 
 // ---------- render ----------
 function render() {
-  const d = CUR, k = compute(d), A = analyse(d, k), c = d.currency, v = $('#view'); updFav();
+  const d = CUR, k = compute(d), A = analyse(d, k), c = d.currency, v = $('#view'); updFav(); const RPT = fullReport(d, k, A);
   const base = d.symbol.replace(/\.NS$/, '');
   const scoreRow = (n, s) => `<div class="score"><span class="l">${n}</span><span class="bar"><i style="width:${isNum(s) ? s * 10 : 0}%;background:${!isNum(s) ? '#cbd5e1' : s >= 7 ? '#16a34a' : s >= 4.5 ? '#eab308' : '#dc2626'}"></i></span><span class="v">${isNum(s) ? s.toFixed(1) + '/10' : '<span class="mut">n/a</span>'}</span></div>`;
   const q = k.quarters, unit = c === 'INR' ? 'Cr' : 'M', div = c === 'INR' ? 1e7 : 1e6;
@@ -371,24 +371,11 @@ function render() {
    ${q.slice().reverse().map(r => `<tr><td>${qlabel(r.dt)}</td><td>${qn(r.rev)}</td><td>${sgnPct(r.revQoQ)}</td><td>${sgnPct(r.revYoY)}</td><td>${qn(r.ni)}</td><td>${sgnPct(r.niQoQ)}</td><td>${sgnPct(r.niYoY)}</td><td>${isNum(r.eps) ? r.eps.toFixed(2) : '<span class="mut">n/a</span>'}</td><td>${sgnPct(r.epsYoY)}</td></tr>`).join('')}</table></div>
    <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).${d.fx ? (d.fx.rate ? ` Statements reported in ${esc(d.fx.from)}; converted to ${esc(d.fx.to)} at today's rate ${d.fx.rate} (growth rates unaffected; absolute values approximate).` : ` Statements reported in ${esc(d.fx.from)} and could not be converted — fundamentals omitted.`) : ''}</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
   </div>
-  <div class="card navc">${[['s-analysts','Analysts'],['s-peers','Peers'],['s-sector','Sector'],['s-news','News'],['s-flags','Red flags'],['s-iv','Intrinsic value'],['s-cs','CANSLIM'],['s-expert','Expert view']].map(([i,t])=>`<a href="#" data-jump="${i}">${t}</a>`).join('')}</div>
-  <div id="s-analysts">${analystCard(d)}</div>
-  ${peersSection(d)}${sectorSection(d, k)}${newsSection(d)}${redFlagsSection(d, k)}${ivSection(d, k)}${canslimSection(d)}
-  <div class="card" id="s-expert"><h2>🩺 Expert analysis <span class="mut">(automated, rule-based)</span></h2>
-   <div class="verdict" style="background:${A.col}">${esc(A.verdict)}${isNum(A.overall) ? ` — ${A.overall.toFixed(1)}/10` : ''}</div>
-   ${Object.entries(A.S).map(([n, s]) => scoreRow(n, s)).join('')}
-   ${A.style ? `<p><b>Profile:</b> ${esc(A.style)}</p>` : ''}
-   <div class="grid two" style="margin-top:8px"><div><b>Strengths</b><ul class="pros">${A.pros.map(x => `<li>${x}</li>`).join('') || '<li class="mut">None flagged by the rules.</li>'}</ul></div>
-   <div><b>Concerns</b><ul class="cons">${A.cons.map(x => `<li>${x}</li>`).join('') || '<li class="mut">None flagged by the rules.</li>'}</ul></div></div>
-   <b>Things to watch</b><ul class="watch">${A.watch.map(x => `<li>${x}</li>`).join('')}</ul>
-   <details><summary class="mut">How the scores work</summary><p class="mut">Each pillar is scored 0–10 from the numbers above. <b>Valuation</b>: P/E (≈10 → high score, ≈60 → low), P/B, dividend yield. <b>Growth</b>: multi-year revenue & profit CAGR (or last-FY growth) and latest-quarter YoY. <b>Profitability</b>: ROE, ROCE (non-financials), net margin. <b>Balance sheet</b>: debt/equity (not scored for banks/financials). <b>Momentum</b>: price vs 50/200-DMA, 50 vs 200-DMA, RSI(14), 1-year return. Overall = average of available pillars (needs ≥3). Pillars without data show n/a and are never guessed.</p></details>
-   <div class="disc" style="margin-top:10px"><b>Educational, not personal investment advice.</b> This is an automated screen using fixed rules on public data, which may be delayed, incomplete or wrong. It does not know your goals, risk profile, or tax situation. Please verify with company filings (NSE/BSE/SEC) and consult a SEBI-registered investment adviser before acting.</div>
-   <div class="src">Data source: ${esc(d.source || 'unknown')}${d.fetched ? ' · fetched ' + new Date(d.fetched * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''}. Ratios such as ROE/ROCE/D/E are computed from latest annual statements; P/E from trailing-4-quarter EPS when available, otherwise the source's trailing P/E.</div>
-  </div>`;
+  ${RPT.html}`;
   $('#back').onclick = e => { e.preventDefault(); goHome(); };
   $('#rng').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.id === 'dmaT') SHOW_DMA = !SHOW_DMA; else RANGE = b.textContent; const y = window.scrollY; d._keepScroll = true; render(); window.scrollTo(0, y); });
   if ($('#liveBtn')) $('#liveBtn').onclick = liveQuote;
-  bindIV(d, k);
+  bindIV(d, k); bindReport(d, k, RPT.R); autoGloss(v);
   v.querySelectorAll('[data-jump]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.jump); if (t.tagName === 'DETAILS') t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
 }
@@ -402,8 +389,8 @@ $('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); LS.se
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
-loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
-window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return; if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
+loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h === 'glossary') showGlossary(); else if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
+window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return; if (h === 'glossary') return showGlossary(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
 document.getElementById('tokHow').onclick = e => { e.preventDefault(); document.getElementById('dlg').close(); document.getElementById('tokHelp').showModal(); };
