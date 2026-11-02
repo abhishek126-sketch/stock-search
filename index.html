@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stock Search – India & US</title>
+<meta name="theme-color" content="#0f766e"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg">
+<style>
+:root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e2e8f0;--pri:#0f766e;--up:#15803d;--dn:#b91c1c;--warn:#b45309}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--pri);color:#fff;padding:10px 14px calc(10px);position:sticky;top:0;z-index:5;box-shadow:0 2px 6px #0003}
+.hrow{display:flex;align-items:center;gap:8px;max-width:1100px;margin:auto}
+header h1{font-size:17px;margin:0;flex:1;white-space:nowrap}
+header button{background:#ffffff22;border:0;color:#fff;border-radius:8px;padding:7px 10px;font-size:14px;cursor:pointer}
+.sbox{max-width:1100px;margin:8px auto 0;position:relative}
+#q{width:100%;padding:11px 12px;border-radius:10px;border:0;font-size:16px}
+#sug{position:absolute;left:0;right:0;top:46px;background:#fff;color:var(--ink);border-radius:10px;box-shadow:0 8px 24px #0004;max-height:60vh;overflow:auto;display:none}
+#sug div{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer}#sug div:hover,#sug div.act{background:#ecfdf5}
+#sug small{color:var(--mut)}
+main{max-width:1100px;margin:auto;padding:12px}
+.card{background:var(--card);border-radius:14px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px #0001}
+.card h2{font-size:16px;margin:0 0 10px}
+.grid{display:grid;gap:12px}@media(min-width:900px){.grid.two{grid-template-columns:1.4fr 1fr}}
+.px{font-size:30px;font-weight:700}.chg{font-weight:600;margin-left:8px}.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut);font-size:13px}
+.tabs{display:flex;gap:6px;margin:8px 0;flex-wrap:wrap}.tabs button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 12px;cursor:pointer;font-size:13px}.tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+#chart{width:100%;height:260px;touch-action:pan-y;user-select:none}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}@media(min-width:600px){.kv{grid-template-columns:repeat(3,1fr)}}
+.kv div{background:#f8fafc;border-radius:10px;padding:8px}.kv b{display:block;font-size:15px}.kv span{font-size:12px;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px 5px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
+.tw{overflow-x:auto}
+.score{display:flex;align-items:center;gap:8px;margin:6px 0}.score .l{width:120px;font-size:13px}.bar{flex:1;height:10px;background:#e2e8f0;border-radius:5px;overflow:hidden}.bar i{display:block;height:100%}
+.score .v{width:58px;text-align:right;font-size:13px;font-weight:600}
+.verdict{font-size:18px;font-weight:700;padding:10px;border-radius:10px;margin-bottom:8px}
+ul{margin:4px 0 8px;padding-left:20px}li{margin:3px 0}
+.pros li::marker{content:"✅ "}.cons li::marker{content:"⚠️ "}.watch li::marker{content:"👁 "}
+.disc{background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:10px;font-size:13px}
+.src{font-size:12px;color:var(--mut);margin-top:8px}
+dialog{border:0;border-radius:14px;max-width:520px;width:92%;padding:16px}dialog::backdrop{background:#0006}
+input[type=text],input[type=password]{width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font-size:15px}
+.btn{background:var(--pri);color:#fff;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:14px}.btn.sec{background:#e2e8f0;color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}.chips button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;cursor:pointer}
+#msg{padding:10px;border-radius:10px;background:#fee2e2;color:#7f1d1d;display:none;margin-bottom:12px}
+.tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;background:#e0f2fe;color:#075985;margin-left:6px;vertical-align:middle}
+</style></head>
+<body>
+<header><div class="hrow"><h1>📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="setBtn">⚙ Settings</button></div>
+<div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
+<main>
+<div id="msg"></div>
+<div id="home">
+ <div class="card"><h2>Watchlist & quick picks</h2><div class="chips" id="chips"></div><p class="mut" id="dsinfo">Loading stock list…</p></div>
+ <div class="card disc"><b>Educational tool only — not personal investment advice.</b> Scores are generated automatically from public data using fixed rules. They do not consider your goals, risk tolerance or taxes. Consult a SEBI-registered investment adviser before investing.</div>
+</div>
+<div id="view" hidden></div>
+</main>
+<dialog id="dlg"><h2 style="margin-top:0">Settings</h2>
+<p class="mut">Built-in data (no key needed): ~1,000 stocks — NIFTY 500 (NSE) + S&amp;P 500 (US), refreshed several times each weekday from Yahoo Finance's public data by a GitHub Action.</p>
+<label><b>Alpha Vantage API key (optional)</b></label>
+<input id="avkey" type="password" placeholder="Paste your free key"><p class="mut">Adds: a live price refresh button, and searching stocks outside the built-in list (BSE codes such as <code>500325.BSE</code> / any US ticker). Get a free key at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a> (free tier ≈ 25 requests/day). The key stays only in this browser (localStorage).</p>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="clrCache">Clear cached data</button><button class="btn" id="saveSet">Save</button></div></dialog>
+<script src="app.js"></script>
+<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
+</body></html>

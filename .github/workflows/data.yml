@@ -1,0 +1,29 @@
+name: Refresh market data
+on:
+  schedule:
+    - cron: '45 4,7,10 * * 1-5'   # ~10:15, 13:15, 16:15 IST (NSE session/close)
+    - cron: '0 15,18,21 * * 1-5'  # ~20:30, 23:30, 02:30 IST (US session/close)
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['scripts/build_data.py', '.github/workflows/data.yml']
+permissions:
+  contents: write
+concurrency: { group: data, cancel-in-progress: false }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore previous snapshot
+        run: |
+          git fetch origin data --depth=1 && git --work-tree=. checkout origin/data -- data || echo "no previous data"
+          git reset -q
+      - run: python3 scripts/build_data.py
+      - name: Publish to orphan 'data' branch (force-push, no history growth)
+        run: |
+          mkdir -p /tmp/pub/data && cp -r data/. /tmp/pub/data/ && cd /tmp/pub
+          git init -q -b data && git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "Data snapshot $(date -u +%FT%TZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
