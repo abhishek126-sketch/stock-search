@@ -124,12 +124,14 @@ async function openSym(sym, viaAV) {
   $('#home').hidden = true; const v = $('#view'); v.hidden = false; v.innerHTML = '<div class="card">Loading ' + esc(sym) + '…</div>';
   history.replaceState(null, '', '#' + encodeURIComponent(sym) + (viaAV ? '~av' : ''));
   try {
+    await ensureSummary();
     const inIdx = INDEX.some(r => r[0] === sym);
     CUR = (!viaAV && (inIdx || !INDEX.length)) ? await getJSON(DATA + 's/' + encodeURIComponent(sym) + '.json') : await loadAV(sym);
     render();
   } catch (e) { v.innerHTML = ''; err(`Could not load <b>${esc(sym)}</b>: ${esc(e.message)}`); $('#home').hidden = false; }
 }
-function goHome() { $('#view').hidden = true; $('#home').hidden = false; CUR = null; history.replaceState(null, '', location.pathname + location.search); renderChips(); updFav(); }
+function goHome() { $('#view').hidden = true; $('#home').hidden = false; CUR = null; history.replaceState(null, '', location.pathname + location.search); renderChips(); updFav(); renderLists(LISTTAB); }
+let LISTTAB = 'cs';
 
 // ---------- analytics ----------
 const last = a => a && a.length ? a[a.length - 1] : undefined;
@@ -362,8 +364,10 @@ function render() {
    ${q.slice().reverse().map(r => `<tr><td>${qlabel(r.dt)}</td><td>${qn(r.rev)}</td><td>${sgnPct(r.revQoQ)}</td><td>${sgnPct(r.revYoY)}</td><td>${qn(r.ni)}</td><td>${sgnPct(r.niQoQ)}</td><td>${sgnPct(r.niYoY)}</td><td>${isNum(r.eps) ? r.eps.toFixed(2) : '<span class="mut">n/a</span>'}</td><td>${sgnPct(r.epsYoY)}</td></tr>`).join('')}</table></div>
    <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
   </div>
-  ${analystCard(d)}
-  <div class="card"><h2>🩺 Expert analysis <span class="mut">(automated, rule-based)</span></h2>
+  <div class="card navc">${[['s-analysts','Analysts'],['s-peers','Peers'],['s-sector','Sector'],['s-news','News'],['s-flags','Red flags'],['s-iv','Intrinsic value'],['s-cs','CANSLIM'],['s-expert','Expert view']].map(([i,t])=>`<a href="#" data-jump="${i}">${t}</a>`).join('')}</div>
+  <div id="s-analysts">${analystCard(d)}</div>
+  ${peersSection(d)}${sectorSection(d, k)}${newsSection(d)}${redFlagsSection(d, k)}${ivSection(d, k)}${canslimSection(d)}
+  <div class="card" id="s-expert"><h2>🩺 Expert analysis <span class="mut">(automated, rule-based)</span></h2>
    <div class="verdict" style="background:${A.col}">${esc(A.verdict)}${isNum(A.overall) ? ` — ${A.overall.toFixed(1)}/10` : ''}</div>
    ${Object.entries(A.S).map(([n, s]) => scoreRow(n, s)).join('')}
    ${A.style ? `<p><b>Profile:</b> ${esc(A.style)}</p>` : ''}
@@ -375,9 +379,11 @@ function render() {
    <div class="src">Data source: ${esc(d.source || 'unknown')}${d.fetched ? ' · fetched ' + new Date(d.fetched * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''}. Ratios such as ROE/ROCE/D/E are computed from latest annual statements; P/E from trailing-4-quarter EPS when available, otherwise the source's trailing P/E.</div>
   </div>`;
   $('#back').onclick = e => { e.preventDefault(); goHome(); };
-  $('#rng').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.id === 'dmaT') SHOW_DMA = !SHOW_DMA; else RANGE = b.textContent; render(); });
+  $('#rng').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.id === 'dmaT') SHOW_DMA = !SHOW_DMA; else RANGE = b.textContent; const y = window.scrollY; d._keepScroll = true; render(); window.scrollTo(0, y); });
   if ($('#liveBtn')) $('#liveBtn').onclick = liveQuote;
-  drawChart(); window.scrollTo(0, 0);
+  bindIV(d, k);
+  v.querySelectorAll('[data-jump]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.jump); if (t.tagName === 'DETAILS') t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
 }
 window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(drawChart, 150); });
 
@@ -389,5 +395,6 @@ $('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); $('#d
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
-loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h) openSym(h.replace(/~av$/, ''), h.endsWith('~av')); });
+loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) openSym(h.replace(/~av$/, ''), h.endsWith('~av')); renderLists(LISTTAB); });
+document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();

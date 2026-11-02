@@ -20,3 +20,9 @@ with QoQ/YoY growth, and an automated rule-based "Expert analysis" scorecard. Mi
 * Snapshot prices can be delayed up to a few hours.
 * Yahoo's free fundamentals give ~5 recent quarters (sometimes with gaps) and 4 fiscal years.
 * Alpha Vantage free tier: ~25 requests/day; fundamentals mainly for US companies; BSE gives price only.
+
+## Sections (v3)
+Peer comparison & sector analysis (Yahoo industry/sector within the built-in list), news buckets (Google News RSS headlines, last 90 days,
+keyword-tagged into orders / plans / negative — automated and unverified), numeric red flags, intrinsic value (DCF, Graham number,
+Graham revised formula, sector P/E multiple, EPV, dividend discount, justified P/B; editable assumptions), and a mechanised CANSLIM check,
+plus CANSLIM-leaders and sector browsing lists on the home screen. Promoter pledge and auditor data are not available from free sources.
