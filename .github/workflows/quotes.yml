@@ -1,0 +1,23 @@
+name: Quotes refresh (every 5 min in market hours)
+on:
+  schedule:
+    - cron: '45-59/5 3 * * 1-5'   # 09:15-09:29 IST
+    - cron: '*/5 4-9 * * 1-5'     # 09:30-15:29 IST
+    - cron: '0-30/5 10 * * 1-5'   # 15:30-16:00 IST (close + settle)
+    - cron: '30-59/5 13 * * 1-5'  # 19:00-19:29 IST (US open in summer, 13:30 UTC)
+    - cron: '*/5 14-20 * * 1-5'   # 19:30-02:29 IST (US session incl. winter DST, to 20:59 UTC)
+    - cron: '0 */3 * * *'         # off-hours/weekends every 3 h
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: { group: data-quotes, cancel-in-progress: false }
+jobs:
+  quotes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: "scripts\n.github", fetch-depth: 1 }
+      - run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data
+      - run: python3 scripts/build_quotes.py
+      - run: bash .github/workflows/publish.sh quotes

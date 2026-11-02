@@ -133,6 +133,7 @@ async function openSym(sym, viaAV) {
     await ensureSummary();
     const inIdx = INDEX.some(r => r[0] === sym);
     CUR = (!viaAV && (inIdx || !INDEX.length)) ? await getJSON(DATA + 's/' + encodeURIComponent(sym) + '.json') : await loadAV(sym);
+    if (typeof applyQuote === 'function') applyQuote(CUR);
     render();
   } catch (e) { v.innerHTML = ''; err(`Could not load <b>${esc(sym)}</b>: ${esc(e.message)}`); $('#home').hidden = false; }
 }
@@ -343,7 +344,7 @@ function render() {
   <div class="card"><a href="#" id="back" class="mut">← Back</a>
    <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span> <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
    <div style="margin-top:4px"><span class="px">${fmtP(d.price, c)}</span><span class="chg ${k.chg >= 0 ? 'up' : 'dn'}">${isNum(k.chg) ? (k.chg >= 0 ? '▲ +' : '▼ ') + k.chg.toFixed(2) + ' (' + (k.chgPct * 100).toFixed(2) + '%)' : ''}</span></div>
-   <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · snapshot ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old (may be delayed)`}</div>
+   <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
    <div class="links">${extLinks(d)}</div>
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>
@@ -396,8 +397,8 @@ window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz =
 // ---------- watchlist & settings ----------
 function updFav() { const f = LS.get('fav', []); $('#favBtn').style.visibility = CUR ? 'visible' : 'hidden'; if (CUR) $('#favBtn').textContent = f.includes(CUR.symbol) ? '★' : '☆'; }
 $('#favBtn').onclick = () => { if (!CUR) return; let f = LS.get('fav', []); f = f.includes(CUR.symbol) ? f.filter(x => x !== CUR.symbol) : [CUR.symbol, ...f].slice(0, 20); LS.set('fav', f); updFav(); };
-$('#setBtn').onclick = () => { $('#avkey').value = LS.get('avkey', ''); $('#dlg').showModal(); };
-$('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); $('#dlg').close(); if (CUR) render(); };
+$('#setBtn').onclick = () => { $('#avkey').value = LS.get('avkey', ''); $('#ghpat').value = LS.get('ghpat', ''); $('#fullRef').checked = LS.get('fullRefresh', false); $('#dlg').showModal(); };
+$('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); LS.set('ghpat', $('#ghpat').value.trim()); LS.set('fullRefresh', $('#fullRef').checked); $('#dlg').close(); if (CUR) render(); };
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
@@ -405,3 +406,4 @@ loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); i
 window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return; if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
+document.getElementById('tokHow').onclick = e => { e.preventDefault(); document.getElementById('dlg').close(); document.getElementById('tokHelp').showModal(); };

@@ -279,6 +279,8 @@ def main():
     json.dump({'built': built, 'symbols': index}, open(idxf, 'w'), separators=(',', ':'))
     json.dump({'built': built, 'rows': rows}, open(os.path.join(OUT, 'summary.json'), 'w'), separators=(',', ':'))
     json.dump({'built': built, **mkt}, open(os.path.join(OUT, 'market.json'), 'w'), separators=(',', ':'))
+    mp = os.path.join(OUT, 'meta.json'); meta = json.load(open(mp)) if os.path.exists(mp) else {}
+    meta.update({'full': built, 'quotes': built}); json.dump(meta, open(mp, 'w'))
     print('ok', len(index), 'fail', len(fails), 'news', sum(1 for d in docs.values() if d.get('news')), 'profile', len(PROFILE))
     if len(index) < 0.5 * len(u): sys.exit(1)
 main()

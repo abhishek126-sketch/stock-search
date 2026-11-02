@@ -46,11 +46,13 @@ ul.flags{list-style:none;padding-left:0}ul.flags li{padding:6px 0;border-bottom:
 .ivin{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}@media(min-width:700px){.ivin{grid-template-columns:repeat(4,1fr)}}.ivin label{font-size:12px;color:var(--mut)}.ivin input{width:100%;padding:7px;border:1px solid var(--line);border-radius:8px;font-size:15px}
 ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 .csr{padding:8px 10px;border-radius:10px;margin:6px 0;background:#f8fafc;border-left:4px solid #cbd5e1}.csr.pass{border-color:#16a34a}.csr.fail{border-color:#dc2626}.csr small{color:var(--mut);display:block;margin-top:2px}.csL{display:inline-block;width:22px;height:22px;border-radius:6px;background:var(--pri);color:#fff;text-align:center;margin-right:4px}
+#live{max-width:1100px;margin:8px auto 0;padding:0 12px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:space-between;font-size:13px;color:var(--mut)}#live .btn{padding:6px 10px;font-size:13px}#updBtn:disabled{opacity:.7}
 .tag{display:inline-block;font-size:11px;padding:2px 7px;border-radius:999px;background:#e0f2fe;color:#075985;margin-left:6px;vertical-align:middle}
 </style></head>
 <body>
 <header><div class="hrow"><h1>📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="setBtn">⚙ Settings</button></div>
 <div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
+<div id="live"><span class="st">Checking for updates…</span><span><button id="refBtn" class="btn sec">↻ Refresh</button> <button id="updBtn" class="btn">⚡ Update now</button></span></div>
 <main>
 <div id="msg"></div>
 <div id="home">
@@ -64,7 +66,17 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <p class="mut">Built-in data (no key needed): ~1,000 stocks — NIFTY 500 (NSE) + S&amp;P 500 (US), refreshed several times each weekday from Yahoo Finance's public data by a GitHub Action.</p>
 <label><b>Alpha Vantage API key (optional)</b></label>
 <input id="avkey" type="password" placeholder="Paste your free key"><p class="mut">Adds: a live price refresh button, and searching stocks outside the built-in list (BSE codes such as <code>500325.BSE</code> / any US ticker). Get a free key at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a> (free tier ≈ 25 requests/day). The key stays only in this browser (localStorage).</p>
+<label style="margin-top:12px;display:block"><b>GitHub token for “Update now” (optional)</b></label>
+<input id="ghpat" type="password" placeholder="github_pat_…" autocomplete="off"><label class="mut" style="display:block;margin:6px 0"><input type="checkbox" id="fullRef"> “Update now” runs the full refresh (fundamentals + news, ~4–5 min) instead of quotes only (~30–60 s)</label>
+<p class="mut">Stored only in this browser (localStorage); sent only to api.github.com. Use a fine-grained token limited to this one repository with <b>Actions: Read and write</b>. <a href="#" id="tokHow">How to create</a></p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="clrCache">Clear cached data</button><button class="btn" id="saveSet">Save</button></div></dialog>
-<script src="app.js"></script><script src="ext.js"></script>
+<dialog id="tokHelp"><h2 style="margin-top:0">Set up “Update now”</h2><p class="mut">Prices refresh automatically every ~5 min in market hours. “Update now” asks GitHub to run the refresh immediately, which needs your own token:</p>
+<ol style="padding-left:18px;font-size:14px"><li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a> (signed in as abhishek126-sketch).</li>
+<li><b>Token name:</b> Stock Search update · <b>Expiration:</b> 90 days (or your choice).</li><li><b>Resource owner:</b> abhishek126-sketch.</li>
+<li><b>Repository access:</b> Only select repositories → <b>stock-search</b>.</li><li><b>Permissions → Repository permissions → Actions:</b> Read and write (Metadata: Read-only is added automatically). Nothing else.</li>
+<li><b>Generate token</b>, copy it (starts with <code>github_pat_</code>), paste into ⚙ Settings here and Save.</li></ol>
+<p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
+<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script>
 <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
 </body></html>

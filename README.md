@@ -26,3 +26,10 @@ Peer comparison & sector analysis (Yahoo industry/sector within the built-in lis
 keyword-tagged into orders / plans / negative — automated and unverified), numeric red flags, intrinsic value (DCF, Graham number,
 Graham revised formula, sector P/E multiple, EPV, dividend discount, justified P/B; editable assumptions), and a mechanised CANSLIM check,
 plus CANSLIM-leaders and sector browsing lists on the home screen. Promoter pledge and auditor data are not available from free sources.
+
+## Refresh schedule
+* **Quotes job** (`quotes.yml`, ~30–60 s): every 5 min Mon–Fri 09:15–16:00 IST (NSE) and 19:00–02:30 IST (US, covers both DST states), every 3 h otherwise. Updates `quotes.json` + `meta.json` only.
+* **Full job** (`data.yml`, ~4–5 min): 09:00, 15:45 and 03:00 IST on weekdays — fundamentals, analysts, news, CANSLIM, summaries.
+* Separate concurrency groups (no cancelling; at most one queued run each); publishing uses force-with-lease and rebases on conflict so the two jobs never overwrite each other.
+* **GitHub cron is best-effort**: scheduled runs are often delayed 5–30 min (sometimes more) at busy times and may occasionally be skipped; schedules in public repos also pause after 60 days without repository activity.
+* The app checks `meta.json` every 60 s while visible and re-renders silently when newer data lands. **Update now** triggers `workflow_dispatch` with your own fine-grained token (this repo only, Actions: Read and write), stored only in your browser.
