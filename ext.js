@@ -211,7 +211,7 @@ async function renderLists(tab) {
 }
 async function openSector(key) {
   await ensureSummary(); const [mk, s] = key.split('|'); const S = sectorStats(mk, s);
-  $('#home').hidden = true; const v = $('#view'); v.hidden = false; CUR = null; updFav(); history.replaceState(null, '', '#sector:' + encodeURIComponent(key));
+  $('#home').hidden = true; const v = $('#view'); v.hidden = false; CUR = null; updFav(); navTo('#sector:' + encodeURIComponent(key));
   const rows = S.rows.slice().sort((a, b) => (b.mcap || 0) - (a.mcap || 0)), by = rows.filter(r => isNum(r.r1y)).sort((a, b) => b.r1y - a.r1y);
   const li = r => `<li><a href="#" data-s="${esc(r.s)}">${esc(r.s.replace(/\.NS$/, ''))}</a> ${sgnPct(r.r1y)}</li>`;
   v.innerHTML = `<div class="card"><a href="#" id="back" class="mut">← Back</a><h2 style="margin-top:6px">🏭 ${esc(s)} <span class="mut">${mk === 'IN' ? 'NSE' : 'US'} · ${rows.length} stocks</span></h2>

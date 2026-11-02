@@ -128,7 +128,7 @@ document.addEventListener('click', e => { if (!e.target.closest('.sbox')) $('#su
 async function openSym(sym, viaAV) {
   $('#sug').style.display = 'none'; $('#q').value = ''; $('#q').blur(); err('');
   $('#home').hidden = true; const v = $('#view'); v.hidden = false; v.innerHTML = '<div class="card">Loading ' + esc(sym) + '…</div>';
-  history.replaceState(null, '', '#' + encodeURIComponent(sym) + (viaAV ? '~av' : ''));
+  navTo('#' + encodeURIComponent(sym) + (viaAV ? '~av' : ''));
   try {
     await ensureSummary();
     const inIdx = INDEX.some(r => r[0] === sym);
@@ -137,7 +137,9 @@ async function openSym(sym, viaAV) {
     render();
   } catch (e) { v.innerHTML = ''; err(`Could not load <b>${esc(sym)}</b>: ${esc(e.message)}`); $('#home').hidden = false; }
 }
-function goHome() { $('#view').hidden = true; $('#home').hidden = false; CUR = null; history.replaceState(null, '', location.pathname + location.search); renderChips(); updFav(); renderLists(LISTTAB); }
+// history: each page change adds one entry (Android back steps back through pages); same-hash navigations don't duplicate
+function navTo(hash) { if (decodeURIComponent(location.hash) !== decodeURIComponent(hash)) history.pushState(null, '', hash || location.pathname + location.search); }
+function goHome(fromHistory) { $('#view').hidden = true; $('#view').innerHTML = ''; $('#home').hidden = false; CUR = null; $('#q').value = ''; $('#sug').style.display = 'none'; err(''); if (!fromHistory) navTo(''); window.scrollTo(0, 0); renderChips(); updFav(); renderLists(LISTTAB); }
 let LISTTAB = 'cs';
 
 // ---------- analytics ----------
@@ -390,7 +392,8 @@ $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsW
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
 loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h === 'glossary') showGlossary(); else if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
-window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return; if (h === 'glossary') return showGlossary(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
+window.addEventListener('popstate', () => { if (!location.hash) goHome(true); });
+window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return goHome(true); if (h === 'glossary') return showGlossary(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
 document.getElementById('tokHow').onclick = e => { e.preventDefault(); document.getElementById('dlg').close(); document.getElementById('tokHelp').showModal(); };

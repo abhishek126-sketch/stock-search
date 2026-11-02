@@ -54,9 +54,10 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 .rn{display:inline-block;min-width:24px;height:24px;line-height:24px;border-radius:6px;background:#0f766e;color:#fff;text-align:center;font-size:13px;margin-right:4px}
 .how{margin:8px 0}.how summary{cursor:pointer;color:#0f766e;font-size:13px}.how>div{font-size:12.5px;margin-top:4px}
 .scen{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0}.sc{border-radius:10px;padding:10px;text-align:center;display:flex;flex-direction:column;gap:2px}.sc.bear{background:#fee2e2}.sc.base{background:#e0f2fe}.sc.bull{background:#dcfce7}.sc .px2{font-size:17px;font-weight:700}.sc .pp{font-weight:700}
+#homeBtn{font-size:18px;padding:4px 10px;margin-right:6px}header{position:sticky;top:0;z-index:50}
 </style></head>
 <body>
-<header><div class="hrow"><h1>📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="setBtn">⚙ Settings</button></div>
+<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="setBtn">⚙ Settings</button></div>
 <div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
 <div id="live"><span class="st">Checking for updates…</span><span><button id="refBtn" class="btn sec">↻ Refresh</button> <button id="updBtn" class="btn">⚡ Update now</button></span></div>
 <main>
@@ -84,5 +85,5 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
 <script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-<script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
+<script>[homeBtn,logo].forEach(b=>b.onclick=()=>goHome());logo.onkeydown=e=>e.key==="Enter"&&goHome();</script><script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
 </body></html>
