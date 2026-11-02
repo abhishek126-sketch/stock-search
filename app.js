@@ -395,6 +395,6 @@ $('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); $('#d
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
-loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) openSym(h.replace(/~av$/, ''), h.endsWith('~av')); renderLists(LISTTAB); });
+loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
