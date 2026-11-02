@@ -349,7 +349,7 @@ function render() {
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>
   <div class="grid two">
-   <div class="card"><h2>Price chart</h2><div class="tabs" id="rng">${['1M', '6M', '1Y', '5Y'].map(r => `<button class="${r === RANGE ? 'on' : ''}">${r}</button>`).join('')}<button id="dmaT" class="${SHOW_DMA ? 'on' : ''}">DMA</button></div>
+   <div class="card"><h2>Price chart</h2><div class="tabs" id="rng">${['1D', '1W', '1M', '6M', '1Y', '5Y'].map(r => `<button class="${r === RANGE ? 'on' : ''}">${r}</button>`).join('')}<button id="dmaT" class="${SHOW_DMA ? 'on' : ''}">DMA</button></div>
     <div class="mut" id="tip">&nbsp;</div><svg id="chart"></svg><div class="mut" id="rchg"></div></div>
    <div class="card"><h2>Key numbers</h2><div class="kv">
     <div><span>Market cap</span><b>${fmtBig(k.mcap, c)}</b></div>
