@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds static JSON snapshots (data/) from Yahoo Finance public endpoints.
 Runs server-side in GitHub Actions (no browser CORS). No API keys or secrets."""
-import csv, io, json, os, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
+import http.cookiejar, csv, io, json, os, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
 UA = {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}
 OUT = os.path.join(os.path.dirname(__file__), '..', 'data')
 EXTRA_IN = ['RELIANCE','TCS','ITC','HDFCBANK','INFY','SBIN']
@@ -18,6 +18,43 @@ def get(url, tries=4):
         except Exception as e:
             if i == tries - 1: raise
             time.sleep(2 * (i + 1))
+
+CJ = http.cookiejar.CookieJar()
+OP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CJ)); OP.addheaders = list(UA.items())
+CRUMB = None
+def crumb():
+    global CRUMB
+    if CRUMB is None:
+        try:
+            try: OP.open('https://fc.yahoo.com', timeout=15)
+            except Exception: pass
+            CRUMB = OP.open('https://query2.finance.yahoo.com/v1/test/getcrumb', timeout=15).read().decode().strip()
+        except Exception as e: print('crumb fail', e); CRUMB = ''
+    return CRUMB
+
+def analysts(q):
+    c = crumb()
+    if not c: return None
+    for i in range(5):
+        try:
+            r = json.loads(OP.open(f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{q}?modules=recommendationTrend,financialData&crumb={urllib.parse.quote(c)}', timeout=25).read())
+            break
+        except Exception as e:
+            if i == 4: print('analyst fail', q, e); return None
+            time.sleep(3 * (i + 1))
+    res = (r.get('quoteSummary') or {}).get('result') or []
+    if not res: return None
+    fd = res[0].get('financialData') or {}; tr = ((res[0].get('recommendationTrend') or {}).get('trend') or [])
+    raw = lambda k: (fd.get(k) or {}).get('raw') if isinstance(fd.get(k), dict) else None
+    a = {'key': fd.get('recommendationKey') if fd.get('recommendationKey') not in (None, 'none') else None,
+         'mean': raw('recommendationMean'), 'n': raw('numberOfAnalystOpinions'),
+         'tMean': raw('targetMeanPrice'), 'tHigh': raw('targetHighPrice'), 'tLow': raw('targetLowPrice'), 'tMed': raw('targetMedianPrice'),
+         'currency': fd.get('financialCurrency'), 'asOf': int(time.time())}
+    t0 = next((t for t in tr if t.get('period') == '0m'), None)
+    if t0 and sum(t0.get(k) or 0 for k in ('strongBuy','buy','hold','sell','strongSell')) > 0:
+        a['trend'] = {k: t0.get(k) or 0 for k in ('strongBuy','buy','hold','sell','strongSell')}
+    if not any(a.get(k) is not None for k in ('key','mean','n','tMean')) and 'trend' not in a: return None
+    return a
 
 def universe():
     u = []
@@ -51,20 +88,21 @@ def fetch(sym, name, sector):
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
          'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'fund': fund,
-         'fetched': now, 'source': 'Yahoo Finance (public chart & fundamentals-timeseries endpoints)'}
+         'analyst': analysts(q), 'fetched': now, 'source': 'Yahoo Finance (public chart & fundamentals-timeseries endpoints)'}
     # day change from last two daily closes when available
     if len(hist) >= 2: d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     return d
 
 def main():
     os.makedirs(os.path.join(OUT, 's'), exist_ok=True)
+    print('crumb', bool(crumb()))
     u = universe(); print('universe', len(u))
     index, fails = [], []
     def job(x):
         try:
             d = fetch(*x)
             with open(os.path.join(OUT, 's', x[0] + '.json'), 'w') as f: json.dump(d, f, separators=(',', ':'))
-            return [x[0], d['name'], d['exchange'] or '', x[2]]
+            return [x[0], d['name'], d['exchange'] or '', x[2]] + ([1] if d.get('analyst') else [])
         except Exception as e:
             fails.append(x[0]); print('fail', x[0], e); return None
     with cf.ThreadPoolExecutor(6) as ex:

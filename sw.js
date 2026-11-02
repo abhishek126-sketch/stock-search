@@ -1,4 +1,4 @@
-const CACHE = 'stock-search-v1';
+const CACHE = 'stock-search-v2';
 const ASSETS = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== CACHE + '-data').map(k => caches.delete(k))))); self.clients.claim(); });

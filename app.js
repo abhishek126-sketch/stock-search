@@ -241,6 +241,9 @@ function analyse(d, k) {
   if (k.cross) watch.push(`${k.cross === 'golden' ? 'Golden cross' : 'Death cross'} (50-DMA crossed ${k.cross === 'golden' ? 'above' : 'below'} 200-DMA) on ${dstr(k.crossT)}.`);
   if (isNum(k.hi52) && price < k.hi52 * 0.75) watch.push(`Trading ${((1 - price / k.hi52) * 100).toFixed(0)}% below its 52-week high.`);
   S['Momentum'] = avg(m);
+  const an = d.analyst;
+  if (an && (an.key || isNum(an.mean))) { const up = isNum(an.tMean) && isNum(price) && an.currency === d.currency ? an.tMean / price - 1 : undefined;
+    watch.unshift(`Analyst consensus (Yahoo Finance, ${isNum(an.n) ? an.n + ' analysts' : 'count n/a'}): <b>${esc(recLabel(an))}</b>${isNum(up) ? `, mean target implies ${(up >= 0 ? '+' : '') + (up * 100).toFixed(0)}% from today` : ''}. Sell-side views are often optimistic and change quickly — treat as one input, not a verdict; not included in the score.`); }
   const avail = Object.values(S).filter(isNum), overall = avail.length >= 3 ? avg(Object.values(S)) : undefined;
   if (Math.abs(k.chgPct || 0) > 0.08) watch.push(`Unusually large one-day move (${(k.chgPct * 100).toFixed(1)}%) — check news / corporate actions (splits, bonuses, results) before reading too much into it.`);
   if (k.epsDerived) watch.push('EPS shown is derived from the reported trailing P/E (quarterly EPS history incomplete).');
@@ -256,6 +259,38 @@ function analyse(d, k) {
   let style = '';
   if (isNum(S.Valuation) && isNum(S.Growth)) style = S.Growth >= 6.5 && S.Valuation < 4.5 ? 'Looks like a "quality growth at a premium price" stock — returns depend on growth continuing.' : S.Valuation >= 6.5 && S.Growth < 4.5 ? 'Looks like a "cheap but slow" (value / possible value-trap) stock — check whether earnings are stabilising.' : S.Valuation >= 6 && S.Growth >= 6 ? 'Reasonable valuation with healthy growth — the rarer combination screens look for.' : '';
   return { S, overall, verdict, col, pros, cons, watch, style };
+}
+
+// ---------- external links & analysts ----------
+function extLinks(d) {
+  const a = (u, t) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener">${t} ↗</a>`;
+  const nm = (d.name || '').replace(/\b(limited|ltd\.?|inc\.?|corporation|corp\.?)\s*$/i, '').trim();
+  if (d.symbol.endsWith('.NS')) { const sym = d.symbol.slice(0, -3);
+    return a(`https://www.screener.in/company/${encodeURIComponent(sym)}/consolidated/`, 'Open in Screener') +
+      a(`https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data=&cid=&mbsearch_str=&topsearch_type=1&search_str=${encodeURIComponent(nm || sym)}`, 'Open in Moneycontrol'); }
+  if (d.symbol.endsWith('.BSE')) { const c = d.symbol.slice(0, -4);
+    return a(`https://www.screener.in/search/?q=${encodeURIComponent(nm || c)}`, 'Search on Screener') + a(`https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data=&cid=&mbsearch_str=&topsearch_type=1&search_str=${encodeURIComponent(nm || c)}`, 'Open in Moneycontrol'); }
+  return a(`https://finance.yahoo.com/quote/${encodeURIComponent(d.symbol)}/`, 'Open in Yahoo Finance');
+}
+const REC = { strong_buy: 'Strong Buy', buy: 'Buy', hold: 'Hold', underperform: 'Underperform', sell: 'Sell', strong_sell: 'Strong Sell' };
+function recLabel(a) { const k = a.key ? (REC[a.key] || a.key) : null; return k ? k + (isNum(a.mean) ? ` (mean ${a.mean.toFixed(2)} on 1 = Strong Buy … 5 = Strong Sell)` : '') : isNum(a.mean) ? `mean ${a.mean.toFixed(2)} (1 = Strong Buy … 5 = Strong Sell)` : 'not available'; }
+function analystCard(d) {
+  const a = d.analyst, c = d.currency;
+  if (!a) return `<div class="card"><h2>🧑‍💼 What analysts say</h2><p>${NA} — no analyst coverage data from the source for this stock.</p></div>`;
+  let h = `<div class="card"><h2>🧑‍💼 What analysts say</h2><div class="kv"><div><span>Consensus</span><b>${a.key ? esc(REC[a.key] || a.key) : NA}</b></div><div><span>Mean rating (1 best – 5 worst)</span><b>${isNum(a.mean) ? a.mean.toFixed(2) : NA}</b></div><div><span>Analysts</span><b>${isNum(a.n) ? a.n : NA}</b></div></div>`;
+  const t = a.trend;
+  if (t) { const cols = [['strongBuy', 'Strong Buy', '#15803d'], ['buy', 'Buy', '#4ade80'], ['hold', 'Hold', '#facc15'], ['sell', 'Sell', '#f87171'], ['strongSell', 'Strong Sell', '#b91c1c']], tot = cols.reduce((s, x) => s + t[x[0]], 0);
+    h += `<p class="mut" style="margin:10px 0 4px">Current-month ratings (${tot})</p><div style="display:flex;height:22px;border-radius:6px;overflow:hidden">${cols.filter(x => t[x[0]]).map(x => `<div title="${x[1]}: ${t[x[0]]}" style="width:${t[x[0]] / tot * 100}%;background:${x[2]};color:#000;font-size:11px;text-align:center;line-height:22px">${t[x[0]]}</div>`).join('')}</div>
+    <div class="mut" style="display:flex;flex-wrap:wrap;gap:10px;margin-top:4px">${cols.map(x => `<span><i style="display:inline-block;width:9px;height:9px;background:${x[2]};border-radius:2px"></i> ${x[1]} ${t[x[0]]}</span>`).join('')}</div>`; }
+  else h += `<p class="mut">Rating breakdown: not available.</p>`;
+  const same = !a.currency || a.currency === c, P = d.price;
+  if (isNum(a.tLow) && isNum(a.tHigh) && same) { const lo = Math.min(a.tLow, P), hi = Math.max(a.tHigh, P), X = v => ((v - lo) / (hi - lo || 1) * 100).toFixed(1) + '%';
+    const up = v => isNum(v) ? ` (${sgnPct(v / P - 1)})` : '';
+    h += `<p class="mut" style="margin:12px 0 4px">12-month price targets vs current price</p><div style="position:relative;height:30px;margin:0 8px"><div style="position:absolute;top:13px;left:${X(a.tLow)};width:calc(${X(a.tHigh)} - ${X(a.tLow)});height:6px;background:#99f6e4;border-radius:3px"></div>
+     ${isNum(a.tMean) ? `<div title="Mean target" style="position:absolute;top:7px;left:${X(a.tMean)};width:3px;height:18px;background:#0f766e"></div>` : ''}<div title="Current price" style="position:absolute;top:4px;left:calc(${X(P)} - 6px);font-size:14px">▼</div></div>
+     <div class="kv"><div><span>Low target</span><b>${fmtP(a.tLow, c)}${up(a.tLow)}</b></div><div><span>Mean target</span><b>${fmtP(a.tMean, c)}${up(a.tMean)}</b></div><div><span>Median target</span><b>${fmtP(a.tMed, c)}${up(a.tMed)}</b></div><div><span>High target</span><b>${fmtP(a.tHigh, c)}${up(a.tHigh)}</b></div><div><span>Current price</span><b>${fmtP(P, c)}</b></div></div>`; }
+  else h += `<p class="mut">Price targets: not available${!same ? ' (reported in a different currency)' : ''}.</p>`;
+  return h + `<div class="src">Source: Yahoo Finance analyst data (recommendationTrend / financialData), as of ${new Date(a.asOf * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} IST. Implied upside = target ÷ current price − 1. Analyst opinions are third-party views, not advice.</div></div>`;
 }
 
 // ---------- chart ----------
@@ -301,6 +336,7 @@ function render() {
    <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span> <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
    <div style="margin-top:4px"><span class="px">${fmtP(d.price, c)}</span><span class="chg ${k.chg >= 0 ? 'up' : 'dn'}">${isNum(k.chg) ? (k.chg >= 0 ? '▲ +' : '▼ ') + k.chg.toFixed(2) + ' (' + (k.chgPct * 100).toFixed(2) + '%)' : ''}</span></div>
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · snapshot ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old (may be delayed)`}</div>
+   <div class="links">${extLinks(d)}</div>
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>
   <div class="grid two">
@@ -326,6 +362,7 @@ function render() {
    ${q.slice().reverse().map(r => `<tr><td>${qlabel(r.dt)}</td><td>${qn(r.rev)}</td><td>${sgnPct(r.revQoQ)}</td><td>${sgnPct(r.revYoY)}</td><td>${qn(r.ni)}</td><td>${sgnPct(r.niQoQ)}</td><td>${sgnPct(r.niYoY)}</td><td>${isNum(r.eps) ? r.eps.toFixed(2) : '<span class="mut">n/a</span>'}</td><td>${sgnPct(r.epsYoY)}</td></tr>`).join('')}</table></div>
    <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
   </div>
+  ${analystCard(d)}
   <div class="card"><h2>🩺 Expert analysis <span class="mut">(automated, rule-based)</span></h2>
    <div class="verdict" style="background:${A.col}">${esc(A.verdict)}${isNum(A.overall) ? ` — ${A.overall.toFixed(1)}/10` : ''}</div>
    ${Object.entries(A.S).map(([n, s]) => scoreRow(n, s)).join('')}
