@@ -25,7 +25,13 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 function err(m) { const e = $('#msg'); e.innerHTML = m; e.style.display = m ? 'block' : 'none'; }
 
 // ---------- data loading ----------
-async function getJSON(u) { const r = await fetch(u, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+async function getJSON1(u) { const r = await fetch(u, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
+const RAW = 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/data/', CDN = 'https://cdn.jsdelivr.net/gh/abhishek126-sketch/stock-search@data/';
+async function getJSON(u) {
+  let e0; for (let i = 0; i < 3; i++) { try { return await getJSON1(u); } catch (e) { e0 = e; if (/HTTP 404/.test(e.message) && !u.startsWith(RAW)) break; await new Promise(r => setTimeout(r, 600 * (i + 1))); } }
+  if (u.startsWith(RAW)) { try { const d = await getJSON1(u.replace(RAW, CDN)); d._viaCDN = true; return d; } catch { } }  // fallback mirror (may lag up to ~12 h)
+  throw e0;
+}
 async function loadIndex() {
   try {
     const d = await getJSON(DATA + 'index.json'); INDEX = d.symbols;
