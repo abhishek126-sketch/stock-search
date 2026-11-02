@@ -196,6 +196,13 @@ def canslim(d, k, mkt, rsr):
         if isinstance(x.get('v'), float): x['v'] = round(x['v'], 4)
     return {'L': o, 'score': sc, 'of': av}
 
+FX = {}
+def fx_rate(a, b):
+    if (a, b) not in FX:
+        try: FX[(a, b)] = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{a}{b}=X?range=5d&interval=1d'))['chart']['result'][0]['meta']['regularMarketPrice']
+        except Exception as e: print('fx fail', a, b, e); FX[(a, b)] = None
+    return FX[(a, b)]
+
 def fetch(sym, name, sector):
     q = urllib.parse.quote(sym)
     ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
@@ -209,15 +216,26 @@ def fetch(sym, name, sector):
         vol = {'avg50': round(sum(v for _, v in cv[1:]) / (len(cv) - 1)), 'last': cv[-1][1], 'udr': round(upv / dnv, 3) if dnv else None}
     now = int(time.time())
     fu = json.loads(get(f'https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{q}?type={TYPES}&period1={now-6*365*86400}&period2={now+86400}'))
-    fund = {}
+    fund, fccy = {}, {}
     for r in fu['timeseries']['result']:
         t = r['meta']['type'][0]
         fund[t] = [[x['asOfDate'], x['reportedValue']['raw']] for x in (r.get(t) or []) if x and x.get('reportedValue')]
+        for x in (r.get(t) or []):
+            if x and x.get('currencyCode') and not t.startswith('trailing'): fccy[x['currencyCode']] = fccy.get(x['currencyCode'], 0) + 1
+    fx = None; pc = m.get('currency'); fc = max(fccy, key=fccy.get) if fccy else None
+    if fc and pc and fc != pc:
+        rate = fx_rate(fc, pc)
+        if rate:
+            for t in fund:
+                if not t.startswith('trailing'): fund[t] = [[a, b * rate] for a, b in fund[t]]
+            fx = {'from': fc, 'to': pc, 'rate': round(rate, 4)}
+        else:
+            fund = {t: v for t, v in fund.items() if t.startswith('trailing')}; fx = {'from': fc, 'to': pc, 'rate': None}
     an = analysts(q); pr = PROFILE.get(q) or {}
     d = {'symbol': sym, 'name': m.get('longName') or m.get('shortName') or name, 'sector': pr.get('sector') or sector, 'industry': pr.get('industry'),
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
-         'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'fund': fund, 'vol': vol, 'profile': pr or None,
+         'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
          'analyst': an, 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
     if len(hist) >= 2: d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     d['news'] = news(sym, d['name'])

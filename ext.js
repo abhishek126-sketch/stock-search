@@ -188,7 +188,7 @@ function canslimSection(d) {
   if (!c) return sec('s-cs', '📊 CANSLIM check', `<p>${NA} — CANSLIM is computed only for stocks in the built-in list.</p>`);
   const ic = { pass: '<span class="up">✔ PASS</span>', fail: '<span class="dn">✘ FAIL</span>', na: '<span class="mut">– N/A</span>' };
   return sec('s-cs', `📊 CANSLIM check <span class="mut">(${c.score}/${c.of} pass)</span>`, `
-  <div class="tw"><table><tr><th>Letter</th><th>Result</th><th style="text-align:left">Why</th></tr>${'CANSLIM'.split('').map(L => { const x = c.L[L]; return `<tr><td><b>${L}</b> <small class="mut">${CSN[L]}</small></td><td>${ic[x.s]}</td><td style="text-align:left;white-space:normal">${esc(x.why)}</td></tr>`; }).join('')}</table></div>
+  <div class="csl">${'CANSLIM'.split('').map(L => { const x = c.L[L]; return `<div class="csr ${x.s}"><div><b class="csL">${L}</b> ${CSN[L]} <span style="float:right">${ic[x.s]}</span></div><small>${esc(x.why)}</small></div>`; }).join('')}</div>
   <p class="src">William O'Neil's CANSLIM, mechanised with free data: C/A use Yahoo diluted EPS; N = within 15% of 52-week high; S = 50-day up/down volume ratio & share-count change; L = relative-strength percentile among this app's ${mktOf(d.symbol) === 'IN' ? 'NIFTY 500' : 'S&P 500'} stocks; I = Yahoo institutional holding %; M = ${mktOf(d.symbol) === 'IN' ? 'NIFTY 50' : 'S&P 500'} vs 50/200-DMA${MARKET && MARKET[mktOf(d.symbol)] ? ' (index as of ' + dstr(MARKET[mktOf(d.symbol)].asOf) + ')' : ''}. Educational screen, not a buy signal.</p>`);
 }
 

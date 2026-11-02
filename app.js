@@ -368,7 +368,7 @@ function render() {
   <div class="card"><h2>Quarterly results <span class="mut">(${c === 'INR' ? '₹ Crore' : cur(c) + ' million'}; EPS in ${cur(c)})</span></h2>
    ${q.length ? `<div class="tw"><table><tr><th>Quarter</th><th>Revenue</th><th>QoQ</th><th>YoY</th><th>Net profit</th><th>QoQ</th><th>YoY</th><th>EPS</th><th>EPS YoY</th></tr>
    ${q.slice().reverse().map(r => `<tr><td>${qlabel(r.dt)}</td><td>${qn(r.rev)}</td><td>${sgnPct(r.revQoQ)}</td><td>${sgnPct(r.revYoY)}</td><td>${qn(r.ni)}</td><td>${sgnPct(r.niQoQ)}</td><td>${sgnPct(r.niYoY)}</td><td>${isNum(r.eps) ? r.eps.toFixed(2) : '<span class="mut">n/a</span>'}</td><td>${sgnPct(r.epsYoY)}</td></tr>`).join('')}</table></div>
-   <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
+   <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).${d.fx ? (d.fx.rate ? ` Statements reported in ${esc(d.fx.from)}; converted to ${esc(d.fx.to)} at today's rate ${d.fx.rate} (growth rates unaffected; absolute values approximate).` : ` Statements reported in ${esc(d.fx.from)} and could not be converted — fundamentals omitted.`) : ''}</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
   </div>
   <div class="card navc">${[['s-analysts','Analysts'],['s-peers','Peers'],['s-sector','Sector'],['s-news','News'],['s-flags','Red flags'],['s-iv','Intrinsic value'],['s-cs','CANSLIM'],['s-expert','Expert view']].map(([i,t])=>`<a href="#" data-jump="${i}">${t}</a>`).join('')}</div>
   <div id="s-analysts">${analystCard(d)}</div>
@@ -402,5 +402,6 @@ $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsW
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
 loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
+window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return; if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
