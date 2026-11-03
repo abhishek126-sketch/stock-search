@@ -349,6 +349,7 @@ function render() {
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
    ${typeof srcLine === 'function' ? srcLine(d) : ''}
    <div class="links">${extLinks(d)}</div>
+   <button class="btn sec" id="alBtn" style="margin-top:8px">🔔 Set alert</button>${(AL().alerts || []).some(a => a.s === d.symbol) ? ` <a href="#alerts" class="mut">${AL().alerts.filter(a => a.s === d.symbol).length} alert(s) — manage</a>` : ''}
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>
   <div class="grid two">
@@ -387,14 +388,14 @@ window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz =
 // ---------- watchlist & settings ----------
 function updFav() { const f = LS.get('fav', []); $('#favBtn').style.visibility = CUR ? 'visible' : 'hidden'; if (CUR) $('#favBtn').textContent = f.includes(CUR.symbol) ? '★' : '☆'; }
 $('#favBtn').onclick = () => { if (!CUR) return; let f = LS.get('fav', []); f = f.includes(CUR.symbol) ? f.filter(x => x !== CUR.symbol) : [CUR.symbol, ...f].slice(0, 20); LS.set('fav', f); updFav(); };
-$('#setBtn').onclick = () => { $('#avkey').value = LS.get('avkey', ''); $('#ghpat').value = LS.get('ghpat', ''); $('#fullRef').checked = LS.get('fullRefresh', false); $('#dlg').showModal(); };
+$('#setBtn').onclick = () => { $('#avkey').value = LS.get('avkey', ''); $('#ghpat').value = LS.get('ghpat', ''); $('#fullRef').checked = LS.get('fullRefresh', false); if (typeof AL === 'function') { const t = AL().topic; $('#ntfyTopic').textContent = t; $('#ntfyLink').href = 'https://ntfy.sh/' + t; } $('#dlg').showModal(); };
 $('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); LS.set('ghpat', $('#ghpat').value.trim()); LS.set('fullRefresh', $('#fullRef').checked); $('#dlg').close(); if (CUR) render(); };
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
-loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h === 'glossary') showGlossary(); else if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
+loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h === 'glossary') showGlossary(); else if (h === 'alerts') showAlerts(); else if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
 window.addEventListener('popstate', () => { if (!location.hash) goHome(true); });
-window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return goHome(true); if (h === 'glossary') return showGlossary(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
+window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return goHome(true); if (h === 'glossary') return showGlossary(); if (h === 'alerts') return showAlerts(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
 document.getElementById('tokHow').onclick = e => { e.preventDefault(); document.getElementById('dlg').close(); document.getElementById('tokHelp').showModal(); };

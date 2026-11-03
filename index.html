@@ -57,7 +57,7 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 #homeBtn{font-size:18px;padding:4px 10px;margin-right:6px}header{position:sticky;top:0;z-index:50}
 </style></head>
 <body>
-<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="setBtn">⚙ Settings</button></div>
+<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts" onclick="showAlerts()">🔔</button><button id="setBtn">⚙ Settings</button></div>
 <div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
 <div id="live"><span class="st">Checking for updates…</span><span><button id="refBtn" class="btn sec">↻ Refresh</button> <button id="updBtn" class="btn">⚡ Update now</button></span></div>
 <main>
@@ -77,7 +77,9 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <label style="margin-top:12px;display:block"><b>GitHub token for “Update now” (optional)</b></label>
 <input id="ghpat" type="password" placeholder="github_pat_…" autocomplete="off"><label class="mut" style="display:block;margin:6px 0"><input type="checkbox" id="fullRef"> “Update now” runs the full refresh (fundamentals + news, ~4–5 min) instead of quotes only (~30–60 s)</label>
 <p class="mut">Stored only in this browser (localStorage); sent only to api.github.com. Use a fine-grained token limited to this one repository with <b>Actions: Read and write</b>. <a href="#" id="tokHow">How to create</a></p>
+<p class="mut"><b>Price alerts:</b> push notifications go to your private ntfy topic <code id="ntfyTopic" style="word-break:break-all"></code> — <a id="ntfyLink" target="_blank" rel="noopener">open in ntfy</a> · <a href="#alerts" onclick="this.closest('dialog').close()">manage alerts</a>. The same token saves your alerts to the repo.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="clrCache">Clear cached data</button><button class="btn" id="saveSet">Save</button></div></dialog>
+<dialog id="alDlg"></dialog>
 <dialog id="tokHelp"><h2 style="margin-top:0">Set up “Update now”</h2><p class="mut">Prices refresh automatically every ~5 min in market hours. “Update now” asks GitHub to run the refresh immediately, which needs your own token:</p>
 <ol style="padding-left:18px;font-size:14px"><li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">github.com/settings/personal-access-tokens/new</a> (signed in as abhishek126-sketch).</li>
 <li><b>Token name:</b> Stock Search update · <b>Expiration:</b> 90 days (or your choice).</li><li><b>Resource owner:</b> abhishek126-sketch.</li>
@@ -85,6 +87,6 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <li><b>Generate token</b>, copy it (starts with <code>github_pat_</code>), paste into ⚙ Settings here and Save.</li></ol>
 <p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
-<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
+<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="alerts.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
 <script>(()=>{const h=document.querySelector('header'),f=()=>document.documentElement.style.setProperty('--hh',h.getBoundingClientRect().height+'px');f();addEventListener('resize',f);window.ResizeObserver&&new ResizeObserver(f).observe(h);})();</script><script>[homeBtn,logo].forEach(b=>b.onclick=()=>goHome());logo.onkeydown=e=>e.key==="Enter"&&goHome();</script><script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
 </body></html>

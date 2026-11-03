@@ -24,3 +24,6 @@ jobs:
         run: python3 scripts/crosscheck.py || echo 'cross-check skipped'
         env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
       - run: bash .github/workflows/publish.sh quotes
+      - name: Check price alerts (ntfy.sh)
+        run: |
+          git clone -q --depth 1 --branch alerts "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" al && python3 scripts/alerts.py check || echo 'no alerts branch / check skipped'
