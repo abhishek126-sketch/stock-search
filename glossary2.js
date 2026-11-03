@@ -154,6 +154,16 @@ Object.assign(GL, {
   asm: ['ASM (Additional Surveillance Measure)', 'An exchange watch-list for stocks with unusual price or volume moves. Stages add stricter rules such as 100% upfront margin or price bands.', 'NSE puts a stock in ASM Stage I after a sharp unexplained rally.', 'Being in ASM is a warning sign — higher stages are more serious.'],
   gsm: ['GSM (Graded Surveillance Measure)', 'A stricter exchange watch-list for stocks whose price is not justified by fundamentals. Higher stages limit trading (e.g. only once a week) and need extra deposits.', '', 'Any GSM stage is a strong warning — prices can be hard to exit.'],
   bse: ['BSE (Bombay Stock Exchange)', 'India\'s oldest stock exchange. Many small companies trade only on BSE; Yahoo symbols end in .BO.', '', ''],
+  bulkdeal: ['Bulk deal', 'A trade in one day by one buyer or seller of more than 0.5% of a company\'s shares; exchanges publish who did it.', 'A fund buying 1% of a small company in a day is a bulk deal.', 'Big buyers can be a good sign; repeated selling by promoters or big holders is a warning. In penny stocks, watch for the same names buying then selling (pump-and-dump).'],
+  blockdeal: ['Block deal', 'A single large trade (at least ₹10 crore) done in a special exchange window, usually between two big investors.', '', 'Neutral by itself; check who sold and why.'],
+  filing: ['Company filing / announcement', 'An official document a listed company must send to NSE/BSE: results, fund-raising, big orders, board decisions, auditor changes.', '', 'Read the original filing rather than social-media tips.'],
+  audchg: ['Auditor change / resignation', 'When the company\'s statutory auditor leaves or is replaced mid-term. A resignation before the term ends is a serious red flag.', 'An auditor resigning over "lack of information" from management.', 'Rotation at term-end is normal; a sudden resignation is a warning.'],
+  promtrend: ['Promoter holding trend', 'How the promoters\' (founders\' / controlling group\'s) stake has changed over recent quarters, from the shareholding patterns filed with NSE.', '70% → 62% over a year.', 'Stable or rising is better; a steady fall means insiders are selling.'],
+  fundraise: ['Fund-raising', 'Raising new money through a preferential allotment, rights issue, QIP, warrants or debentures.', '', 'Can fund growth, but frequent preferential allotments at low prices dilute existing shareholders.'],
+  prefallot: ['Preferential allotment', 'New shares issued to selected investors (often promoters) at a set price.', '', 'Watch the price and who gets them; common in penny-stock manipulation.'],
+  qip: ['QIP (Qualified Institutional Placement)', 'Shares sold quickly to large institutions only.', '', 'Institutions buying is usually a better sign than allotments to unknown buyers.'],
+  qscore: ['Quality score (estimate)', 'A 0–100 number this site computes from fixed rules in the 25-point report (fundamentals, Buffett, Graham, Fisher, Lynch, CANSLIM, technicals). Not expert opinion.', '', '68+ strong, 42–55 middling, under 42 weak — always read the details and the red flags.'],
+  rfcheck: ['Red flags check', 'Six quick warnings for Indian stocks: promoter pledge, falling promoter holding, losses, high debt, auditor change/resignation and ASM/GSM surveillance.', '', 'Fewer warnings is better; each one is a reason to read the filings.'],
   // alerts
   alert: ['Price alert', 'A notification when a price goes above/below a level or moves by a set % in a day.', '', ''],
 });
@@ -174,6 +184,7 @@ const GOOD = {
 };
 for (const [k, g] of Object.entries(GOOD)) if (GL[k] && g) GL[k][3] = g;
 // auto-annotation patterns (term → key)
+GLR.unshift([/[Bb]ulk deals?|[Bb]ulk (&|&amp;|and) block/, 'bulkdeal'], [/[Bb]lock deals?/, 'blockdeal'], [/[Cc]ompany filings|[Aa]nnouncements?/, 'filing'], [/[Aa]uditor change|[Aa]uditor resignation/, 'audchg'], [/[Pp]romoter holding trend/, 'promtrend'], [/[Ff]und-raising/, 'fundraise'], [/[Pp]referential/, 'prefallot'], [/\bQIP\b/, 'qip'], [/[Qq]uality score/, 'qscore'], [/[Rr]ed flags check/, 'rfcheck']);
 GLR.push(...[
   [/[Gg]ross margin/, 'gpm'], [/\bROA\b/, 'roa'], [/[Mm]argin stability/, 'mstab'], [/[Ss]ize rank/, 'srank'], [/[Rr]evenue durability/, 'rdur'], [/[Pp]ricing[- ]power/, 'ppow'], [/[Mm]oat source/, 'msrc'],
   [/\bETFs?\b/, 'etf'], [/\bAUM\b/, 'aum'], [/[Ee]xpense ratio/, 'er'], [/\bNAV\b/, 'nav'], [/[Pp]remium ?\/ ?discount/, 'prem'], [/\bYTD\b/, 'ytd'],

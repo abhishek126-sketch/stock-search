@@ -377,6 +377,7 @@ function render() {
     <div class="mut" id="tip">&nbsp;</div><svg id="chart"></svg><div class="mut" id="rchg"></div></div>
    ${d.etf ? etfKeyCard(d, k) : KEYCARD}
   </div>
+  ${typeof corpPlaceholder === 'function' ? corpPlaceholder(d) : ''}
   ${d.etf ? '' : QUARTCARD}
   ${d.etf ? '' : (typeof moatSection === 'function' ? moatSection(d, k) : '')}
   ${RPT.html}`;
@@ -385,7 +386,7 @@ function render() {
   if ($('#liveBtn')) $('#liveBtn').onclick = liveQuote;
   if (!d.etf) { bindIV(d, k); bindReport(d, k, RPT.R); } autoGloss(v);
   v.querySelectorAll('[data-jump]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.jump); if (t.tagName === 'DETAILS') t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-  drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
+  if (typeof corpLoad === 'function' && !d.etf) corpLoad(d, k, RPT.R); drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
 }
 window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(drawChart, 150); });
 

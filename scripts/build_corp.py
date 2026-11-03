@@ -73,8 +73,9 @@ def main():
     code2sym = {bse[s][0]: s for s in syms if s.endswith('.BO') and s in bse}
     bst = ld(os.path.join(CD, 'bse_ann.json'), {}); nb = 0
     try:
-        root = ET.fromstring(get('https://www.bseindia.com/data/xml/announcements.xml', hdr={**H, 'Accept': '*/*', 'Referer': 'https://www.bseindia.com/'}))
-        for it in root.iter('item'):
+        rb = get('https://www.bseindia.com/data/xml/announcements.xml', hdr={'User-Agent': H['User-Agent'], 'Accept': '*/*'})
+        root = ET.fromstring(rb); its = list(root.iter('item')); print('bse rss bytes', len(rb), 'items', len(its), rb[:80])
+        for it in its:
             c = (it.findtext('scripcode') or '').strip()
             if c not in code2sym: continue
             e = [dt(it.findtext('pubDate') or ''), (it.findtext('description') or '').strip()[:300], (it.findtext('link') or '').strip()]
