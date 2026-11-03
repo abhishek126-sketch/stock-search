@@ -1,16 +1,5 @@
 {
- "topic": "stocksearch-teste7633ac45ffabef451cb9b9d",
- "alerts": [
-  {
-   "id": "e2etest",
-   "s": "RELIANCE.NS",
-   "type": "above",
-   "v": 1,
-   "note": "E2E test alert",
-   "ver": 1793674016,
-   "trig": 1793674074,
-   "trigP": 1300.0
-  }
- ],
- "updated": 1793674028
+ "topic": null,
+ "alerts": [],
+ "updated": 1793674178
 }
