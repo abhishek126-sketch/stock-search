@@ -87,7 +87,7 @@ def nse_list(fn):
         rows = list(csv.DictReader(open(os.path.join(LISTS, fn), encoding='utf-8-sig')))
     return [(r['Symbol'].strip(), r['Company Name'].strip(), r['Industry'].strip()) for r in rows if (r.get('Symbol') or '').strip() and not r['Symbol'].strip().upper().startswith('DUMMY')]  # NSE placeholder rows
 
-CAP = {}
+CAP, ETFMETA = {}, {}
 def universe():
     u, have = [], set()
     for cap, fn in CAPS_IN:  # NIFTY 100 / Midcap 150 / Smallcap 250 (= NIFTY 500) + Microcap 250; first tag wins
@@ -109,6 +109,25 @@ def universe():
             if s not in have: have.add(s); CAP[s] = 'US'; u.append((s, r['Security'].strip(), r['GICS Sector'].strip()))
     except Exception as e: print('sp500 fail', e)
     u += [(s + '.NS', s, '') for s in EXTRA_IN if s + '.NS' not in have]
+    # ---- ETFs: all NSE-listed ETFs (official eq_etfseclist.csv) + curated major US ETFs ----
+    try:
+        try:
+            raw = get('https://nsearchives.nseindia.com/content/equities/eq_etfseclist.csv').decode('utf-8-sig')
+            if raw.count('\n') < 50: raise ValueError('short')
+            open(os.path.join(LISTS, 'eq_etfseclist.csv'), 'w').write(raw)
+        except Exception as e:
+            print('etf list live fail, using committed copy', e); raw = open(os.path.join(LISTS, 'eq_etfseclist.csv'), encoding='utf-8-sig').read()
+        for r in csv.DictReader(io.StringIO(raw)):
+            r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
+            sym = r.get('Symbol', '') + '.NS'
+            if sym == '.NS' or sym in have: continue
+            have.add(sym); CAP[sym] = 'ETF-IN'
+            ETFMETA[sym] = {'underlying': r.get('Underlying Key') or r.get('Underlying Asset'), 'assetClass': (r.get('ETF Underlying') or '').title(), 'isin': r.get('ISINNumber'), 'listed': r.get('DateofListing')}
+            u.append((sym, r.get('Underlying Asset') or r['Symbol'], 'ETF'))
+    except Exception as e: print('india etf fail', e)
+    for t in open(os.path.join(LISTS, 'us_etfs.txt')).read().split('\n', 1)[1].split():
+        if t not in have: have.add(t); CAP[t] = 'ETF-US'; u.append((t, t, 'ETF'))
+    print('ETFs', sum(1 for v in CAP.values() if v == 'ETF-IN'), sum(1 for v in CAP.values() if v == 'ETF-US'))
     u += [(s, s, '') for s in EXTRA_US if s not in have]
     if os.environ.get('LIMIT'): u = [x for x in u if x[0] in os.environ['LIMIT'].split(',')] or u[:int(os.environ['LIMIT'])]
     return u
@@ -273,6 +292,82 @@ def fetch(sym, name, sector):
     d['news'] = news(sym, d['name'])
     return d
 
+AMFI = None
+import threading
+AMFI_LOCK = threading.Lock()
+def amfi_nav():
+    """AMFI daily NAV file -> {ISIN: (nav, 'DD-Mon-YYYY')} (Indian ETFs; Yahoo has no fund data for them)."""
+    global AMFI
+    with AMFI_LOCK:
+      if AMFI is None:
+        A = {}
+        try:
+            for l in get('https://portal.amfiindia.com/spages/NAVAll.txt').decode('utf-8', 'ignore').splitlines():
+                p = l.strip().split(';')
+                if len(p) >= 8:
+                    try: v = float(p[6])
+                    except ValueError: continue
+                    for i in (p[1], p[2]):
+                        if i and i != '-': A[i] = (v, p[7])
+        except Exception as e: print('amfi fail', e)
+        AMFI = A
+    return AMFI
+
+def fetch_etf(sym, name, _):
+    q = urllib.parse.quote(sym)
+    ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
+    m = ch['meta']; ts = ch.get('timestamp') or []; qd = ch['indicators']['quote'][0]; cl = qd.get('close') or []; vo = qd.get('volume') or []
+    hist = [[t, round(c, 4 if (c or 0) < 20 else 2)] for t, c in zip(ts, cl) if c is not None]
+    if len(hist) < 2: raise ValueError('no price history')
+    divs = [[int(k), v['amount']] for k, v in (ch.get('events', {}).get('dividends') or {}).items()]
+    vv = [v for v in vo if v is not None][-50:]
+    e = dict(ETFMETA.get(sym) or {}); raw = lambda o, k: (o.get(k) or {}).get('raw') if isinstance(o.get(k), dict) else None
+    c = crumb()
+    if c:
+        try:
+            r = json.loads(OP.open(f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{q}?modules=fundProfile,topHoldings,defaultKeyStatistics,summaryDetail,fundPerformance,quoteType&crumb={urllib.parse.quote(c)}', timeout=25).read())['quoteSummary']['result'][0]
+            sd, ks, fp, th, pf = (r.get(x) or {} for x in ('summaryDetail', 'defaultKeyStatistics', 'fundProfile', 'topHoldings', 'fundPerformance'))
+            tr = pf.get('trailingReturns') or {}
+            e.update({k: v for k, v in {
+                'aum': raw(sd, 'totalAssets') or raw(ks, 'totalAssets'), 'yield': raw(sd, 'yield'), 'nav': raw(sd, 'navPrice'),
+                'er': raw(fp.get('feesExpensesInvestment') or {}, 'annualReportExpenseRatio') or raw(sd, 'expenseRatio'),
+                'category': ks.get('category') or fp.get('categoryName'), 'family': ks.get('fundFamily') or fp.get('family'),
+                'r1y': raw(tr, 'oneYear'), 'r3y': raw(tr, 'threeYear'), 'r5y': raw(tr, 'fiveYear'), 'ytd': raw(tr, 'ytd') or raw(ks, 'ytdReturn'),
+                'holdings': [[h.get('symbol'), h.get('holdingName'), raw(h, 'holdingPercent')] for h in (th.get('holdings') or [])[:10]] or None,
+                'sectors': sorted([[k, v.get('raw')] for x in (th.get('sectorWeightings') or []) for k, v in x.items() if isinstance(v, dict) and v.get('raw')], key=lambda z: -z[1])[:8] or None,
+                'mix': {k: raw(th, k + 'Position') for k in ('stock', 'bond', 'cash', 'other') if raw(th, k + 'Position') is not None} or None,
+            }.items() if v not in (None, [], {})})
+            if e.get('nav') and m.get('regularMarketPrice'): e['navDate'] = 'Yahoo'
+        except Exception as ex: print('etf summary fail', sym, str(ex)[:80])
+    if e.get('isin'):
+        a = amfi_nav().get(e['isin'])
+        if a:
+            e['nav'], e['navDate'] = a
+            try:  # premium/discount: exchange close on the NAV date vs NAV
+                t0 = time.mktime(time.strptime(a[1], '%d-%b-%Y')); px = None
+                bars = [b for b in hist if t0 <= b[0] < t0 + 86400]
+                if bars: px = bars[-1][1]
+                elif m.get('regularMarketPrice') and t0 <= (m.get('regularMarketTime') or 0) < t0 + 86400: px = m['regularMarketPrice']
+                if px and a[0]: e['prem'] = px / a[0] - 1  # only when the price is from the same day as the NAV
+            except Exception: pass
+    elif e.get('nav') and m.get('regularMarketPrice'): e['prem'] = m['regularMarketPrice'] / e['nav'] - 1
+    def ret(yrs):  # price return from history when the fund data has none
+        t0 = hist[-1][0] - yrs * 365.25 * 86400
+        if hist[0][0] > t0 + 15 * 86400: return None
+        p0 = price_at(hist, t0) or hist[0][1]; return (hist[-1][1] / p0) ** (1 / yrs) - 1 if p0 else None
+    for k, y in (('r1y', 1), ('r3y', 3), ('r5y', 5)):
+        if e.get(k) is None:
+            v = ret(y)
+            if v is not None: e[k] = v; e[k + 'Src'] = 'price'
+    e['avgVol50'] = round(sum(vv) / len(vv)) if vv else None; e['asOf'] = int(time.time())
+    nm = m.get('longName') or m.get('shortName') or name
+    d = {'symbol': sym, 'type': 'ETF', 'name': nm, 'sector': 'ETF', 'industry': e.get('category') or e.get('underlying'), 'exchange': m.get('fullExchangeName'),
+         'currency': m.get('currency'), 'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'), 'priceTime': m.get('regularMarketTime'),
+         'hist': hist, 'divs': divs, 'fund': {}, 'vol': None, 'fx': None, 'profile': None, 'analyst': None, 'etf': e, 'cap': CAP.get(sym),
+         'fetched': int(time.time()), 'source': 'Yahoo Finance (chart & fund profile)' + (', AMFI NAV' if sym.endswith('.NS') else '') + ', NSE ETF list'}
+    d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
+    return d
+
 def main():
     os.makedirs(os.path.join(OUT, 's'), exist_ok=True)
     print('crumb', bool(crumb()))
@@ -283,27 +378,34 @@ def main():
     u = universe(); print('universe', len(u))
     docs, fails = {}, []
     def job(x):
-        try: docs[x[0]] = fetch(*x)
+        try: docs[x[0]] = (fetch_etf if CAP.get(x[0], '').startswith('ETF') else fetch)(*x)
         except Exception as e: fails.append(x[0]); print('fail', x[0], e)
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
     K = {s: metrics(d) for s, d in docs.items()}
     # relative strength rank (O'Neil-style weighting) within each market
     rsr = {}
     for mk in ('IN', 'US'):
-        sc = {s: 0.4 * k['r3m'] + 0.2 * k.get('r6m', k['r3m']) + 0.4 * k.get('r1y', k.get('r6m', k['r3m'])) for s, k in K.items() if 'r3m' in k and s.endswith('.NS') == (mk == 'IN')}
+        sc = {s: 0.4 * k['r3m'] + 0.2 * k.get('r6m', k['r3m']) + 0.4 * k.get('r1y', k.get('r6m', k['r3m'])) for s, k in K.items() if 'r3m' in k and s.endswith('.NS') == (mk == 'IN') and not docs[s].get('etf')}
         order = sorted(sc, key=sc.get)
         for i, s in enumerate(order): rsr[s] = round(1 + 98 * i / max(1, len(order) - 1))
     rows = []
     for s, d in docs.items():
-        d['canslim'] = canslim(d, K[s], mkt, rsr); d['metrics'] = K[s]
+        et = d.get('etf')
+        if et:  # ETFs: no CANSLIM/fundamentals; AUM stands in for market cap in lists
+            d['canslim'] = {'score': None, 'of': 0}; d['metrics'] = K[s] = {k2: v for k2, v in K[s].items() if k2 in ('r1y', 'r6m', 'r3m')}
+            if et.get('aum'): K[s]['mcap'] = et['aum']
+            K[s].update({'er': et.get('er'), 'prem': et.get('prem')})
+        else: d['canslim'] = canslim(d, K[s], mkt, rsr); d['metrics'] = K[s]
         with open(os.path.join(OUT, 's', s + '.json'), 'w') as fh: json.dump(d, fh, separators=(',', ':'))
-        k = K[s]; nw = d.get('news') or {}
-        rows.append({'s': s, 'n': d['name'], 'x': d['exchange'] or '', 'sec': d['sector'] or '', 'ind': d.get('industry') or '', 'p': d['price'], 'pc': d.get('prevClose'), 'c': d['currency'], 'cap': CAP.get(s),
+        k = K[s]; nw = d.get('news') or {}; pr = d.get('profile') or {}
+        if not et: k = {**k, 'gm': pr.get('grossMargins'), 'om': pr.get('opMargins')}
+        rows.append({'s': s, 'n': d['name'], 'x': d['exchange'] or '', 'sec': '' if et else (d['sector'] or ''), 'ind': d.get('industry') or '', 'p': d['price'], 'pc': d.get('prevClose'), 'c': d['currency'], 'cap': CAP.get(s),
                      **k, 'cs': d['canslim']['score'], 'co': d['canslim']['of'], 'rs': rsr.get(s), 'an': 1 if d.get('analyst') else 0,
                      'nn': len(nw.get('items', [])), 'neg': sum(1 for i in nw.get('items', []) if 'neg' in i['g'])})
     idxf = os.path.join(OUT, 'index.json'); prev = {}
     if os.path.exists(idxf): prev = {r[0]: r for r in json.load(open(idxf)).get('symbols', [])}
-    index = [[r['s'], r['n'], r['x'], r['sec']] + ([1] if r['an'] else []) for r in rows]
+    secl = lambda r: r['sec'] or (('ETF · ' + r['ind']) if r['ind'] else 'ETF') if (r.get('cap') or '').startswith('ETF') else r['sec']
+    index = [[r['s'], r['n'], r['x'], secl(r)] + ([1] if r['an'] else []) for r in rows]
     for s in fails:
         if s in prev and os.path.exists(os.path.join(OUT, 's', s + '.json')): index.append(prev[s])
     index.sort(key=lambda r: r[0]); rows.sort(key=lambda r: r['s'])

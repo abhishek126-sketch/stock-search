@@ -35,7 +35,7 @@ async function getJSON(u) {
 async function loadIndex() {
   try {
     const d = await getJSON(DATA + 'index.json'); INDEX = d.symbols;
-    $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (NIFTY 500 + NIFTY Microcap 250 + S&P 500). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+    $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (NIFTY 500 + Microcap 250 + S&P 500 + ETFs). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
   } catch (e) { $('#dsinfo').textContent = 'Could not load the stock list (offline?). ' + (LS.get('avkey', '') ? 'Alpha Vantage search still works.' : ''); }
   renderChips();
 }
@@ -103,7 +103,7 @@ function showSug() {
   const q = $('#q').value, list = search(q), el = $('#sug'); sugIdx = -1;
   let h = list.map(r => `<div data-s="${esc(r[0])}"><b>${esc(r[0].replace(/\.NS$/, ''))}</b> ${esc(r[1])}<br><small>${esc(r[2])}${r[3] ? ' · ' + esc(r[3]) : ''}</small></div>`).join('');
   if (q.trim() && LS.get('avkey', '')) h += `<div data-av="${esc(q.trim())}"><small>🔎 Search more (BSE / other US) via Alpha Vantage for “${esc(q.trim())}”</small></div>`;
-  else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (NIFTY 500 + NIFTY Microcap 250 + S&P 500). Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
+  else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (NIFTY 500 + Microcap 250 + S&P 500 + ETFs). Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
   el.innerHTML = h; el.style.display = h ? 'block' : 'none';
   el.querySelectorAll('div[data-s]').forEach(d => d.onclick = () => openSym(d.dataset.s));
   el.querySelectorAll('div[data-av]').forEach(d => d.onclick = () => avSearch(d.dataset.av));
@@ -336,12 +336,31 @@ function drawChart() {
 
 // ---------- render ----------
 function render() {
-  const d = CUR, k = compute(d), A = analyse(d, k), c = d.currency, v = $('#view'); updFav(); const RPT = fullReport(d, k, A);
+  const d = CUR, k = compute(d), A = d.etf ? null : analyse(d, k), c = d.currency, v = $('#view'); updFav(); const RPT = d.etf ? { html: etfBody(d, k), R: null } : fullReport(d, k, A);
   const base = d.symbol.replace(/\.NS$/, '');
   const scoreRow = (n, s) => `<div class="score"><span class="l">${n}</span><span class="bar"><i style="width:${isNum(s) ? s * 10 : 0}%;background:${!isNum(s) ? '#cbd5e1' : s >= 7 ? '#16a34a' : s >= 4.5 ? '#eab308' : '#dc2626'}"></i></span><span class="v">${isNum(s) ? s.toFixed(1) + '/10' : '<span class="mut">n/a</span>'}</span></div>`;
   const q = k.quarters, unit = c === 'INR' ? 'Cr' : 'M', div = c === 'INR' ? 1e7 : 1e6;
   const qn = x => isNum(x) ? (x / div).toLocaleString(c === 'INR' ? 'en-IN' : 'en-US', { maximumFractionDigits: 0 }) : '<span class="mut">n/a</span>';
   const ageH = (Date.now() / 1000 - (d.fetched || 0)) / 3600;
+  const KEYCARD = d.etf ? '' : `   <div class="card"><h2>Key numbers</h2><div class="kv">
+    <div><span>Market cap</span><b>${fmtBig(k.mcap, c)}</b></div>
+    <div><span>P/E (TTM)</span><b>${k.loss ? 'n/m (loss)' : isNum(k.pe) ? k.pe.toFixed(1) : NA}</b></div>
+    <div><span>P/B</span><b>${isNum(k.pb) ? k.pb.toFixed(2) : NA}</b></div>
+    <div><span>EPS (TTM)${k.epsDerived ? '*' : ''}</span><b>${fmtP(k.eps, c)}</b></div>
+    <div><span>Dividend yield</span><b>${isNum(k.dy) ? fmtPct(k.dy, 2) : NA}</b></div>
+    <div><span>52-wk high / low</span><b>${isNum(k.hi52) ? fmtP(k.hi52, c) + ' / ' + fmtP(k.lo52, c) : NA}</b></div>
+    <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${fmtPct(k.roe)}</b></div>
+    <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${fmtPct(k.roce)}</b></div>
+    <div><span>Debt / equity</span><b>${k.negEquity ? 'negative equity' : isNum(k.de) ? k.de.toFixed(2) : NA}</b></div>
+    <div><span>50 / 200 DMA</span><b>${isNum(k.dma50) ? fmtP(k.dma50, c) : NA} / ${isNum(k.dma200) ? fmtP(k.dma200, c) : NA}</b></div>
+    <div><span>RSI (14)</span><b>${isNum(k.rsi) ? k.rsi.toFixed(0) : NA}</b></div>
+    <div><span>1-yr return</span><b>${isNum(k.ret1y) ? sgnPct(k.ret1y) : NA}</b></div>
+   </div></div>`;
+  const QUARTCARD = d.etf ? '' : `  <div class="card"><h2>Quarterly results <span class="mut">(${c === 'INR' ? '₹ Crore' : cur(c) + ' million'}; EPS in ${cur(c)})</span></h2>
+   ${q.length ? `<div class="tw"><table><tr><th>Quarter</th><th>Revenue</th><th>QoQ</th><th>YoY</th><th>Net profit</th><th>QoQ</th><th>YoY</th><th>EPS</th><th>EPS YoY</th></tr>
+   ${q.slice().reverse().map(r => `<tr><td>${qlabel(r.dt)}</td><td>${qn(r.rev)}</td><td>${sgnPct(r.revQoQ)}</td><td>${sgnPct(r.revYoY)}</td><td>${qn(r.ni)}</td><td>${sgnPct(r.niQoQ)}</td><td>${sgnPct(r.niYoY)}</td><td>${isNum(r.eps) ? r.eps.toFixed(2) : '<span class="mut">n/a</span>'}</td><td>${sgnPct(r.epsYoY)}</td></tr>`).join('')}</table></div>
+   <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).${d.fx ? (d.fx.rate ? ` Statements reported in ${esc(d.fx.from)}; converted to ${esc(d.fx.to)} at today's rate ${d.fx.rate} (growth rates unaffected; absolute values approximate).` : ` Statements reported in ${esc(d.fx.from)} and could not be converted — fundamentals omitted.`) : ''}</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
+  </div>`;
   v.innerHTML = `
   <div class="card"><a href="#" id="back" class="mut">← Back</a>
    <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span>${typeof capBadge === 'function' ? capBadge(d.cap || capOf(d.symbol)) : ''} <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
@@ -355,31 +374,15 @@ function render() {
   <div class="grid two">
    <div class="card"><h2>Price chart</h2><div class="tabs" id="rng">${['1D', '1W', '1M', '6M', '1Y', '5Y'].map(r => `<button class="${r === RANGE ? 'on' : ''}">${r}</button>`).join('')}<button id="dmaT" class="${SHOW_DMA ? 'on' : ''}">DMA</button></div>
     <div class="mut" id="tip">&nbsp;</div><svg id="chart"></svg><div class="mut" id="rchg"></div></div>
-   <div class="card"><h2>Key numbers</h2><div class="kv">
-    <div><span>Market cap</span><b>${fmtBig(k.mcap, c)}</b></div>
-    <div><span>P/E (TTM)</span><b>${k.loss ? 'n/m (loss)' : isNum(k.pe) ? k.pe.toFixed(1) : NA}</b></div>
-    <div><span>P/B</span><b>${isNum(k.pb) ? k.pb.toFixed(2) : NA}</b></div>
-    <div><span>EPS (TTM)${k.epsDerived ? '*' : ''}</span><b>${fmtP(k.eps, c)}</b></div>
-    <div><span>Dividend yield</span><b>${isNum(k.dy) ? fmtPct(k.dy, 2) : NA}</b></div>
-    <div><span>52-wk high / low</span><b>${isNum(k.hi52) ? fmtP(k.hi52, c) + ' / ' + fmtP(k.lo52, c) : NA}</b></div>
-    <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${fmtPct(k.roe)}</b></div>
-    <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${fmtPct(k.roce)}</b></div>
-    <div><span>Debt / equity</span><b>${k.negEquity ? 'negative equity' : isNum(k.de) ? k.de.toFixed(2) : NA}</b></div>
-    <div><span>50 / 200 DMA</span><b>${isNum(k.dma50) ? fmtP(k.dma50, c) : NA} / ${isNum(k.dma200) ? fmtP(k.dma200, c) : NA}</b></div>
-    <div><span>RSI (14)</span><b>${isNum(k.rsi) ? k.rsi.toFixed(0) : NA}</b></div>
-    <div><span>1-yr return</span><b>${isNum(k.ret1y) ? sgnPct(k.ret1y) : NA}</b></div>
-   </div></div>
+   ${d.etf ? etfKeyCard(d, k) : KEYCARD}
   </div>
-  <div class="card"><h2>Quarterly results <span class="mut">(${c === 'INR' ? '₹ Crore' : cur(c) + ' million'}; EPS in ${cur(c)})</span></h2>
-   ${q.length ? `<div class="tw"><table><tr><th>Quarter</th><th>Revenue</th><th>QoQ</th><th>YoY</th><th>Net profit</th><th>QoQ</th><th>YoY</th><th>EPS</th><th>EPS YoY</th></tr>
-   ${q.slice().reverse().map(r => `<tr><td>${qlabel(r.dt)}</td><td>${qn(r.rev)}</td><td>${sgnPct(r.revQoQ)}</td><td>${sgnPct(r.revYoY)}</td><td>${qn(r.ni)}</td><td>${sgnPct(r.niQoQ)}</td><td>${sgnPct(r.niYoY)}</td><td>${isNum(r.eps) ? r.eps.toFixed(2) : '<span class="mut">n/a</span>'}</td><td>${sgnPct(r.epsYoY)}</td></tr>`).join('')}</table></div>
-   <p class="mut">${q.length < 8 ? `Only ${q.length} quarter(s) available from the data source; growth is shown only where the matching earlier quarter exists (– = not available). ` : ''}Figures as reported by the source (consolidated where provided).${d.fx ? (d.fx.rate ? ` Statements reported in ${esc(d.fx.from)}; converted to ${esc(d.fx.to)} at today's rate ${d.fx.rate} (growth rates unaffected; absolute values approximate).` : ` Statements reported in ${esc(d.fx.from)} and could not be converted — fundamentals omitted.`) : ''}</p>` : `<p>${NA} — no quarterly results from the data source for this stock.</p>`}
-  </div>
+  ${d.etf ? '' : QUARTCARD}
+  ${d.etf ? '' : (typeof moatSection === 'function' ? moatSection(d, k) : '')}
   ${RPT.html}`;
   $('#back').onclick = e => { e.preventDefault(); goHome(); };
   $('#rng').querySelectorAll('button').forEach(b => b.onclick = () => { if (b.id === 'dmaT') SHOW_DMA = !SHOW_DMA; else RANGE = b.textContent; const y = window.scrollY; d._keepScroll = true; render(); window.scrollTo(0, y); });
   if ($('#liveBtn')) $('#liveBtn').onclick = liveQuote;
-  bindIV(d, k); bindReport(d, k, RPT.R); autoGloss(v);
+  if (!d.etf) { bindIV(d, k); bindReport(d, k, RPT.R); } autoGloss(v);
   v.querySelectorAll('[data-jump]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.jump); if (t.tagName === 'DETAILS') t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
   drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
 }
