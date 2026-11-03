@@ -222,7 +222,7 @@ async function renderCaps(box) {
   const all = SUMMARY.rows.filter(r => r.cap), cnt = c => c === 'All' ? all.length : all.filter(r => r.cap === c).length;
   let rows = all.filter(r => CAPF === 'All' || r.cap === CAPF).map(liveRow);
   const ql = CAPQ.toLowerCase(); if (ql) rows = rows.filter(r => r.s.toLowerCase().includes(ql) || (r.n || '').toLowerCase().includes(ql));
-  const [k, dir] = CAPSORT, val = r => k === 'n' ? (r.n || r.s).toLowerCase() : k === 'p' ? r.lp : k === 'dc' ? r.dc : r.mc;
+  const [k, dir] = CAPSORT, val = r => k === 'n' ? (r.n || r.s).toLowerCase() : k === 'p' ? r.lp : k === 'dc' ? r.dc : (isNum(r.mc) && r.c === 'INR' ? r.mc / 88 : r.mc);  // rough ₹→$ (≈88) so 'All' ranks Indian and US caps together
   rows.sort((a, b) => { const x = val(a), y = val(b); if (x == null || (typeof x === 'number' && !isFinite(x))) return 1; if (y == null || (typeof y === 'number' && !isFinite(y))) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
   const th = (key, lbl) => `<th data-sort="${key}" style="cursor:pointer;user-select:none">${lbl}${k === key ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
   const shown = rows.slice(0, CAPN), cinfo = CAPS.find(x => x[0] === CAPF);
