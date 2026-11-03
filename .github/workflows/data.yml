@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['scripts/build_data.py', '.github/workflows/data.yml']
+    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', '.github/workflows/data.yml']
 permissions:
   contents: write
 concurrency: { group: data-full, cancel-in-progress: false }
@@ -21,4 +21,7 @@ jobs:
         run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data || (mkdir -p pub && cd pub && git init -q && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
       - run: python3 scripts/build_data.py
       - run: python3 scripts/build_quotes.py || true
+      - name: Cross-check (NSE / Finnhub)
+        run: python3 scripts/crosscheck.py || echo 'cross-check skipped'
+        env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
       - run: bash .github/workflows/publish.sh all

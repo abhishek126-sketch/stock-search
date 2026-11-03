@@ -1,7 +1,7 @@
 'use strict';
 // ===== Live refresh: quotes overlay, 60-s polling, manual refresh, "Update now" via workflow_dispatch =====
 const REPO = 'abhishek126-sketch/stock-search';
-let QUOTES = null, META = null, LIVE_BUSY = false;
+let QUOTES = null, META = null, LIVE_BUSY = false, CHECK = null;
 const bust = u => u + (u.includes('?') ? '&' : '?') + 't=' + Date.now();
 const tIST = s => new Date(s * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
 function applyQuote(d) {
@@ -12,7 +12,41 @@ function applyQuote(d) {
   if (new Date(t * 1000).toDateString() === new Date(lastT * 1000).toDateString()) d.hist[d.hist.length - 1] = [lastT, p]; else if (t > lastT) d.hist.push([t, p]);
   return d;
 }
-async function loadQuotes(force) { try { QUOTES = await getJSON(force ? bust(DATA + 'quotes.json') : DATA + 'quotes.json'); } catch { } }
+async function loadQuotes(force) {
+  await Promise.all([getJSON(force ? bust(DATA + 'quotes.json') : DATA + 'quotes.json').then(x => QUOTES = x).catch(() => { }),
+    getJSON(force ? bust(DATA + 'check.json') : DATA + 'check.json').then(x => CHECK = x).catch(() => { })]);
+  renderCheck();
+}
+// ---- second-source cross-check (NSE for India, Finnhub for US) ----
+const istDay = t => t ? new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '';
+// returns preferred [price, prevClose, time, source, checkEntry] given Yahoo values; NSE wins on a >1% disagreement for the same session
+function prefQuote(sym, p, pc, t) {
+  const c = CHECK && CHECK.s && CHECK.s[sym];
+  if (c && c.src === 'NSE' && c.st === 'mm' && isNum(c.p) && (c.mode === 'live' || istDay(c.t) === istDay(t))) return [c.p, isNum(c.pc) ? c.pc : pc, c.mode === 'live' ? c.t : t, 'NSE', c];
+  return [p, pc, t, 'Yahoo', c];
+}
+function applyCheck(d) {
+  const [p, pc, t, src, c] = prefQuote(d.symbol, d.price, d.prevClose, d.priceTime);
+  if (src === 'NSE') { d.yPrice = d.price; d.price = p; d.prevClose = pc; d.priceTime = t; const h = d.hist; if (h && h.length && istDay(h[h.length - 1][0]) === istDay(t)) h[h.length - 1] = [h[h.length - 1][0], p]; }
+  d.priceSrc = src; d.check = c || null; return d;
+}
+function srcLine(d) {
+  const c = d.check, srcN = c ? (c.src === 'NSE' ? (c.mode === 'live' ? 'NSE live' : 'NSE official close ' + dstr(c.t)) : 'Finnhub') : '';
+  if (!c || !c.st) return `<div class="mut">Price source: <b>${esc(d.priceSrc || 'Yahoo')}</b> · not cross-checked${/\.NS$/.test(d.symbol) ? '' : CHECK && CHECK.fh && CHECK.fh.mode === 'no-key' ? ' (Finnhub key not set)' : ' yet (US stocks are checked in rotation)'}</div>`;
+  if (c.st === 'ok') return `<div class="mut">Price source: <b>Yahoo</b> · <span class="up">✔ verified</span> vs ${srcN} (${fmtP(c.p, d.currency)}, diff ${(c.d * 100).toFixed(2)}%)</div>`;
+  return `<div class="mut" style="color:var(--warn)">⚠ Sources disagree by ${(c.d * 100).toFixed(1)}%: ${srcN} ${fmtP(c.p, d.currency)}${d.priceSrc === 'NSE' ? ` vs Yahoo ${fmtP(d.yPrice, d.currency)} — showing <b>NSE</b>` : ' vs Yahoo — showing Yahoo (latest)'}.</div>`;
+}
+function renderCheck() {
+  const el = document.getElementById('dcheck'); if (!el) return;
+  if (!CHECK) { el.innerHTML = '<h2>🔎 Data check</h2><p class="mut">Cross-check not available yet.</p>'; return; }
+  const n = CHECK.nse || {}, f = CHECK.fh || {}, mm = CHECK.mm || [], S = CHECK.s || {};
+  const nseTxt = n.mode === 'live' ? `NSE live API ✔ (${n.n} stocks)` : n.mode === 'eod' ? `NSE live API blocked from GitHub's servers → official NSE close of ${n.date} (${n.n} stocks)` : 'NSE unavailable';
+  const fhTxt = f.mode === 'live' ? `Finnhub ✔ (${Object.values(S).filter(v => v.src === 'Finnhub').length} US stocks checked in the last day, rotating)` : f.mode === 'no-key' ? 'Finnhub: no API key set (US not cross-checked)' : `Finnhub error (${esc(f.err || '')})`;
+  const row = s => { const c = S[s]; return `<tr data-s="${esc(s)}"><td>${esc(s.replace(/\.NS$/, ''))}</td><td>${esc(c.src)}</td><td>${fmtP(c.p, s.endsWith('.NS') ? 'INR' : 'USD')}</td><td>${(c.d * 100).toFixed(1)}%</td></tr>`; };
+  el.innerHTML = `<h2>🔎 Data check <span class="mut">(${CHECK.nOk} ✔ verified · ${mm.length} ⚠ mismatched &gt;1%)</span></h2><p class="mut">${nseTxt}<br>${fhTxt}<br>Checked ${tIST(CHECK.built)} IST. For Indian stocks NSE's price is shown when the two disagree.</p>
+  ${mm.length ? `<details><summary class="mut">Mismatched stocks (${mm.length})</summary><div class="tw"><table class="pt"><tr><th>Stock</th><th>Source</th><th>Its price</th><th>Diff vs Yahoo</th></tr>${mm.map(row).join('')}</table></div></details>` : ''}`;
+  el.querySelectorAll('[data-s]').forEach(r => r.onclick = () => openSym(r.dataset.s));
+}
 function setStatus(extra) {
   const el = $('#live'); if (!el) return;
   const ts = META ? Math.max(META.quotes || 0, META.full || 0) : (QUOTES && QUOTES.built);
@@ -74,6 +108,7 @@ $('#refBtn').onclick = () => checkMeta(true);
 $('#updBtn').onclick = updateNow;
 document.querySelectorAll('[data-tokset]').forEach(b => b.onclick = () => { $('#tokHelp').close(); $('#setBtn').click(); });
 // boot: overlay quotes before first render
+const _applyQuote = applyQuote; applyQuote = d => applyCheck(_applyQuote(d));
 const _openSym = openSym;
 openSym = async function (sym, viaAV) { if (!QUOTES) await loadQuotes(false); return _openSym(sym, viaAV); };
 checkMeta(false);

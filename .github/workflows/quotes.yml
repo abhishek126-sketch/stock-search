@@ -20,4 +20,7 @@ jobs:
         with: { sparse-checkout: "scripts\n.github", fetch-depth: 1 }
       - run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data
       - run: python3 scripts/build_quotes.py
+      - name: Cross-check (NSE / Finnhub)
+        run: python3 scripts/crosscheck.py || echo 'cross-check skipped'
+        env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
       - run: bash .github/workflows/publish.sh quotes

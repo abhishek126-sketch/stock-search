@@ -9,7 +9,7 @@ cd pub
 G() { git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" "$@"; }
 overlay() {
   if [ "$MODE" = all ]; then rm -rf data && cp -r ../data ./data
-  else mkdir -p data && cp ../data/quotes.json data/quotes.json && { [ -d ../data/i ] && mkdir -p data/i && cp ../data/i/* data/i/ || true; }
+  else mkdir -p data && cp ../data/quotes.json data/quotes.json && { [ -f ../data/check.json ] && cp ../data/check.json data/ || true; } && { [ -d ../data/i ] && mkdir -p data/i && cp ../data/i/* data/i/ || true; }
     python3 - <<'PY'
 import json, os
 a = json.load(open('data/meta.json')) if os.path.exists('data/meta.json') else {}
