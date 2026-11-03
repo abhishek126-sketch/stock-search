@@ -16,7 +16,7 @@ def merge_save(inc, cur):
         o = old.get(a.get('id'))
         if o and o.get('trig') and (a.get('ver') or 0) <= o['trig']: a['trig'], a['trigP'] = o['trig'], o.get('trigP')
         out.append({k: a.get(k) for k in ('id', 's', 'type', 'v', 'note', 'ver', 'trig', 'trigP')})
-    return {'topic': inc.get('topic') or cur.get('topic'), 'alerts': out, 'updated': now}
+    return {'topic': inc['topic'] if 'topic' in inc else cur.get('topic'), 'alerts': out, 'updated': now}
 def publish(mutate, msg):
     for attempt in range(5):
         cur = load(); new = mutate(cur)
