@@ -60,7 +60,7 @@ KEY = os.environ.get('FINNHUB_KEY', '').strip(); fh = {'mode': 'no-key'}; REC = 
 for s, v in (PREV.get('s') or {}).items():  # keep earlier rotating-subset results (US) for up to 1 day
     if v.get('src') == 'Finnhub' and now - (v.get('chk') or 0) < 86400: S[s] = v
 if KEY:
-    us = sorted(s for s in Q if not s.endswith('.NS') and not s.startswith('^'))
+    us = sorted(s for s in Q if not s.endswith(('.NS', '.BO')) and not s.startswith('^'))
     NQ, NR = int(os.environ.get('FH_QUOTES', 40)), int(os.environ.get('FH_REC', 5)); slot = now // 300
     sub = [us[(slot * NQ + i) % len(us)] for i in range(min(NQ, len(us)))]
     rsub = [us[(slot * NR + i) % len(us)] for i in range(min(NR, len(us)))]

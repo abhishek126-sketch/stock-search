@@ -26,14 +26,14 @@ function curPrice(s) {
   return typeof prefQuote === 'function' ? prefQuote(s, q[0], q[1], q[2]) : q;
 }
 function hitAlert(a, p, pc) { const v = +a.v, chg = pc ? (p / pc - 1) * 100 : null; return a.type === 'above' ? p >= v : a.type === 'below' ? p <= v : a.type === 'chgUp' ? chg != null && chg >= v : chg != null && chg <= -Math.abs(v); }
-const alDesc = a => `${AT[a.type]}${a.type.startsWith('chg') ? a.v + '%' : ' ' + fmtP(+a.v, a.s.endsWith('.NS') ? 'INR' : 'USD')}`;
+const alDesc = a => `${AT[a.type]}${a.type.startsWith('chg') ? a.v + '%' : ' ' + fmtP(+a.v, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD')}`;
 // in-app notifications when the app is open (once per alert version)
 function alertsLocalCheck() {
   const seen = LS.get('alertSeen', {}); let ch = false;
   AL().alerts.forEach(a => {
     const key = a.id + ':' + (a.ver || 0); if (seen[key]) return;
     const [p, pc] = curPrice(a.s); const fired = a.trig || (isNum(p) && hitAlert(a, p, pc)); if (!fired) return;
-    seen[key] = Date.now(); ch = true; const msg = `${a.s.replace(/\.NS$/, '')}: ${alDesc(a)} — now ${fmtP(isNum(p) ? p : a.trigP, a.s.endsWith('.NS') ? 'INR' : 'USD').replace(/<[^>]+>/g, '')}`;
+    seen[key] = Date.now(); ch = true; const msg = `${a.s.replace(/\.(NS|BO)$/, '')}: ${alDesc(a)} — now ${fmtP(isNum(p) ? p : a.trigP, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD').replace(/<[^>]+>/g, '')}`;
     try { if ('Notification' in window && Notification.permission === 'granted') { const n = new Notification('🔔 Price alert', { body: msg, icon: 'icon.svg', tag: key }); n.onclick = () => { focus(); openSym(a.s); }; } } catch { }
     setStatus('🔔 ' + esc(msg));
   });
@@ -41,8 +41,8 @@ function alertsLocalCheck() {
 }
 function alertDialog(sym, id) {
   const A = AL(), a = A.alerts.find(x => x.id === id) || { s: sym, type: 'above', v: '' }, d = $('#alDlg');
-  const [p] = curPrice(a.s); const ccy = a.s.endsWith('.NS') ? 'INR' : 'USD';
-  d.innerHTML = `<h2 style="margin-top:0">🔔 ${id ? 'Edit' : 'Set'} alert — ${esc(a.s.replace(/\.NS$/, ''))}</h2><p class="mut">Current price ${isNum(p) ? fmtP(p, ccy) : (CUR && CUR.symbol === a.s ? fmtP(CUR.price, ccy) : 'n/a')}</p>
+  const [p] = curPrice(a.s); const ccy = a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD';
+  d.innerHTML = `<h2 style="margin-top:0">🔔 ${id ? 'Edit' : 'Set'} alert — ${esc(a.s.replace(/\.(NS|BO)$/, ''))}</h2><p class="mut">Current price ${isNum(p) ? fmtP(p, ccy) : (CUR && CUR.symbol === a.s ? fmtP(CUR.price, ccy) : 'n/a')}</p>
   <label class="mut">Condition</label><select id="alT" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);font-size:15px;margin-bottom:8px">${Object.entries({ above: 'Price goes above', below: 'Price goes below', chgUp: "Day's change rises above +%", chgDn: "Day's change falls below −%" }).map(([k, l]) => `<option value="${k}" ${a.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
   <label class="mut">Value (${ccy === 'INR' ? '₹' : '$'} or %)</label><input type="text" inputmode="decimal" id="alV" value="${esc(a.v)}" placeholder="e.g. ${isNum(p) ? (p * 1.05).toFixed(0) : '100'}">
   <label class="mut" style="display:block;margin-top:8px">Note (optional)</label><input type="text" id="alN" value="${esc(a.note || '')}" maxlength="80">
@@ -61,8 +61,8 @@ async function showAlerts() {
   const v = $('#view'); $('#home').hidden = true; v.hidden = false; CUR = null; updFav(); navTo('#alerts');
   v.innerHTML = '<div class="card"><p class="mut">Loading alerts…</p></div>'; await alertsPull(); if (!QUOTES) await loadQuotes(false);
   const A = AL(), url = 'https://ntfy.sh/' + A.topic;
-  const row = a => { const ccy = a.s.endsWith('.NS') ? 'INR' : 'USD', [p] = curPrice(a.s);
-    return `<tr><td><a href="#" data-s="${esc(a.s)}">${esc(a.s.replace(/\.NS$/, ''))}</a>${a.note ? `<br><small class="mut">${esc(a.note)}</small>` : ''}</td><td>${alDesc(a)}</td><td>${isNum(p) ? fmtP(p, ccy) : '–'}</td>
+  const row = a => { const ccy = a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD', [p] = curPrice(a.s);
+    return `<tr><td><a href="#" data-s="${esc(a.s)}">${esc(a.s.replace(/\.(NS|BO)$/, ''))}</a>${a.note ? `<br><small class="mut">${esc(a.note)}</small>` : ''}</td><td>${alDesc(a)}</td><td>${isNum(p) ? fmtP(p, ccy) : '–'}</td>
     <td>${a.trig ? `<span style="color:var(--warn)">🔔 Triggered ${new Date(a.trig * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}${a.trigP ? ' @ ' + fmtP(a.trigP, ccy) : ''}</span><br><button class="btn sec" data-rearm="${a.id}" style="padding:3px 8px;font-size:12px">Re-arm</button>` : '<span class="up">● Armed</span>'}</td>
     <td><button class="btn sec" data-edit="${a.id}" style="padding:3px 8px;font-size:12px">Edit</button> <button class="btn sec" data-del="${a.id}" style="padding:3px 8px;font-size:12px">Delete</button></td></tr>`; };
   v.innerHTML = `<div class="card"><a href="#" id="aback" class="mut">← Back</a><h2 style="margin-top:6px">🔔 Price alerts <span class="mut">(${A.alerts.length})</span></h2>

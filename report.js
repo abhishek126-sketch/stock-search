@@ -199,7 +199,7 @@ function confidence(d, k, R) {
 }
 
 function reportSections(d, k, A) {
-  const R = buildReport(d, k, A), c = d.currency, P = d.price, f = d.fund || {}, pr = d.profile || {}, name = esc(d.name), base = esc(d.symbol.replace(/\.NS$/, ''));
+  const R = buildReport(d, k, A), c = d.currency, P = d.price, f = d.fund || {}, pr = d.profile || {}, name = esc(d.name), base = esc(d.symbol.replace(/\.(NS|BO)$/, ''));
   d._R = R; const T = R.T, S = R.S, sc = scenarios(d, k, R), X = cagrCalc(d, k, R), out = [];
   const sv = s => isNum(s) ? Math.round(s) + '/100' : 'n/a';
   // 1 Executive summary

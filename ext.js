@@ -6,7 +6,7 @@ async function ensureSummary() {
   try { const [s, m] = await Promise.all([getJSON(DATA + 'summary.json'), getJSON(DATA + 'market.json').catch(() => null)]); SUMMARY = s; MARKET = m; } catch (e) { SUMMARY = { rows: [], built: 0, err: e.message }; }
 }
 const median = a => { a = a.filter(isNum).sort((x, y) => x - y); if (!a.length) return; const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
-const mktOf = s => s.endsWith('.NS') || s.endsWith('.BSE') ? 'IN' : 'US';
+const mktOf = s => s.match(/\.(NS|BO)$/) || s.endsWith('.BSE') ? 'IN' : 'US';
 const isFinD = d => /financial/i.test(d.sector || '') && /bank|insur|credit|capital markets|mortgage|financial conglomerates|asset management/i.test(d.industry || d.sector || '') || /bank/i.test(d.industry || '');
 const fx = (v, d = 1) => isNum(v) ? v.toFixed(d) : '<span class="mut">n/a</span>';
 const pc = v => isNum(v) ? (v * 100).toFixed(0) + '%' : '<span class="mut">n/a</span>';
@@ -23,7 +23,7 @@ function peerRows(d) {
 }
 function peersSection(d) {
   const { rows, basis } = peerRows(d);
-  if (rows.length < 2) return sec('s-peers', '👥 Peer comparison', `<p>${NA} — no same-industry peers in the built-in list (${d.symbol.endsWith('.NS') ? 'NIFTY 500' : 'S&P 500'}).</p>`);
+  if (rows.length < 2) return sec('s-peers', '👥 Peer comparison', `<p>${NA} — no same-industry peers in the built-in list (${d.symbol.match(/\.(NS|BO)$/) ? 'NIFTY 500' : 'S&P 500'}).</p>`);
   const byM = rows.slice().sort((a, b) => (b.mcap || 0) - (a.mcap || 0)); const rank = byM.findIndex(r => r.s === d.symbol) + 1;
   let show = byM.slice(0, 12); if (rank > 12) show.push(byM[rank - 1]);
   const cols = [['p', 'Price', (v, r) => fmtP(v, r.c)], ['mcap', 'M.cap', (v, r) => fmtBig(v, r.c)], ['pe', 'P/E', v => fx(v)], ['pb', 'P/B', v => fx(v, 2)], ['roe', 'ROE', pc], ['roce', 'ROCE', pc], ['de', 'D/E', v => fx(v, 2)], ['revG', 'Rev CAGR', pc], ['niG', 'Profit CAGR', pc], ['r1y', '1Y ret', v => isNum(v) ? sgnPct(v) : '<span class="mut">n/a</span>']];
@@ -32,8 +32,8 @@ function peersSection(d) {
   return sec('s-peers', `👥 Peer comparison <span class="mut">(${rows.length} ${basis} peers)</span>`, `
   <p class="mut">Same ${basis}: <b>${esc(basis === 'industry' ? d.industry : d.sector)}</b> (Yahoo classification) within the app's ${mktOf(d.symbol) === 'IN' ? 'NIFTY 500' : 'S&P 500'} list. ${esc(d.name)} ranks <b>#${rank || '–'} of ${rows.length}</b> by market cap.</p>
   <div class="tw"><table class="pt"><tr><th>Company</th>${cols.map(c => `<th>${c[1]}</th>`).join('')}</tr>
-  ${show.map(r => `<tr class="${r.s === d.symbol ? 'hl' : ''}" data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.NS$/, ''))}<br><small class="mut">${esc((r.n || '').slice(0, 22))}</small></td>${cols.map(([k, , f]) => `<td>${f(r[k], r)}</td>`).join('')}</tr>`).join('')}
-  <tr class="rk"><td><b>${esc(d.symbol.replace(/\.NS$/, ''))} rank</b></td><td></td><td>#${rank}</td>${cols.slice(2).map(([k]) => `<td>${rk[k]}</td>`).join('')}</tr></table></div>
+  ${show.map(r => `<tr class="${r.s === d.symbol ? 'hl' : ''}" data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.(NS|BO)$/, ''))}<br><small class="mut">${esc((r.n || '').slice(0, 22))}</small></td>${cols.map(([k, , f]) => `<td>${f(r[k], r)}</td>`).join('')}</tr>`).join('')}
+  <tr class="rk"><td><b>${esc(d.symbol.replace(/\.(NS|BO)$/, ''))} rank</b></td><td></td><td>#${rank}</td>${cols.slice(2).map(([k]) => `<td>${rk[k]}</td>`).join('')}</tr></table></div>
   <p class="src">Ranks: lower P/E, P/B, D/E rank better; higher for the rest. Growth = multi-year CAGR from annual statements. Source: Yahoo Finance snapshot ${sumAsOf()}. Tap a row to open.</p>`);
 }
 
@@ -49,9 +49,9 @@ function sectorSection(d, k) {
   const me = SUMMARY.rows.find(r => r.s === d.symbol) || {};
   const line = (lbl, key, f, lowGood) => { const a = me[key], m = S[key]; const cmp = isNum(a) && isNum(m) ? ((lowGood ? a < m : a > m) ? '<span class="up">better</span>' : '<span class="dn">worse</span>') : ''; return `<tr><td>${lbl}</td><td>${f(a)}</td><td>${f(m)}</td><td>${cmp}</td></tr>`; };
   const by = S.rows.filter(r => isNum(r.r1y)).sort((a, b) => b.r1y - a.r1y);
-  const li = r => `<li><a href="#${encodeURIComponent(r.s)}" data-s="${esc(r.s)}">${esc(r.s.replace(/\.NS$/, ''))}</a> ${sgnPct(r.r1y)}</li>`;
+  const li = r => `<li><a href="#${encodeURIComponent(r.s)}" data-s="${esc(r.s)}">${esc(r.s.replace(/\.(NS|BO)$/, ''))}</a> ${sgnPct(r.r1y)}</li>`;
   return sec('s-sector', `🏭 Sector analysis <span class="mut">(${esc(d.sector)}, ${S.rows.length} stocks)</span>`, `
-  <div class="tw"><table><tr><th>Metric</th><th>${esc(d.symbol.replace(/\.NS$/, ''))}</th><th>Sector median</th><th></th></tr>
+  <div class="tw"><table><tr><th>Metric</th><th>${esc(d.symbol.replace(/\.(NS|BO)$/, ''))}</th><th>Sector median</th><th></th></tr>
   ${line('P/E', 'pe', v => fx(v), true)}${line('P/B', 'pb', v => fx(v, 2), true)}${line('ROE', 'roe', pc)}${line('ROCE', 'roce', pc)}${line('Debt/equity', 'de', v => fx(v, 2), true)}${line('Revenue CAGR', 'revG', pc)}${line('Profit CAGR', 'niG', pc)}${line('3M return', 'r3m', pc)}${line('1Y return', 'r1y', pc)}</table></div>
   <div class="grid two"><div><b>Top 1Y performers</b><ul>${by.slice(0, 5).map(li).join('')}</ul></div><div><b>Bottom 1Y performers</b><ul>${by.slice(-5).reverse().map(li).join('')}</ul></div></div>
   <button class="btn sec" data-sector="${esc(mktOf(d.symbol) + '|' + d.sector)}">Browse whole sector →</button>
@@ -110,7 +110,7 @@ function redFlagsSection(d, k) {
   // negative news count
   const nn = d.news && d.news.items ? d.news.items.filter(x => x.g.includes('neg')).length : undefined; if (isNum(nn)) add(nn >= 3 ? 'flag' : 'ok', 'Negative-keyword headlines (90 days)', `${nn} (flag if ≥ 3; unverified keyword tagging)`);
   const india = mktOf(d.symbol) === 'IN';
-  add('na', india ? 'Promoter pledge' : 'Insider pledging', india ? `not available from the free data source — check <a href="https://www.screener.in/company/${encodeURIComponent(d.symbol.replace(/\.NS$/, ''))}/consolidated/#shareholding" target="_blank" rel="noopener">Screener shareholding</a> or NSE shareholding filings.` : 'not available');
+  add('na', india ? 'Promoter pledge' : 'Insider pledging', india ? `not available from the free data source — check <a href="https://www.screener.in/company/${encodeURIComponent(d.symbol.replace(/\.(NS|BO)$/, ''))}/consolidated/#shareholding" target="_blank" rel="noopener">Screener shareholding</a> or NSE shareholding filings.` : 'not available');
   if (isNum(pr.insiders)) add('info', india ? 'Insider / promoter holding (Yahoo)' : 'Insider holding', `${(pr.insiders * 100).toFixed(1)}%`);
   add('na', 'Auditor changes / qualifications', 'not available from the free data source — check the annual report.');
   const flags = out.filter(x => x.st === 'flag').length, ic = { flag: '🚩', ok: '✅', na: '▫️', info: 'ℹ️' };
@@ -202,7 +202,7 @@ async function renderLists(tab) {
   if (tab === 'cap') return renderCaps(box);
   if (tab === 'cs') {
     const top = rows.filter(r => r.co >= 5).sort((a, b) => (b.cs / b.co) - (a.cs / a.co) || (b.rs || 0) - (a.rs || 0)).slice(0, 40);
-    box.innerHTML = mkb + `<div class="tw"><table class="pt"><tr><th>Stock</th><th>CANSLIM</th><th>RS</th><th>1Y</th><th>P/E</th><th>M.cap</th></tr>${top.map(r => `<tr data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.NS$/, ''))}<br><small class="mut">${esc((r.n || '').slice(0, 24))}</small></td><td><b>${r.cs}/${r.co}</b></td><td>${r.rs ?? '–'}</td><td>${isNum(r.r1y) ? sgnPct(r.r1y) : 'n/a'}</td><td>${fx(r.pe)}</td><td>${fmtBig(r.mcap, r.c)}</td></tr>`).join('')}</table></div><p class="src">Ranked by share of CANSLIM letters passed (stocks with ≥5 letters evaluable), then relative strength. Snapshot ${sumAsOf()}. Educational screen, not recommendations.</p>`;
+    box.innerHTML = mkb + `<div class="tw"><table class="pt"><tr><th>Stock</th><th>CANSLIM</th><th>RS</th><th>1Y</th><th>P/E</th><th>M.cap</th></tr>${top.map(r => `<tr data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.(NS|BO)$/, ''))}<br><small class="mut">${esc((r.n || '').slice(0, 24))}</small></td><td><b>${r.cs}/${r.co}</b></td><td>${r.rs ?? '–'}</td><td>${isNum(r.r1y) ? sgnPct(r.r1y) : 'n/a'}</td><td>${fx(r.pe)}</td><td>${fmtBig(r.mcap, r.c)}</td></tr>`).join('')}</table></div><p class="src">Ranked by share of CANSLIM letters passed (stocks with ≥5 letters evaluable), then relative strength. Snapshot ${sumAsOf()}. Educational screen, not recommendations.</p>`;
   } else {
     const secs = {}; rows.forEach(r => { if (r.sec) (secs[r.sec] = secs[r.sec] || []).push(r); });
     const list = Object.entries(secs).map(([s, a]) => ({ s, n: a.length, pe: median(a.map(r => r.pe).filter(v => v > 0)), r1y: median(a.map(r => r.r1y)), r3m: median(a.map(r => r.r3m)), g: median(a.map(r => r.revG)) })).sort((a, b) => (b.r1y ?? -9) - (a.r1y ?? -9));
@@ -211,26 +211,28 @@ async function renderLists(tab) {
   box.querySelectorAll('[data-mk]').forEach(b => b.onclick = () => { HOMEMK = b.dataset.mk; renderLists(tab); });
 }
 // ---- Browse by market-cap category ----
-const CAPS = [['All', 'All'], ['Large', 'Large cap', 'NIFTY 100'], ['Mid', 'Mid cap', 'NIFTY Midcap 150'], ['Small', 'Small cap', 'NIFTY Smallcap 250'], ['Micro', 'Micro cap', 'NIFTY Microcap 250'], ['US', 'US', 'S&P 500'], ['ETF-IN', 'ETF India', 'NSE-listed ETFs (official NSE list)'], ['ETF-US', 'ETF US', 'major US-listed ETFs']];
-const CAPCOL = { Large: '#1d4ed8', Mid: '#7c3aed', Small: '#b45309', Micro: '#be123c', US: '#0f766e', 'ETF-IN': '#0369a1', 'ETF-US': '#4d7c0f' };
+const CAPS = [['All', 'All'], ['Large', 'Large cap', 'NIFTY 100'], ['Mid', 'Mid cap', 'NIFTY Midcap 150'], ['Small', 'Small cap', 'NIFTY Smallcap 250'], ['Micro', 'Micro cap', 'NIFTY Microcap 250'], ['US', 'US', 'S&P 500'], ['ETF-IN', 'ETF India', 'NSE-listed ETFs (official NSE list)'], ['ETF-US', 'ETF US', 'major US-listed ETFs'], ['Penny', 'Penny', 'NSE/BSE stocks under ₹50']];
+const CAPCOL = { Large: '#1d4ed8', Mid: '#7c3aed', Small: '#b45309', Micro: '#be123c', US: '#0f766e', 'ETF-IN': '#0369a1', 'ETF-US': '#4d7c0f', Penny: '#a16207' };
+const PENNYWARN = `<div class="warnbox" style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 10px;margin:6px 0 8px;font-size:13px">⚠️ <b>Penny stocks are high-risk.</b> They often have <b>low liquidity</b> (hard to sell at a fair price), are <b>easy to manipulate</b> (pump-and-dump tips on social media), and many have weak finances. Check whether NSE/BSE has put the stock under <b>ASM/GSM surveillance</b> (shown as a red tag) before trading. Educational only — not investment advice.</div>`;
+const survTag = sv => `<span class="tag" style="background:#dc2626;color:#fff" title="${esc(sv)}">${esc(/GSM/.test(sv) ? 'GSM' : 'ASM')}</span>`;
 const capOf = s => { const r = SUMMARY && SUMMARY.rows.find(x => x.s === s); return r && r.cap || null; };
 function capBadge(cap) { const c = CAPS.find(x => x[0] === cap); return c ? `<span class="tag capb" style="background:${CAPCOL[cap]};color:#fff" title="${esc(c[2])} constituent">${cap === 'US' ? 'S&amp;P 500' : esc(c[1])}</span>` : ''; }
 let CAPF = LS.get('capf', 'All'), CAPSORT = LS.get('capsort', ['mcap', -1]), CAPQ = '', CAPN = 100;
 function liveRow(r) { const q = typeof QUOTES !== 'undefined' && QUOTES && QUOTES.q && QUOTES.q[r.s]; const [p, pc, , src, ck] = typeof prefQuote === 'function' ? prefQuote(r.s, q && isNum(q[0]) ? q[0] : r.p, q && isNum(q[1]) ? q[1] : r.pc, q && q[2]) : [q && isNum(q[0]) ? q[0] : r.p, q && isNum(q[1]) ? q[1] : r.pc]; return { ...r, src, ck, lp: p, dc: isNum(p) && isNum(pc) && pc ? p / pc - 1 : null, mc: isNum(r.mcap) && isNum(r.p) && isNum(p) && r.p ? r.mcap * p / r.p : r.mcap }; }
 async function renderCaps(box) {
   if (typeof QUOTES !== 'undefined' && !QUOTES && typeof loadQuotes === 'function') await loadQuotes(false);
-  const all = SUMMARY.rows.filter(r => r.cap), cnt = c => c === 'All' ? all.length : all.filter(r => r.cap === c).length;
-  let rows = all.filter(r => CAPF === 'All' || r.cap === CAPF).map(liveRow);
+  const all = SUMMARY.rows.filter(r => r.cap), inC = (r, c) => c === 'All' || (c === 'Penny' ? r.pn : r.cap === c), cnt = c => c === 'All' ? all.length : all.filter(r => inC(r, c)).length;
+  let rows = all.filter(r => inC(r, CAPF)).map(liveRow);
   const ql = CAPQ.toLowerCase(); if (ql) rows = rows.filter(r => r.s.toLowerCase().includes(ql) || (r.n || '').toLowerCase().includes(ql));
   const [k, dir] = CAPSORT, val = r => k === 'n' ? (r.n || r.s).toLowerCase() : k === 'p' ? r.lp : k === 'dc' ? r.dc : (isNum(r.mc) && r.c === 'INR' ? r.mc / 88 : r.mc);  // rough ₹→$ (≈88) so 'All' ranks Indian and US caps together
   rows.sort((a, b) => { const x = val(a), y = val(b); if (x == null || (typeof x === 'number' && !isFinite(x))) return 1; if (y == null || (typeof y === 'number' && !isFinite(y))) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
   const th = (key, lbl) => `<th data-sort="${key}" style="cursor:pointer;user-select:none">${lbl}${k === key ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
   const shown = rows.slice(0, CAPN), cinfo = CAPS.find(x => x[0] === CAPF);
-  box.innerHTML = `<div class="tabs" id="capf">${CAPS.map(([c, l]) => `<button data-cap="${c}" class="${c === CAPF ? 'on' : ''}">${c === 'US' ? '🇺🇸 US' : c === 'ETF-IN' ? '🇮🇳 ETF India' : c === 'ETF-US' ? '🇺🇸 ETF US' : l} <small>${cnt(c)}</small></button>`).join('')}</div>
-  <input type="text" id="capq" placeholder="Filter by name or symbol…" value="${esc(CAPQ)}" style="margin-bottom:8px">
-  <div class="tw"><table class="pt" id="capt"><tr>${th('n', 'Stock')}${th('p', 'Price')}${th('dc', 'Day %')}${th('mc', CAPF.startsWith('ETF') ? 'AUM' : CAPF === 'All' ? 'M.cap / AUM' : 'M.cap')}</tr>${shown.map(r => `<tr data-s="${esc(r.s)}"><td style="white-space:normal">${esc((r.n || r.s).slice(0, 34))} ${CAPF === 'All' ? capBadge(r.cap) : ''}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}</small></td><td>${fmtP(r.lp, r.c)}${r.ck && r.ck.st ? (r.ck.st === 'ok' ? ' <span class="up" title="matches ' + esc(r.ck.src) + '">✔</span>' : ' <span style="color:var(--warn)" title="Yahoo and ' + esc(r.ck.src) + ' differ by ' + (r.ck.d * 100).toFixed(1) + '%; showing ' + esc(r.src) + '\'s price">⚠</span>') : ''}</td><td>${isNum(r.dc) ? `<span class="${r.dc >= 0 ? 'up' : 'dn'}">${r.dc >= 0 ? '+' : ''}${(r.dc * 100).toFixed(2)}%</span>` : '<span class="mut">–</span>'}</td><td>${fmtBig(r.mc, r.c)}</td></tr>`).join('')}</table></div>
+  box.innerHTML = `<div class="tabs" id="capf">${CAPS.map(([c, l]) => `<button data-cap="${c}" class="${c === CAPF ? 'on' : ''}">${c === 'US' ? '🇺🇸 US' : c === 'ETF-IN' ? '🇮🇳 ETF India' : c === 'ETF-US' ? '🇺🇸 ETF US' : c === 'Penny' ? '⚠️ Penny' : l} <small>${cnt(c)}</small></button>`).join('')}</div>
+  ${CAPF === 'Penny' ? PENNYWARN : ''}<input type="text" id="capq" placeholder="Filter by name or symbol…" value="${esc(CAPQ)}" style="margin-bottom:8px">
+  <div class="tw"><table class="pt" id="capt"><tr>${th('n', 'Stock')}${th('p', 'Price')}${th('dc', 'Day %')}${th('mc', CAPF.startsWith('ETF') ? 'AUM' : CAPF === 'All' ? 'M.cap / AUM' : 'M.cap')}</tr>${shown.map(r => `<tr data-s="${esc(r.s)}"><td style="white-space:normal">${esc((r.n || r.s).slice(0, 34))} ${CAPF === 'All' ? capBadge(r.cap) : ''}${r.sv ? survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}</small></td><td>${fmtP(r.lp, r.c)}${r.ck && r.ck.st ? (r.ck.st === 'ok' ? ' <span class="up" title="matches ' + esc(r.ck.src) + '">✔</span>' : ' <span style="color:var(--warn)" title="Yahoo and ' + esc(r.ck.src) + ' differ by ' + (r.ck.d * 100).toFixed(1) + '%; showing ' + esc(r.src) + '\'s price">⚠</span>') : ''}</td><td>${isNum(r.dc) ? `<span class="${r.dc >= 0 ? 'up' : 'dn'}">${r.dc >= 0 ? '+' : ''}${(r.dc * 100).toFixed(2)}%</span>` : '<span class="mut">–</span>'}</td><td>${fmtBig(r.mc, r.c)}</td></tr>`).join('')}</table></div>
   ${rows.length > shown.length ? `<p style="text-align:center"><button class="btn sec" id="capMore">Show all ${rows.length}</button></p>` : ''}
-  <p class="src">${rows.length} ${CAPF.startsWith('ETF') ? 'ETFs' : CAPF === 'All' ? 'stocks & ETFs' : 'stocks'}${cinfo && cinfo[2] ? ' · ' + cinfo[2] + ' ' + (CAPF.startsWith('ETF') ? '' : 'constituents (official NSE lists)') : ''}. Tap a column to sort, a row to open. Prices from the latest quotes refresh${typeof QUOTES !== 'undefined' && QUOTES && QUOTES.built ? ' (' + tIST(QUOTES.built) + ' IST)' : ''}; market cap scaled to live price from snapshot ${sumAsOf()}.</p>`;
+  <p class="src">${rows.length} ${CAPF.startsWith('ETF') ? 'ETFs' : CAPF === 'All' ? 'stocks & ETFs' : 'stocks'}${cinfo && cinfo[2] ? ' · ' + cinfo[2] + ' ' + (CAPF.startsWith('ETF') ? '' : CAPF === 'Penny' ? '(NSE + BSE-only, traded on the latest session; membership re-checked every full refresh)' : 'constituents (official NSE lists)') : ''}. Tap a column to sort, a row to open. Prices from the latest quotes refresh${typeof QUOTES !== 'undefined' && QUOTES && QUOTES.built ? ' (' + tIST(QUOTES.built) + ' IST)' : ''}; market cap scaled to live price from snapshot ${sumAsOf()}.</p>`;
   box.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { CAPF = b.dataset.cap; LS.set('capf', CAPF); CAPN = 100; renderCaps(box); });
   box.querySelectorAll('[data-sort]').forEach(t => t.onclick = () => { const kk = t.dataset.sort; CAPSORT = [kk, CAPSORT[0] === kk ? -CAPSORT[1] : (kk === 'n' ? 1 : -1)]; LS.set('capsort', CAPSORT); renderCaps(box); });
   const mb = box.querySelector('#capMore'); if (mb) mb.onclick = () => { CAPN = 1e9; renderCaps(box); };
@@ -240,11 +242,11 @@ async function openSector(key) {
   await ensureSummary(); const [mk, s] = key.split('|'); const S = sectorStats(mk, s);
   $('#home').hidden = true; const v = $('#view'); v.hidden = false; CUR = null; updFav(); navTo('#sector:' + encodeURIComponent(key));
   const rows = S.rows.slice().sort((a, b) => (b.mcap || 0) - (a.mcap || 0)), by = rows.filter(r => isNum(r.r1y)).sort((a, b) => b.r1y - a.r1y);
-  const li = r => `<li><a href="#" data-s="${esc(r.s)}">${esc(r.s.replace(/\.NS$/, ''))}</a> ${sgnPct(r.r1y)}</li>`;
+  const li = r => `<li><a href="#" data-s="${esc(r.s)}">${esc(r.s.replace(/\.(NS|BO)$/, ''))}</a> ${sgnPct(r.r1y)}</li>`;
   v.innerHTML = `<div class="card"><a href="#" id="back" class="mut">← Back</a><h2 style="margin-top:6px">🏭 ${esc(s)} <span class="mut">${mk === 'IN' ? 'NSE' : 'US'} · ${rows.length} stocks</span></h2>
   <div class="kv"><div><span>Median P/E</span><b>${fx(S.pe)}</b></div><div><span>Median P/B</span><b>${fx(S.pb, 2)}</b></div><div><span>Median ROE</span><b>${pc(S.roe)}</b></div><div><span>Median revenue CAGR</span><b>${pc(S.revG)}</b></div><div><span>Median profit CAGR</span><b>${pc(S.niG)}</b></div><div><span>Median 1Y return</span><b>${isNum(S.r1y) ? sgnPct(S.r1y) : NA}</b></div></div>
   <div class="grid two" style="margin-top:8px"><div><b>Top 1Y performers</b><ul>${by.slice(0, 5).map(li).join('')}</ul></div><div><b>Bottom 1Y performers</b><ul>${by.slice(-5).reverse().map(li).join('')}</ul></div></div></div>
-  <div class="card"><div class="tw"><table class="pt"><tr><th>Stock</th><th>Industry</th><th>M.cap</th><th>P/E</th><th>ROE</th><th>Rev CAGR</th><th>1Y</th><th>CANSLIM</th></tr>${rows.map(r => `<tr data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.NS$/, ''))}</td><td style="white-space:normal;text-align:left"><small>${esc(r.ind)}</small></td><td>${fmtBig(r.mcap, r.c)}</td><td>${fx(r.pe)}</td><td>${pc(r.roe)}</td><td>${pc(r.revG)}</td><td>${isNum(r.r1y) ? sgnPct(r.r1y) : 'n/a'}</td><td>${r.cs}/${r.co}</td></tr>`).join('')}</table></div>
+  <div class="card"><div class="tw"><table class="pt"><tr><th>Stock</th><th>Industry</th><th>M.cap</th><th>P/E</th><th>ROE</th><th>Rev CAGR</th><th>1Y</th><th>CANSLIM</th></tr>${rows.map(r => `<tr data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.(NS|BO)$/, ''))}</td><td style="white-space:normal;text-align:left"><small>${esc(r.ind)}</small></td><td>${fmtBig(r.mcap, r.c)}</td><td>${fx(r.pe)}</td><td>${pc(r.roe)}</td><td>${pc(r.revG)}</td><td>${isNum(r.r1y) ? sgnPct(r.r1y) : 'n/a'}</td><td>${r.cs}/${r.co}</td></tr>`).join('')}</table></div>
   <p class="src">Source: Yahoo Finance snapshot ${sumAsOf()}. Educational, not investment advice.</p></div>`;
   $('#back').onclick = e => { e.preventDefault(); goHome(); };
   window.scrollTo(0, 0);

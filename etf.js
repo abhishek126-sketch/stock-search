@@ -8,7 +8,7 @@ Object.assign(GL, {
   prem: ['Premium / discount to NAV', 'How far the market price is above (premium) or below (discount) the NAV. Large gaps mean you may overpay or get less when selling.', 'Price ₹270, NAV ₹267 → 1.1% premium.'],
   ytd: ['YTD (year to date)', 'Return since 1 January of this year.', 'Up 8% YTD = 8% higher than on 1 Jan.'],
 });
-const etfMkt = d => d.symbol.endsWith('.NS') ? 'IN' : 'US';
+const etfMkt = d => d.symbol.match(/\.(NS|BO)$/) ? 'IN' : 'US';
 function etfKeyCard(d, k) {
   const e = d.etf || {}, c = d.currency, r = (v, src) => isNum(v) ? sgnPct(v) + (src ? ' <small class="mut">(price)</small>' : '') : NA;
   return `<div class="card"><h2>ETF facts${gq('etf')}</h2><div class="kv">

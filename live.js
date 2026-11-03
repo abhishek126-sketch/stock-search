@@ -32,7 +32,7 @@ function applyCheck(d) {
 }
 const dPlain = iso => iso ? new Date(iso + (iso.length === 10 ? 'T12:00:00Z' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 function srcLine(d) {
-  const c = d.check, ccy = d.currency, us = !/\.NS$/.test(d.symbol);
+  const c = d.check, ccy = d.currency, us = !/\.(NS|BO)$/.test(d.symbol);
   const what = c ? (c.src === 'NSE' ? (c.mode === 'live' ? "NSE's live price" : "NSE's official closing price for " + dPlain(istDay(c.t))) : "Finnhub's price") : '';
   if (!c || !c.st) return `<div class="mut">Price from Yahoo Finance. ${us ? (CHECK && CHECK.fh && CHECK.fh.mode === 'no-key' ? 'Not double-checked (US price check is off until a Finnhub key is added).' : 'Not double-checked yet — US stocks are checked a few at a time.') : 'Not double-checked yet.'}</div>`;
   if (c.st === 'ok') return `<div class="mut">Price from Yahoo Finance · <span class="up">✔ matches</span> ${what} (${fmtP(c.p, ccy)}).</div>`;
@@ -46,7 +46,7 @@ function renderCheck() {
   const nseTxt = n.mode === 'live' ? `Indian prices are double-checked against NSE's live prices (${n.n} stocks).` : n.mode === 'eod' ? `Indian prices are double-checked against NSE's official closing prices (last check: ${dPlain(n.date)}, ${n.n} stocks). Live prices come from Yahoo every 5 minutes.` : "Indian price check: NSE couldn't be reached this time; prices come from Yahoo.";
   const fhTxt = f.mode === 'live' ? `US prices are double-checked against Finnhub, a few stocks at a time (${nUs} checked in the last day).` : f.mode === 'no-key' ? 'US price check: off until a Finnhub key is added.' : "US price check: Finnhub isn't responding right now.";
   const mmTxt = mm.length ? `${mm.length} stock${mm.length > 1 ? 's' : ''} differ by more than 1% between sources — for Indian stocks we show NSE's price.` : 'All checked prices agree (within 1%).';
-  const row = s => { const c = S[s]; return `<tr data-s="${esc(s)}"><td>${esc(s.replace(/\.NS$/, ''))}</td><td>${esc(c.src)}</td><td>${fmtP(c.p, s.endsWith('.NS') ? 'INR' : 'USD')}</td><td>${(c.d * 100).toFixed(1)}%</td></tr>`; };
+  const row = s => { const c = S[s]; return `<tr data-s="${esc(s)}"><td>${esc(s.replace(/\.(NS|BO)$/, ''))}</td><td>${esc(c.src)}</td><td>${fmtP(c.p, s.match(/\.(NS|BO)$/) ? 'INR' : 'USD')}</td><td>${(c.d * 100).toFixed(1)}%</td></tr>`; };
   el.innerHTML = `<h2>🔎 Data check <span class="mut">(${CHECK.nOk} ✔ match · ${mm.length} ⚠ differ)</span></h2><p class="mut">${nseTxt}<br>${fhTxt}<br>${mmTxt}<br>Last checked ${tIST(CHECK.built)} IST.</p>
   ${mm.length ? `<details><summary class="mut">Show the ${mm.length} stocks that differ</summary><div class="tw"><table class="pt"><tr><th>Stock</th><th>Checked against</th><th>Their price</th><th>Gap vs Yahoo</th></tr>${mm.map(row).join('')}</table></div></details>` : ''}`;
   el.querySelectorAll('[data-s]').forEach(r => r.onclick = () => openSym(r.dataset.s));

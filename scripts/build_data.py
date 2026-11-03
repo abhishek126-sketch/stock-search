@@ -88,6 +88,70 @@ def nse_list(fn):
     return [(r['Symbol'].strip(), r['Company Name'].strip(), r['Industry'].strip()) for r in rows if (r.get('Symbol') or '').strip() and not r['Symbol'].strip().upper().startswith('DUMMY')]  # NSE placeholder rows
 
 CAP, ETFMETA = {}, {}
+
+# ---- Penny stocks: every NSE/BSE equity under Rs 50 that traded on the latest session (official bhavcopies) ----
+PENNY, SURV = {}, {}   # sym -> {'src','series','isin','close'}; sym/ISIN -> surveillance label
+NSE_PS, BSE_GRP = ('EQ', 'BE', 'BZ', 'SM', 'ST'), ('A', 'B', 'T', 'X', 'XT', 'Z', 'M', 'MT', 'MS')
+def _latest(urlf, minsize=50000):
+    for i in range(8):
+        dt = time.gmtime(time.time() + 19800 - 86400 * i)
+        try:
+            raw = get(urlf(dt), tries=2)
+            if len(raw) > minsize: return raw.decode('utf-8', 'ignore'), time.strftime('%Y-%m-%d', dt)
+        except Exception: pass
+    raise RuntimeError('no bhavcopy found')
+def surveillance():
+    for fn, lab in (('Long_Term_ASM.csv', 'ASM (long-term)'), ('Short_Term_ASM.csv', 'ASM (short-term)'), ('GSM.csv', 'GSM')):
+        try:
+            txt = get('https://nsearchives.nseindia.com/invest/content/' + fn).decode('utf-8-sig', 'ignore').replace('\r', '')
+            rows = list(csv.reader(io.StringIO(txt)))
+            hi = next(i for i, r in enumerate(rows) if any('SYMBOL' in c.upper() for c in r))
+            hdr = [c.strip().upper() for c in rows[hi]]
+            cs, ci = next(i for i, c in enumerate(hdr) if c.startswith('SYMBOL')), next((i for i, c in enumerate(hdr) if c.startswith('ISIN')), None)
+            cg = next((i for i, c in enumerate(hdr) if 'STAGE' in c), None)
+            n = 0
+            for r in rows[hi + 1:]:
+                if len(r) <= cs or not r[cs].strip() or r[cs].startswith('-'): continue
+                st = r[cg].strip() if cg is not None and len(r) > cg else ''
+                l = lab + (' ' + st if st else ''); n += 1
+                for k in filter(None, (r[cs].strip() + '.NS', r[ci].strip() if ci is not None and len(r) > ci else '')):
+                    SURV[k] = SURV[k] + ' + ' + l if k in SURV and l not in SURV[k] else l
+            print('surveillance', fn, n)
+        except Exception as e: print('surveillance fail', fn, str(e)[:80])
+def penny(have):
+    out = []
+    try:
+        surveillance()
+        eq = {}
+        try:
+            for r in csv.DictReader(io.StringIO(get('https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv').decode('utf-8-sig', 'ignore'))):
+                r = {k.strip(): (v or '').strip() for k, v in r.items() if k}; eq[r.get('SYMBOL')] = (r.get('NAME OF COMPANY'), r.get('ISIN NUMBER'))
+        except Exception as e: print('EQUITY_L fail', e)
+        raw, dn = _latest(lambda t: 'https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_' + time.strftime('%d%m%Y', t) + '.csv')
+        nse_isin, nn = set(), 0
+        for r in csv.DictReader(io.StringIO(raw)):
+            r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
+            nm, isin = eq.get(r['SYMBOL'], (None, None)); isin and nse_isin.add(isin)
+            if r['SERIES'] not in NSE_PS: continue
+            try: c, v = float(r['CLOSE_PRICE']), int(float(r['TTL_TRD_QNTY'] or 0))
+            except ValueError: continue
+            sym = r['SYMBOL'] + '.NS'
+            if c >= 50 or v <= 0 or sym in PENNY: continue
+            PENNY[sym] = {'src': 'NSE', 'series': r['SERIES'], 'isin': isin, 'close': c, 'date': dn}
+            if sym not in have: have.add(sym); CAP[sym] = 'Penny'; out.append((sym, nm or r['SYMBOL'], '')); nn += 1
+        raw, db = _latest(lambda t: 'https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_' + time.strftime('%Y%m%d', t) + '_F_0000.CSV')
+        nb = 0
+        for r in csv.DictReader(io.StringIO(raw)):
+            if r.get('FinInstrmTp') != 'STK' or r.get('SctySrs') not in BSE_GRP or r.get('ISIN') in nse_isin: continue
+            try: c, v = float(r['ClsPric']), int(float(r['TtlTradgVol'] or 0))
+            except ValueError: continue
+            sym = r['TckrSymb'].strip() + '.BO'
+            if c >= 50 or v <= 0 or sym in have: continue
+            have.add(sym); CAP[sym] = 'Penny'; PENNY[sym] = {'src': 'BSE', 'series': r['SctySrs'], 'isin': r['ISIN'], 'close': c, 'date': db}
+            out.append((sym, r['FinInstrmNm'].strip().title(), '')); nb += 1
+        print('penny NSE', nn, 'BSE-only', nb, 'already covered', sum(1 for k in PENNY if CAP.get(k) != 'Penny'), 'bhav', dn, db)
+    except Exception as e: print('penny fail', e)
+    return out
 def universe():
     u, have = [], set()
     for cap, fn in CAPS_IN:  # NIFTY 100 / Midcap 150 / Smallcap 250 (= NIFTY 500) + Microcap 250; first tag wins
@@ -129,6 +193,7 @@ def universe():
         if t not in have: have.add(t); CAP[t] = 'ETF-US'; u.append((t, t, 'ETF'))
     print('ETFs', sum(1 for v in CAP.values() if v == 'ETF-IN'), sum(1 for v in CAP.values() if v == 'ETF-US'))
     u += [(s, s, '') for s in EXTRA_US if s not in have]
+    u += penny(have)
     if os.environ.get('LIMIT'): u = [x for x in u if x[0] in os.environ['LIMIT'].split(',')] or u[:int(os.environ['LIMIT'])]
     return u
 
@@ -254,7 +319,7 @@ def fx_rate(a, b):
         except Exception as e: print('fx fail', a, b, e); FX[(a, b)] = None
     return FX[(a, b)]
 
-def fetch(sym, name, sector):
+def fetch(sym, name, sector, prev=None):
     q = urllib.parse.quote(sym)
     ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
     m = ch['meta']; ts = ch.get('timestamp') or []; qd = ch['indicators']['quote'][0]; cl = qd.get('close') or []; vo = qd.get('volume') or []
@@ -266,6 +331,10 @@ def fetch(sym, name, sector):
         upv = sum(v for (p0, _), (c, v) in zip(cv, cv[1:]) if c > p0); dnv = sum(v for (p0, _), (c, v) in zip(cv, cv[1:]) if c < p0)
         vol = {'avg50': round(sum(v for _, v in cv[1:]) / (len(cv) - 1)), 'last': cv[-1][1], 'udr': round(upv / dnv, 3) if dnv else None}
     now = int(time.time())
+    if prev:  # light refresh: new prices/history, keep the day-old fundamentals, news and analysts
+        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now})
+        if len(hist) >= 2: prev['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (prev['price'] or 0)) < 1e-6 else hist[-1][1]
+        return prev
     fu = json.loads(get(f'https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{q}?type={TYPES}&period1={now-6*365*86400}&period2={now+86400}'))
     fund, fccy = {}, {}
     for r in fu['timeseries']['result']:
@@ -375,17 +444,23 @@ def main():
     for key, s in (('IN', '^NSEI'), ('US', '^GSPC')):
         try: mkt[key] = idx_stats(s)
         except Exception as e: print('index fail', s, e)
-    u = universe(); print('universe', len(u))
+    u = universe(); print('universe', len(u)); now0 = time.time()
     docs, fails = {}, []
     def job(x):
-        try: docs[x[0]] = (fetch_etf if CAP.get(x[0], '').startswith('ETF') else fetch)(*x)
+        try:
+            if CAP.get(x[0]) == 'Penny':  # penny: full fundamentals at most once a day, otherwise price history only
+                pf = os.path.join(OUT, 's', x[0] + '.json'); prev = None
+                try: prev = json.load(open(pf)) if os.path.exists(pf) else None
+                except Exception: prev = None
+                docs[x[0]] = fetch(*x, prev=prev if prev and prev.get('fund') is not None and now0 - prev.get('fetched', 0) < 20 * 3600 else None)
+            else: docs[x[0]] = (fetch_etf if CAP.get(x[0], '').startswith('ETF') else fetch)(*x)
         except Exception as e: fails.append(x[0]); print('fail', x[0], e)
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
     K = {s: metrics(d) for s, d in docs.items()}
     # relative strength rank (O'Neil-style weighting) within each market
     rsr = {}
     for mk in ('IN', 'US'):
-        sc = {s: 0.4 * k['r3m'] + 0.2 * k.get('r6m', k['r3m']) + 0.4 * k.get('r1y', k.get('r6m', k['r3m'])) for s, k in K.items() if 'r3m' in k and s.endswith('.NS') == (mk == 'IN') and not docs[s].get('etf')}
+        sc = {s: 0.4 * k['r3m'] + 0.2 * k.get('r6m', k['r3m']) + 0.4 * k.get('r1y', k.get('r6m', k['r3m'])) for s, k in K.items() if 'r3m' in k and s.endswith(('.NS', '.BO')) == (mk == 'IN') and not docs[s].get('etf')}
         order = sorted(sc, key=sc.get)
         for i, s in enumerate(order): rsr[s] = round(1 + 98 * i / max(1, len(order) - 1))
     rows = []
@@ -396,12 +471,15 @@ def main():
             if et.get('aum'): K[s]['mcap'] = et['aum']
             K[s].update({'er': et.get('er'), 'prem': et.get('prem')})
         else: d['canslim'] = canslim(d, K[s], mkt, rsr); d['metrics'] = K[s]
+        pm = PENNY.get(s) or ({} if not (s.endswith(('.NS', '.BO')) and isinstance(d.get('price'), (int, float)) and d['price'] < 50 and not et) else {'src': 'NSE' if s.endswith('.NS') else 'BSE'})
+        d['penny'] = {**pm, 'surv': SURV.get(s) or SURV.get(pm.get('isin') or '-')} if pm else None
         with open(os.path.join(OUT, 's', s + '.json'), 'w') as fh: json.dump(d, fh, separators=(',', ':'))
         k = K[s]; nw = d.get('news') or {}; pr = d.get('profile') or {}
         if not et: k = {**k, 'gm': pr.get('grossMargins'), 'om': pr.get('opMargins')}
         rows.append({'s': s, 'n': d['name'], 'x': d['exchange'] or '', 'sec': '' if et else (d['sector'] or ''), 'ind': d.get('industry') or '', 'p': d['price'], 'pc': d.get('prevClose'), 'c': d['currency'], 'cap': CAP.get(s),
                      **k, 'cs': d['canslim']['score'], 'co': d['canslim']['of'], 'rs': rsr.get(s), 'an': 1 if d.get('analyst') else 0,
-                     'nn': len(nw.get('items', [])), 'neg': sum(1 for i in nw.get('items', []) if 'neg' in i['g'])})
+                     'nn': len(nw.get('items', [])), 'neg': sum(1 for i in nw.get('items', []) if 'neg' in i['g']),
+                     **({'pn': 1, 'sv': (d['penny'].get('surv') or '')[:40]} if d.get('penny') else {})})
     idxf = os.path.join(OUT, 'index.json'); prev = {}
     if os.path.exists(idxf): prev = {r[0]: r for r in json.load(open(idxf)).get('symbols', [])}
     secl = lambda r: r['sec'] or (('ETF · ' + r['ind']) if r['ind'] else 'ETF') if (r.get('cap') or '').startswith('ETF') else r['sec']

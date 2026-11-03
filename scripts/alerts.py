@@ -50,7 +50,7 @@ def check():
             if p is None: continue
             ok, chg = hit(a, p, pc)
             if not ok: continue
-            name = a['s'].replace('.NS', ''); ccy = '₹' if a['s'].endswith('.NS') else '$'
+            name = a['s'].replace('.NS', '').replace('.BO', ''); ccy = '₹' if a['s'].endswith(('.NS', '.BO')) else '$'
             cond = f"{DESC[a['type']]}{a['v']}%" if a['type'].startswith('chg') else f"{DESC[a['type']]} {ccy}{a['v']}"
             body = f"{name} {cond}: now {ccy}{p:,.2f} ({chg:+.2f}% today, {src})" + (f" — {a['note']}" if a.get('note') else '')
             if topic:

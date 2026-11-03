@@ -78,7 +78,7 @@ async function loadAV(sym) {
   LS.set(ck, { t: Date.now(), d }); return d;
 }
 async function liveQuote() {
-  if (!CUR) return; const s = CUR.symbol.endsWith('.NS') ? CUR.symbol.replace('.NS', '.BSE') : CUR.symbol;
+  if (!CUR) return; const s = CUR.symbol.match(/\.(NS|BO)$/) ? CUR.symbol.replace('.NS', '.BSE') : CUR.symbol;
   const b = $('#liveBtn'); b.disabled = true; b.textContent = 'Fetching…';
   try {
     const g = (await av({ function: 'GLOBAL_QUOTE', symbol: s }))['Global Quote'] || {};
@@ -93,7 +93,7 @@ let sugIdx = -1;
 function search(q) {
   q = q.trim().toUpperCase(); if (!q) return [];
   const out = [];
-  for (const r of INDEX) { const s = r[0].toUpperCase(), base = s.replace(/\.NS$/, ''), n = r[1].toUpperCase();
+  for (const r of INDEX) { const s = r[0].toUpperCase(), base = s.replace(/\.(NS|BO)$/, ''), n = r[1].toUpperCase();
     let sc = base === q ? 100 : s === q ? 99 : base.startsWith(q) ? 80 - base.length : n.startsWith(q) ? 60 : n.includes(' ' + q) ? 45 : n.includes(q) || s.includes(q) ? 30 : 0;
     if (sc) out.push([sc, r]); }
   return out.sort((a, b) => b[0] - a[0]).slice(0, 12).map(x => x[1]);
@@ -101,7 +101,7 @@ function search(q) {
 let avTimer;
 function showSug() {
   const q = $('#q').value, list = search(q), el = $('#sug'); sugIdx = -1;
-  let h = list.map(r => `<div data-s="${esc(r[0])}"><b>${esc(r[0].replace(/\.NS$/, ''))}</b> ${esc(r[1])}<br><small>${esc(r[2])}${r[3] ? ' · ' + esc(r[3]) : ''}</small></div>`).join('');
+  let h = list.map(r => `<div data-s="${esc(r[0])}"><b>${esc(r[0].replace(/\.(NS|BO)$/, ''))}</b> ${esc(r[1])}<br><small>${esc(r[2])}${r[3] ? ' · ' + esc(r[3]) : ''}</small></div>`).join('');
   if (q.trim() && LS.get('avkey', '')) h += `<div data-av="${esc(q.trim())}"><small>🔎 Search more (BSE / other US) via Alpha Vantage for “${esc(q.trim())}”</small></div>`;
   else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (NIFTY 500 + Microcap 250 + S&P 500 + ETFs). Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
   el.innerHTML = h; el.style.display = h ? 'block' : 'none';
@@ -276,7 +276,7 @@ function analyse(d, k) {
 function extLinks(d) {
   const a = (u, t) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener">${t} ↗</a>`;
   const nm = (d.name || '').replace(/\b(limited|ltd\.?|inc\.?|corporation|corp\.?)\s*$/i, '').trim();
-  if (d.symbol.endsWith('.NS')) { const sym = d.symbol.slice(0, -3);
+  if (d.symbol.match(/\.(NS|BO)$/)) { const sym = d.symbol.slice(0, -3);
     return a(`https://www.screener.in/company/${encodeURIComponent(sym)}/consolidated/`, 'Open in Screener') +
       a(`https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data=&cid=&mbsearch_str=&topsearch_type=1&search_str=${encodeURIComponent(nm || sym)}`, 'Open in Moneycontrol'); }
   if (d.symbol.endsWith('.BSE')) { const c = d.symbol.slice(0, -4);
@@ -337,7 +337,7 @@ function drawChart() {
 // ---------- render ----------
 function render() {
   const d = CUR, k = compute(d), A = d.etf ? null : analyse(d, k), c = d.currency, v = $('#view'); updFav(); const RPT = d.etf ? { html: etfBody(d, k), R: null } : fullReport(d, k, A);
-  const base = d.symbol.replace(/\.NS$/, '');
+  const base = d.symbol.replace(/\.(NS|BO)$/, '');
   const scoreRow = (n, s) => `<div class="score"><span class="l">${n}</span><span class="bar"><i style="width:${isNum(s) ? s * 10 : 0}%;background:${!isNum(s) ? '#cbd5e1' : s >= 7 ? '#16a34a' : s >= 4.5 ? '#eab308' : '#dc2626'}"></i></span><span class="v">${isNum(s) ? s.toFixed(1) + '/10' : '<span class="mut">n/a</span>'}</span></div>`;
   const q = k.quarters, unit = c === 'INR' ? 'Cr' : 'M', div = c === 'INR' ? 1e7 : 1e6;
   const qn = x => isNum(x) ? (x / div).toLocaleString(c === 'INR' ? 'en-IN' : 'en-US', { maximumFractionDigits: 0 }) : '<span class="mut">n/a</span>';
@@ -363,9 +363,10 @@ function render() {
   </div>`;
   v.innerHTML = `
   <div class="card"><a href="#" id="back" class="mut">← Back</a>
-   <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span>${typeof capBadge === 'function' ? capBadge(d.cap || capOf(d.symbol)) : ''} <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
+   <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span>${typeof capBadge === 'function' ? capBadge(d.cap || capOf(d.symbol)) : ''}${d.penny ? `<span class="tag capb" style="background:#a16207;color:#fff">Penny</span>${d.penny.surv ? survTag(d.penny.surv) : ''}` : ''} <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
    <div style="margin-top:4px"><span class="px">${fmtP(d.price, c)}</span><span class="chg ${k.chg >= 0 ? 'up' : 'dn'}">${isNum(k.chg) ? (k.chg >= 0 ? '▲ +' : '▼ ') + k.chg.toFixed(2) + ' (' + (k.chgPct * 100).toFixed(2) + '%)' : ''}</span></div>
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
+   ${d.penny ? PENNYWARN.replace('(shown as a red tag)', d.penny.surv ? `— <b>this stock is currently flagged: ${esc(d.penny.surv)}</b> (NSE list)` : d.penny.src === 'BSE' ? '— ASM/GSM status for BSE-only stocks is not available here; check bseindia.com' : '— not on NSE\'s current ASM/GSM lists') : ''}
    ${typeof srcLine === 'function' ? srcLine(d) : ''}
    <div class="links">${extLinks(d)}</div>
    <button class="btn sec" id="alBtn" style="margin-top:8px">🔔 Set alert</button>${(AL().alerts || []).some(a => a.s === d.symbol) ? ` <a href="#alerts" class="mut">${AL().alerts.filter(a => a.s === d.symbol).length} alert(s) — manage</a>` : ''}
