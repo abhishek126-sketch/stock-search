@@ -3,12 +3,15 @@
 # no history growth, and a concurrent run can never be silently overwritten (we re-base onto it and retry).
 # Usage: publish.sh all            (full refresh: replace every file)
 #        publish.sh quotes         (quotes job: overlay only quotes.json + merge meta.json)
+#        publish.sh corp           (exchange-data job: overlay only data/x and data/corp)
+# data/x and data/corp belong to the corp job; 'all' keeps the branch's copy so the two jobs never overwrite each other.
 set -euo pipefail
 MODE=${1:-all}
 cd pub
 G() { git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" "$@"; }
 overlay() {
-  if [ "$MODE" = all ]; then rm -rf data && cp -r ../data ./data
+  if [ "$MODE" = all ]; then mkdir -p data && rsync -a --delete --exclude /x --exclude /corp ../data/ data/
+  elif [ "$MODE" = corp ]; then mkdir -p data/x data/corp && rsync -a ../data/x/ data/x/ && rsync -a ../data/corp/ data/corp/
   else mkdir -p data && cp ../data/quotes.json data/quotes.json && { [ -f ../data/check.json ] && cp ../data/check.json data/ || true; } && { [ -d ../data/i ] && mkdir -p data/i && cp ../data/i/* data/i/ || true; }
     python3 - <<'PY'
 import json, os

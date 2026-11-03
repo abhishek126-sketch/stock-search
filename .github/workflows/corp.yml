@@ -1,0 +1,23 @@
+name: Exchange data (filings, bulk/block deals, promoter holding, pledge, ASM/GSM)
+# Free official NSE/BSE sources, no keys. Each run refreshes the stalest NSE stocks within ~25 min (daily batches);
+# deals, BSE filings and ASM/GSM are refreshed for every Indian stock on every run.
+on:
+  schedule:
+    - cron: '0 15 * * 1-5'    # 20:30 IST  after the evening filing rush
+    - cron: '15 18 * * *'     # 23:45 IST  catches the rest of the day's BSE filings (BSE feed holds only today)
+    - cron: '0 2 * * 1-6'     # 07:30 IST  next batch before market open
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency: { group: data-corp, cancel-in-progress: false }
+jobs:
+  corp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: "scripts\n.github", fetch-depth: 1 }
+      - run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data
+      - run: python3 scripts/build_corp.py
+        env: { MAXSEC: '1500' }
+      - run: bash .github/workflows/publish.sh corp

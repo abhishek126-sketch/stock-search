@@ -147,7 +147,7 @@ def penny(have):
             except ValueError: continue
             sym = r['TckrSymb'].strip() + '.BO'
             if c >= 50 or v <= 0 or sym in have: continue
-            have.add(sym); CAP[sym] = 'Penny'; PENNY[sym] = {'src': 'BSE', 'series': r['SctySrs'], 'isin': r['ISIN'], 'close': c, 'date': db}
+            have.add(sym); CAP[sym] = 'Penny'; PENNY[sym] = {'src': 'BSE', 'series': r['SctySrs'], 'isin': r['ISIN'], 'close': c, 'date': db, 'code': (r.get('FinInstrmId') or '').strip()}
             out.append((sym, r['FinInstrmNm'].strip().title(), '')); nb += 1
         print('penny NSE', nn, 'BSE-only', nb, 'already covered', sum(1 for k in PENNY if CAP.get(k) != 'Penny'), 'bhav', dn, db)
     except Exception as e: print('penny fail', e)
@@ -495,4 +495,4 @@ def main():
     meta.update({'full': built, 'quotes': built}); json.dump(meta, open(mp, 'w'))
     print('ok', len(index), 'fail', len(fails), 'news', sum(1 for d in docs.values() if d.get('news')), 'profile', len(PROFILE))
     if len(index) < 0.5 * len(u): sys.exit(1)
-main()
+if __name__ == '__main__': main()
