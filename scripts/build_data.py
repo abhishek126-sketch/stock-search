@@ -85,7 +85,7 @@ def nse_list(fn):
     except Exception as e:
         print('nse list live fail, using committed copy', fn, e)
         rows = list(csv.DictReader(open(os.path.join(LISTS, fn), encoding='utf-8-sig')))
-    return [(r['Symbol'].strip(), r['Company Name'].strip(), r['Industry'].strip()) for r in rows if (r.get('Symbol') or '').strip()]
+    return [(r['Symbol'].strip(), r['Company Name'].strip(), r['Industry'].strip()) for r in rows if (r.get('Symbol') or '').strip() and not r['Symbol'].strip().upper().startswith('DUMMY')]  # NSE placeholder rows
 
 CAP = {}
 def universe():
