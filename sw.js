@@ -1,5 +1,5 @@
-const CACHE = 'stock-search-v15';
-const ASSETS = ['./', 'index.html', 'app.js', 'ext.js', 'live.js', 'intraday.js', 'glossary.js', 'report.js', 'alerts.js', 'moat.js', 'etf.js', 'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'stock-search-v16';
+const ASSETS = ['./', 'index.html', 'app.js', 'ext.js', 'live.js', 'intraday.js', 'glossary.js', 'report.js', 'alerts.js', 'moat.js', 'etf.js', 'glossary2.js', 'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js', 'manifest.webmanifest', 'icon.svg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== CACHE + '-data').map(k => caches.delete(k))))); self.clients.claim(); });
 self.addEventListener('fetch', e => {

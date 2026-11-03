@@ -70,10 +70,10 @@ const gt = (label, k) => label + gq(k);
 // Annotate first occurrence of each term per block (card/section) inside root
 function autoGloss(root) {
   if (!root) return;
-  root.querySelectorAll('.card, details.sec').forEach(block => {
+  [...(root.matches && root.matches('.card, details.sec') ? [root] : []), ...root.querySelectorAll('.card, details.sec')].forEach(block => {
     if (block.parentElement && block.parentElement.closest('details.sec, .card') && block.parentElement.closest('details.sec, .card') !== block) return; // outermost blocks only
     const seen = new Set([...block.querySelectorAll('.gq')].map(x => x.dataset.g));
-    const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('a,button,sup,input,label,svg,script,style,option,select,.nogq,canvas') || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('a,button,sup,input,svg,script,style,option,select,.nogq,canvas,tr[data-s] td:not(:first-child),tr[data-s] td:first-child a,#gpop,.gloss') || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
     const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
     for (const n of nodes) {
       let node = n;
@@ -92,7 +92,7 @@ function autoGloss(root) {
 (function () {
   const pop = document.createElement('div'); pop.id = 'gpop'; pop.hidden = true; document.body.appendChild(pop);
   const show = el => { const e = GL[el.dataset.g]; if (!e) return;
-    pop.innerHTML = `<b>${esc(e[0])}</b><p>${esc(e[1])}</p>${e[2] ? `<p class="mut"><i>Example:</i> ${esc(e[2])}</p>` : ''}<a href="#glossary" class="mut">Open glossary →</a>`;
+    pop.innerHTML = `<b>${esc(e[0])}</b><p>${esc(e[1])}</p>${e[2] ? `<p class="mut"><i>Example:</i> ${esc(e[2])}</p>` : ''}${e[3] ? `<p><i>Good / bad:</i> ${esc(e[3])}</p>` : ''}<a href="#glossary" class="mut" onclick="sessionStorage.gk='${el.dataset.g}'">Open glossary →</a>`;
     pop.hidden = false; const r = el.getBoundingClientRect(), W = Math.min(320, innerWidth - 16);
     pop.style.width = W + 'px'; pop.style.left = Math.max(8, Math.min(innerWidth - W - 8, r.left - W / 2)) + 'px';
     const h = pop.offsetHeight; pop.style.top = (r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px'; };
@@ -107,10 +107,11 @@ function showGlossary() {
   const v = $('#view'); $('#home').hidden = true; v.hidden = false; CUR = null; if (typeof updFav === 'function') updFav();
   const items = Object.entries(GL).sort((a, b) => a[1][0].localeCompare(b[1][0]));
   v.innerHTML = `<div class="card"><a href="#" id="gback" class="mut">← Back</a><h2 style="margin-top:6px">📖 Glossary <span class="mut">(${items.length} terms)</span></h2>
-  <input id="gfind" placeholder="Filter terms…" style="width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;margin:6px 0 10px">
-  <dl class="gloss">${items.map(([k, e]) => `<div data-k="${k}" id="g-${k}"><dt>${esc(e[0])}</dt><dd>${esc(e[1])}${e[2] ? `<br><span class="mut"><i>Example:</i> ${esc(e[2])}</span>` : ''}</dd></div>`).join('')}</dl>
+  <input id="gfind" placeholder="Search terms, e.g. RSI, NAV, ROE…" style="width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;margin:6px 0 10px">
+  <dl class="gloss">${items.map(([k, e]) => `<div data-k="${k}" id="g-${k}"><dt>${esc(e[0])}</dt><dd>${esc(e[1])}${e[2] ? `<br><span class="mut"><i>Example:</i> ${esc(e[2])}</span>` : ''}${e[3] ? `<br><i>Good / bad:</i> ${esc(e[3])}` : ''}</dd></div>`).join('')}</dl>
   <p class="disc">Plain-language explanations for learning purposes; educational, not investment advice.</p></div>`;
   $('#gback').onclick = e => { e.preventDefault(); history.length > 1 ? history.back() : goHome(); };
+  { const gk = sessionStorage.gk; sessionStorage.gk = ''; const t = gk && document.getElementById('g-' + gk); if (t) { t.style.background = '#fef9c3'; setTimeout(() => t.scrollIntoView({ block: 'center' }), 50); } }
   $('#gfind').oninput = e => { const q = e.target.value.toLowerCase(); v.querySelectorAll('.gloss > div').forEach(x => x.hidden = q && !x.textContent.toLowerCase().includes(q)); };
   window.scrollTo(0, 0);
 }

@@ -70,7 +70,7 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 </div>
 <div id="view" hidden></div>
 </main>
-<dialog id="dlg"><h2 style="margin-top:0">Settings</h2>
+<dialog id="dlg"><h2 style="margin-top:0">Settings</h2><p><a href="#glossary" onclick="this.closest('dialog').close()">📖 Glossary — plain-English meaning of every term</a></p>
 <p class="mut">Built-in data (no key needed): ~1,250 stocks — NIFTY 500 + NIFTY Microcap 250 (NSE) + S&amp;P 500 (US), tagged Large / Mid / Small / Micro / US — plus all NSE-listed ETFs and ~150 major US ETFs, refreshed several times each weekday from Yahoo Finance's public data by a GitHub Action.</p>
 <label><b>Alpha Vantage API key (optional)</b></label>
 <input id="avkey" type="password" placeholder="Paste your free key"><p class="mut">Adds: a live price refresh button, and searching stocks outside the built-in list (BSE codes such as <code>500325.BSE</code> / any US ticker). Get a free key at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a> (free tier ≈ 25 requests/day). The key stays only in this browser (localStorage).</p>
@@ -87,6 +87,6 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <li><b>Generate token</b>, copy it (starts with <code>github_pat_</code>), paste into ⚙ Settings here and Save.</li></ol>
 <p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
-<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="alerts.js"></script><script src="moat.js"></script><script src="etf.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
+<script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="alerts.js"></script><script src="moat.js"></script><script src="etf.js"></script><script src="glossary2.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
 <script>(()=>{const h=document.querySelector('header'),f=()=>document.documentElement.style.setProperty('--hh',h.getBoundingClientRect().height+'px');f();addEventListener('resize',f);window.ResizeObserver&&new ResizeObserver(f).observe(h);})();</script><script>[homeBtn,logo].forEach(b=>b.onclick=()=>goHome());logo.onkeydown=e=>e.key==="Enter"&&goHome();</script><script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
 </body></html>

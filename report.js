@@ -385,6 +385,9 @@ function downloadPDF(d) {
     } };
     walk(cl);
   });
+  const gk = typeof glossTermsIn === 'function' ? [...new Set([].concat(...[...document.querySelectorAll('#view details.rpt, #view #s-moat')].map(glossTermsIn)))].sort((a, b) => GL[a][0].localeCompare(GL[b][0])) : [];
+  if (gk.length) { doc.addPage(); y = M; text(`Glossary of terms used in this report (${gk.length})`, 12, true, 15); y += 2;
+    doc.autoTable({ startY: y, margin: { left: M, right: M }, head: [['Term', 'Plain meaning', 'Good / bad']], body: gk.map(k => [GL[k][0], GL[k][1] + (GL[k][2] ? ' e.g. ' + GL[k][2] : ''), GL[k][3] || '']).map(r => r.map(clean)), styles: { fontSize: 7, cellPadding: 2.2, overflow: 'linebreak' }, columnStyles: { 0: { cellWidth: 95, fontStyle: 'bold' }, 2: { cellWidth: 140 } }, headStyles: { fillColor: [15, 118, 110] } }); }
   const n = doc.internal.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7); doc.setTextColor(120); doc.text(`Educational only - not personal investment advice. Consult a SEBI-registered adviser. Page ${i}/${n}`, M, H - 20); }
   doc.save(`${d.symbol.replace(/\W/g, '_')}_report.pdf`);
 }
