@@ -35,7 +35,7 @@ async function getJSON(u) {
 async function loadIndex() {
   try {
     const d = await getJSON(DATA + 'index.json'); INDEX = d.symbols;
-    $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (NIFTY 500 + S&P 500). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+    $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (NIFTY 500 + NIFTY Microcap 250 + S&P 500). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
   } catch (e) { $('#dsinfo').textContent = 'Could not load the stock list (offline?). ' + (LS.get('avkey', '') ? 'Alpha Vantage search still works.' : ''); }
   renderChips();
 }
@@ -103,7 +103,7 @@ function showSug() {
   const q = $('#q').value, list = search(q), el = $('#sug'); sugIdx = -1;
   let h = list.map(r => `<div data-s="${esc(r[0])}"><b>${esc(r[0].replace(/\.NS$/, ''))}</b> ${esc(r[1])}<br><small>${esc(r[2])}${r[3] ? ' · ' + esc(r[3]) : ''}</small></div>`).join('');
   if (q.trim() && LS.get('avkey', '')) h += `<div data-av="${esc(q.trim())}"><small>🔎 Search more (BSE / other US) via Alpha Vantage for “${esc(q.trim())}”</small></div>`;
-  else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (NIFTY 500 + S&P 500). Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
+  else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (NIFTY 500 + NIFTY Microcap 250 + S&P 500). Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
   el.innerHTML = h; el.style.display = h ? 'block' : 'none';
   el.querySelectorAll('div[data-s]').forEach(d => d.onclick = () => openSym(d.dataset.s));
   el.querySelectorAll('div[data-av]').forEach(d => d.onclick = () => avSearch(d.dataset.av));
@@ -140,7 +140,7 @@ async function openSym(sym, viaAV) {
 // history: each page change adds one entry (Android back steps back through pages); same-hash navigations don't duplicate
 function navTo(hash) { if (decodeURIComponent(location.hash) !== decodeURIComponent(hash)) history.pushState(null, '', hash || location.pathname + location.search); }
 function goHome(fromHistory) { $('#view').hidden = true; $('#view').innerHTML = ''; $('#home').hidden = false; CUR = null; $('#q').value = ''; $('#sug').style.display = 'none'; err(''); if (!fromHistory) navTo(''); window.scrollTo(0, 0); renderChips(); updFav(); renderLists(LISTTAB); }
-let LISTTAB = 'cs';
+let LISTTAB = 'cap';
 
 // ---------- analytics ----------
 const last = a => a && a.length ? a[a.length - 1] : undefined;
@@ -344,7 +344,7 @@ function render() {
   const ageH = (Date.now() / 1000 - (d.fetched || 0)) / 3600;
   v.innerHTML = `
   <div class="card"><a href="#" id="back" class="mut">← Back</a>
-   <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span> <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
+   <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span>${typeof capBadge === 'function' ? capBadge(d.cap || capOf(d.symbol)) : ''} <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
    <div style="margin-top:4px"><span class="px">${fmtP(d.price, c)}</span><span class="chg ${k.chg >= 0 ? 'up' : 'dn'}">${isNum(k.chg) ? (k.chg >= 0 ? '▲ +' : '▼ ') + k.chg.toFixed(2) + ' (' + (k.chgPct * 100).toFixed(2) + '%)' : ''}</span></div>
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
    <div class="links">${extLinks(d)}</div>

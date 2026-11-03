@@ -72,17 +72,42 @@ def analysts(q):
     if not any(a.get(k) is not None for k in ('key','mean','n','tMean')) and 'trend' not in a: return None
     return a
 
-def universe():
-    u = []
+LISTS = os.path.join(os.path.dirname(__file__), 'lists')
+CAPS_IN = [('Large', 'ind_nifty100list.csv'), ('Mid', 'ind_niftymidcap150list.csv'),
+           ('Small', 'ind_niftysmallcap250list.csv'), ('Micro', 'ind_niftymicrocap250_list.csv')]
+def nse_list(fn):
+    """Official NSE index constituents CSV (live; falls back to the copy committed in scripts/lists)."""
     try:
-        rows = csv.DictReader(io.StringIO(get('https://nsearchives.nseindia.com/content/indices/ind_nifty500list.csv').decode()))
-        u += [(r['Symbol'].strip() + '.NS', r['Company Name'].strip(), r['Industry'].strip()) for r in rows]
+        rows = list(csv.DictReader(io.StringIO(get('https://nsearchives.nseindia.com/content/indices/' + fn).decode('utf-8-sig'))))
+        if len(rows) < 50: raise ValueError('short list %d' % len(rows))
+        with open(os.path.join(LISTS, fn), 'w') as fh:  # keep local copy fresh (not committed by the Action)
+            w = csv.DictWriter(fh, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+    except Exception as e:
+        print('nse list live fail, using committed copy', fn, e)
+        rows = list(csv.DictReader(open(os.path.join(LISTS, fn), encoding='utf-8-sig')))
+    return [(r['Symbol'].strip(), r['Company Name'].strip(), r['Industry'].strip()) for r in rows if (r.get('Symbol') or '').strip()]
+
+CAP = {}
+def universe():
+    u, have = [], set()
+    for cap, fn in CAPS_IN:  # NIFTY 100 / Midcap 150 / Smallcap 250 (= NIFTY 500) + Microcap 250; first tag wins
+        try: lst = nse_list(fn)
+        except Exception as e: print('list fail', fn, e); continue
+        for sym, name, ind in lst:
+            s = sym + '.NS'
+            if s in have: continue
+            have.add(s); CAP[s] = cap; u.append((s, name, ind))
+    print('IN by cap', {c: sum(1 for v in CAP.values() if v == c) for c, _ in CAPS_IN})
+    try:  # anything else in NIFTY 500 not covered above (normally none)
+        for sym, name, ind in nse_list('ind_nifty500list.csv'):
+            if sym + '.NS' not in have: have.add(sym + '.NS'); u.append((sym + '.NS', name, ind))
     except Exception as e: print('nifty500 fail', e)
     try:
         rows = csv.DictReader(io.StringIO(get('https://raw.githubusercontent.com/datasets/s-and-p-500-companies/main/data/constituents.csv').decode()))
-        u += [(r['Symbol'].strip().replace('.', '-'), r['Security'].strip(), r['GICS Sector'].strip()) for r in rows]
+        for r in rows:
+            s = r['Symbol'].strip().replace('.', '-')
+            if s not in have: have.add(s); CAP[s] = 'US'; u.append((s, r['Security'].strip(), r['GICS Sector'].strip()))
     except Exception as e: print('sp500 fail', e)
-    have = {s for s, _, _ in u}
     u += [(s + '.NS', s, '') for s in EXTRA_IN if s + '.NS' not in have]
     u += [(s, s, '') for s in EXTRA_US if s not in have]
     if os.environ.get('LIMIT'): u = [x for x in u if x[0] in os.environ['LIMIT'].split(',')] or u[:int(os.environ['LIMIT'])]
@@ -243,7 +268,7 @@ def fetch(sym, name, sector):
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
          'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
-         'analyst': an, 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
+         'analyst': an, 'cap': CAP.get(sym), 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
     if len(hist) >= 2: d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     d['news'] = news(sym, d['name'])
     return d
@@ -273,7 +298,7 @@ def main():
         d['canslim'] = canslim(d, K[s], mkt, rsr); d['metrics'] = K[s]
         with open(os.path.join(OUT, 's', s + '.json'), 'w') as fh: json.dump(d, fh, separators=(',', ':'))
         k = K[s]; nw = d.get('news') or {}
-        rows.append({'s': s, 'n': d['name'], 'x': d['exchange'] or '', 'sec': d['sector'] or '', 'ind': d.get('industry') or '', 'p': d['price'], 'c': d['currency'],
+        rows.append({'s': s, 'n': d['name'], 'x': d['exchange'] or '', 'sec': d['sector'] or '', 'ind': d.get('industry') or '', 'p': d['price'], 'pc': d.get('prevClose'), 'c': d['currency'], 'cap': CAP.get(s),
                      **k, 'cs': d['canslim']['score'], 'co': d['canslim']['of'], 'rs': rsr.get(s), 'an': 1 if d.get('analyst') else 0,
                      'nn': len(nw.get('items', [])), 'neg': sum(1 for i in nw.get('items', []) if 'neg' in i['g'])})
     idxf = os.path.join(OUT, 'index.json'); prev = {}

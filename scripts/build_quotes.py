@@ -9,17 +9,19 @@ except Exception: pass
 crumb = OP.open('https://query2.finance.yahoo.com/v1/test/getcrumb', timeout=15).read().decode().strip()
 syms = [r[0] for r in json.load(open(os.path.join(OUT, 'index.json')))['symbols']] + ['^NSEI', '^GSPC']
 q = {}
-for i in range(0, len(syms), 50):
+from concurrent.futures import ThreadPoolExecutor
+def batch(i):  # ~1,300 symbols -> ~27 batches of 50, fetched 6 at a time
     part = ','.join(syms[i:i + 50])
     for t in range(3):
         try:
             d = json.loads(OP.open('https://query2.finance.yahoo.com/v7/finance/quote?' + urllib.parse.urlencode({'symbols': part, 'fields': 'regularMarketPrice,regularMarketPreviousClose,regularMarketTime,marketState', 'crumb': crumb}), timeout=20).read())
-            for r in d['quoteResponse']['result']:
-                if r.get('regularMarketPrice') is not None:
-                    q[r['symbol']] = [r['regularMarketPrice'], r.get('regularMarketPreviousClose'), r.get('regularMarketTime'), r.get('marketState')]
-            break
+            return {r['symbol']: [r['regularMarketPrice'], r.get('regularMarketPreviousClose'), r.get('regularMarketTime'), r.get('marketState')]
+                    for r in d['quoteResponse']['result'] if r.get('regularMarketPrice') is not None}
         except Exception as e:
             print('batch fail', i, e); time.sleep(2 * (t + 1))
+    return {}
+with ThreadPoolExecutor(6) as ex:
+    for r in ex.map(batch, range(0, len(syms), 50)): q.update(r)
 now = int(time.time())
 json.dump({'built': now, 'q': q}, open(os.path.join(OUT, 'quotes.json'), 'w'), separators=(',', ':'))
 mp = os.path.join(OUT, 'meta.json'); meta = json.load(open(mp)) if os.path.exists(mp) else {}

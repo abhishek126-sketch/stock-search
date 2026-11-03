@@ -198,7 +198,8 @@ async function renderLists(tab) {
   await ensureSummary(); const box = $('#lists'); if (!box) return;
   if (!SUMMARY.rows.length) { box.innerHTML = `<p>${NA} — summary data could not be loaded.</p>`; return; }
   const rows = SUMMARY.rows.filter(r => mktOf(r.s) === HOMEMK);
-  const mkb = `<div class="tabs">${['IN', 'US'].map(m => `<button data-mk="${m}" class="${m === HOMEMK ? 'on' : ''}">${m === 'IN' ? '🇮🇳 NSE (NIFTY 500)' : '🇺🇸 US (S&P 500)'}</button>`).join('')}</div>`;
+  const mkb = `<div class="tabs">${['IN', 'US'].map(m => `<button data-mk="${m}" class="${m === HOMEMK ? 'on' : ''}">${m === 'IN' ? '🇮🇳 NSE (NIFTY 500 + Microcap 250)' : '🇺🇸 US (S&P 500)'}</button>`).join('')}</div>`;
+  if (tab === 'cap') return renderCaps(box);
   if (tab === 'cs') {
     const top = rows.filter(r => r.co >= 5).sort((a, b) => (b.cs / b.co) - (a.cs / a.co) || (b.rs || 0) - (a.rs || 0)).slice(0, 40);
     box.innerHTML = mkb + `<div class="tw"><table class="pt"><tr><th>Stock</th><th>CANSLIM</th><th>RS</th><th>1Y</th><th>P/E</th><th>M.cap</th></tr>${top.map(r => `<tr data-s="${esc(r.s)}"><td>${esc(r.s.replace(/\.NS$/, ''))}<br><small class="mut">${esc((r.n || '').slice(0, 24))}</small></td><td><b>${r.cs}/${r.co}</b></td><td>${r.rs ?? '–'}</td><td>${isNum(r.r1y) ? sgnPct(r.r1y) : 'n/a'}</td><td>${fx(r.pe)}</td><td>${fmtBig(r.mcap, r.c)}</td></tr>`).join('')}</table></div><p class="src">Ranked by share of CANSLIM letters passed (stocks with ≥5 letters evaluable), then relative strength. Snapshot ${sumAsOf()}. Educational screen, not recommendations.</p>`;
@@ -208,6 +209,32 @@ async function renderLists(tab) {
     box.innerHTML = mkb + `<div class="tw"><table class="pt"><tr><th>Sector</th><th>#</th><th>Med P/E</th><th>Med rev CAGR</th><th>Med 3M</th><th>Med 1Y</th></tr>${list.map(x => `<tr data-sector="${esc(HOMEMK + '|' + x.s)}"><td>${esc(x.s)}</td><td>${x.n}</td><td>${fx(x.pe)}</td><td>${pc(x.g)}</td><td>${isNum(x.r3m) ? sgnPct(x.r3m) : 'n/a'}</td><td>${isNum(x.r1y) ? sgnPct(x.r1y) : 'n/a'}</td></tr>`).join('')}</table></div><p class="src">Yahoo sector classification; medians across stocks in the list. Snapshot ${sumAsOf()}. Tap a sector.</p>`;
   }
   box.querySelectorAll('[data-mk]').forEach(b => b.onclick = () => { HOMEMK = b.dataset.mk; renderLists(tab); });
+}
+// ---- Browse by market-cap category ----
+const CAPS = [['All', 'All'], ['Large', 'Large cap', 'NIFTY 100'], ['Mid', 'Mid cap', 'NIFTY Midcap 150'], ['Small', 'Small cap', 'NIFTY Smallcap 250'], ['Micro', 'Micro cap', 'NIFTY Microcap 250'], ['US', 'US', 'S&P 500']];
+const CAPCOL = { Large: '#1d4ed8', Mid: '#7c3aed', Small: '#b45309', Micro: '#be123c', US: '#0f766e' };
+const capOf = s => { const r = SUMMARY && SUMMARY.rows.find(x => x.s === s); return r && r.cap || null; };
+function capBadge(cap) { const c = CAPS.find(x => x[0] === cap); return c ? `<span class="tag capb" style="background:${CAPCOL[cap]};color:#fff" title="${esc(c[2])} constituent">${cap === 'US' ? 'S&amp;P 500' : esc(c[1])}</span>` : ''; }
+let CAPF = LS.get('capf', 'All'), CAPSORT = LS.get('capsort', ['mcap', -1]), CAPQ = '', CAPN = 100;
+function liveRow(r) { const q = typeof QUOTES !== 'undefined' && QUOTES && QUOTES.q && QUOTES.q[r.s]; const p = q && isNum(q[0]) ? q[0] : r.p, pc = q && isNum(q[1]) ? q[1] : r.pc; return { ...r, lp: p, dc: isNum(p) && isNum(pc) && pc ? p / pc - 1 : null, mc: isNum(r.mcap) && isNum(r.p) && isNum(p) && r.p ? r.mcap * p / r.p : r.mcap }; }
+async function renderCaps(box) {
+  if (typeof QUOTES !== 'undefined' && !QUOTES && typeof loadQuotes === 'function') await loadQuotes(false);
+  const all = SUMMARY.rows.filter(r => r.cap), cnt = c => c === 'All' ? all.length : all.filter(r => r.cap === c).length;
+  let rows = all.filter(r => CAPF === 'All' || r.cap === CAPF).map(liveRow);
+  const ql = CAPQ.toLowerCase(); if (ql) rows = rows.filter(r => r.s.toLowerCase().includes(ql) || (r.n || '').toLowerCase().includes(ql));
+  const [k, dir] = CAPSORT, val = r => k === 'n' ? (r.n || r.s).toLowerCase() : k === 'p' ? r.lp : k === 'dc' ? r.dc : r.mc;
+  rows.sort((a, b) => { const x = val(a), y = val(b); if (x == null || (typeof x === 'number' && !isFinite(x))) return 1; if (y == null || (typeof y === 'number' && !isFinite(y))) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
+  const th = (key, lbl) => `<th data-sort="${key}" style="cursor:pointer;user-select:none">${lbl}${k === key ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+  const shown = rows.slice(0, CAPN), cinfo = CAPS.find(x => x[0] === CAPF);
+  box.innerHTML = `<div class="tabs" id="capf">${CAPS.map(([c, l]) => `<button data-cap="${c}" class="${c === CAPF ? 'on' : ''}">${c === 'US' ? '🇺🇸 US' : l} <small>${cnt(c)}</small></button>`).join('')}</div>
+  <input type="text" id="capq" placeholder="Filter by name or symbol…" value="${esc(CAPQ)}" style="margin-bottom:8px">
+  <div class="tw"><table class="pt" id="capt"><tr>${th('n', 'Stock')}${th('p', 'Price')}${th('dc', 'Day %')}${th('mc', 'M.cap')}</tr>${shown.map(r => `<tr data-s="${esc(r.s)}"><td style="white-space:normal">${esc((r.n || r.s).slice(0, 34))} ${CAPF === 'All' ? capBadge(r.cap) : ''}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}</small></td><td>${fmtP(r.lp, r.c)}</td><td>${isNum(r.dc) ? `<span class="${r.dc >= 0 ? 'up' : 'dn'}">${r.dc >= 0 ? '+' : ''}${(r.dc * 100).toFixed(2)}%</span>` : '<span class="mut">–</span>'}</td><td>${fmtBig(r.mc, r.c)}</td></tr>`).join('')}</table></div>
+  ${rows.length > shown.length ? `<p style="text-align:center"><button class="btn sec" id="capMore">Show all ${rows.length}</button></p>` : ''}
+  <p class="src">${rows.length} stocks${cinfo && cinfo[2] ? ' · ' + cinfo[2] + ' constituents (official NSE lists)' : ''}. Tap a column to sort, a row to open. Prices from the latest quotes refresh${typeof QUOTES !== 'undefined' && QUOTES && QUOTES.built ? ' (' + tIST(QUOTES.built) + ' IST)' : ''}; market cap scaled to live price from snapshot ${sumAsOf()}.</p>`;
+  box.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { CAPF = b.dataset.cap; LS.set('capf', CAPF); CAPN = 100; renderCaps(box); });
+  box.querySelectorAll('[data-sort]').forEach(t => t.onclick = () => { const kk = t.dataset.sort; CAPSORT = [kk, CAPSORT[0] === kk ? -CAPSORT[1] : (kk === 'n' ? 1 : -1)]; LS.set('capsort', CAPSORT); renderCaps(box); });
+  const mb = box.querySelector('#capMore'); if (mb) mb.onclick = () => { CAPN = 1e9; renderCaps(box); };
+  const qi = box.querySelector('#capq'); qi.oninput = () => { CAPQ = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { const pos = qi.selectionStart; renderCaps(box).then(() => { const n = box.querySelector('#capq'); n.focus(); n.setSelectionRange(pos, pos); }); }, 200); };
 }
 async function openSector(key) {
   await ensureSummary(); const [mk, s] = key.split('|'); const S = sectorStats(mk, s);
