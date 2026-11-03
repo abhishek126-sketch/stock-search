@@ -8,8 +8,8 @@
    "v": 1,
    "note": "E2E test alert",
    "ver": 1793674016,
-   "trig": null,
-   "trigP": null
+   "trig": 1793674074,
+   "trigP": 1300.0
   }
  ],
  "updated": 1793674028
