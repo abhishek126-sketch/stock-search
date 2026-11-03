@@ -1,9 +1,13 @@
 name: Full refresh (fundamentals, news, analysts)
 on:
   schedule:
-    - cron: '30 3 * * 1-5'    # 09:00 IST pre-open
+    # GitHub delays/drops cron runs, so each slot has backups; a backup skips itself if a full refresh ran < 100 min ago.
+    - cron: '20 3 * * 1-5'    # 08:50 IST pre-open
+    - cron: '50 3 * * 1-5'    #   backup
     - cron: '15 10 * * 1-5'   # 15:45 IST after NSE close
+    - cron: '50 10 * * 1-5'   #   backup
     - cron: '30 21 * * 1-5'   # 03:00 IST after US close
+    - cron: '10 22 * * 1-5'   #   backup
   workflow_dispatch:
   push:
     branches: [main]
@@ -19,9 +23,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check out data branch (depth 1)
         run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data || (mkdir -p pub && cd pub && git init -q && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
-      - run: python3 scripts/build_data.py
-      - run: python3 scripts/build_quotes.py || true
+      - name: Skip if a full refresh ran recently (scheduled backups only)
+        if: github.event_name == 'schedule'
+        run: python3 -c "import json,time,sys; m=json.load(open('pub/data/meta.json')); sys.exit(0 if time.time()-m.get('full',0)>6000 else 1)" || { echo 'recent full refresh exists - skipping'; echo SKIP=1 >> $GITHUB_ENV; }
+      - if: env.SKIP != '1'
+        run: python3 scripts/build_data.py
+      - if: env.SKIP != '1'
+        run: python3 scripts/build_quotes.py || true
       - name: Cross-check (NSE / Finnhub)
+        if: env.SKIP != '1'
         run: python3 scripts/crosscheck.py || echo 'cross-check skipped'
         env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
-      - run: bash .github/workflows/publish.sh all
+      - if: env.SKIP != '1'
+        run: bash .github/workflows/publish.sh all
