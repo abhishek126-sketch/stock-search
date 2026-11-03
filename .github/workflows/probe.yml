@@ -1,0 +1,23 @@
+name: Probe sources (temporary)
+on: { workflow_dispatch: }
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
+          D=$(date -u -d '-1 day' +%Y%m%d); T=$(date -u +%Y%m%d)
+          for u in \
+           "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=-1&strPrevDate=$D&strScrip=&strSearch=P&strToDate=$T&strType=C&subcategory=-1" \
+           "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w?pageno=1&strCat=-1&strPrevDate=20250101&strScrip=500325&strSearch=P&strToDate=$T&strType=C&subcategory=-1" \
+           "https://api.bseindia.com/BseIndiaAPI/api/BulknBlockDeal/w?flag=0" \
+           "https://api.bseindia.com/BseIndiaAPI/api/ShareHoldingPatterns/w?scripcode=500325&qtrid=" \
+           "https://api.bseindia.com/BseIndiaAPI/api/CorpShareHoldingPattern_New/w?scripcode=500325" \
+           "https://www.bseindia.com/markets/equity/EQReports/bulk_deals.aspx" \
+           "https://www.bseindia.com/markets/equity/EQReports/block_deals.aspx" \
+           "https://www.nseindia.com/api/corporate-pledgedata?index=equities&symbol=GTLINFRA" \
+           "https://www.nseindia.com/api/corporate-share-holdings-master?index=equities&symbol=GTLINFRA" \
+           "https://www.nseindia.com/api/corporate-announcements?index=equities&symbol=GTLINFRA" \
+           "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml" \
+           "https://nsearchives.nseindia.com/content/equities/bulk.csv" ; do
+            c=$(curl -s -m 20 -L -A "$UA" -H "Referer: https://www.bseindia.com/" -H "Origin: https://www.bseindia.com" -H "Accept: application/json, text/plain, */*" -o /tmp/o -w "%{http_code} %{size_download}" "$u"); echo "## $c $u"; head -c 300 /tmp/o; echo; done
