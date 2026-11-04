@@ -6,7 +6,11 @@ OUT = os.path.join(os.path.dirname(__file__), '..', 'data')
 CJ = http.cookiejar.CookieJar(); OP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CJ)); OP.addheaders = [('User-Agent', 'Mozilla/5.0')]
 try: OP.open('https://fc.yahoo.com', timeout=10)
 except Exception: pass
-crumb = OP.open('https://query2.finance.yahoo.com/v1/test/getcrumb', timeout=15).read().decode().strip()
+crumb = ''
+for _t in range(5):  # Yahoo sometimes rate-limits the crumb call (HTTP 429) - retry with backoff
+    try: crumb = OP.open('https://query2.finance.yahoo.com/v1/test/getcrumb', timeout=15).read().decode().strip(); break
+    except Exception as e: print('crumb retry', _t, e); time.sleep(5 * (_t + 1))
+if not crumb: sys.exit('no Yahoo crumb')
 syms = [r[0] for r in json.load(open(os.path.join(OUT, 'index.json')))['symbols']] + ['^NSEI', '^GSPC']
 q = {}
 from concurrent.futures import ThreadPoolExecutor
