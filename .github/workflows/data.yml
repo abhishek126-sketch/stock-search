@@ -14,6 +14,7 @@ on:
     paths: ['scripts/build_data.py', 'scripts/crosscheck.py', '.github/workflows/data.yml']
 permissions:
   contents: write
+  actions: write
 concurrency: { group: data-full, cancel-in-progress: false }
 jobs:
   build:
@@ -36,3 +37,7 @@ jobs:
         env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
       - if: env.SKIP != '1'
         run: bash .github/workflows/publish.sh all
+      - name: Make sure a quotes loop is running (GitHub drops/delays scheduled runs)
+        if: always()
+        run: gh workflow run quotes.yml --ref main || true
+        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }

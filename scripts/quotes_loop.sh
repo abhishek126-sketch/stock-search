@@ -5,6 +5,11 @@
 set -uo pipefail
 MAXSEC=${MAXSEC:-20700}   # 5h45m, under the 6h GitHub job limit
 START=$(date +%s)
+# minutes until the next market window opens (0 if open now)
+towin() { local dow=$(date -u +%u) m=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
+  [ "$dow" -gt 5 ] && { echo 9999; return; }
+  if [ $m -lt 225 ]; then echo $((225 - m)); elif [ $m -lt 605 ]; then echo 0; elif [ $m -lt 810 ]; then echo $((810 - m)); elif [ $m -lt 1265 ]; then echo 0; else echo 9999; fi; }
+WAITMAX=${WAITMAX:-150}  # GitHub often starts scheduled runs late or drops them: an early run waits for the open instead of exiting
 inwin() { local dow=$(date -u +%u) m=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
   [ "$dow" -le 5 ] && { { [ $m -ge 225 ] && [ $m -lt 605 ]; } || { [ $m -ge 810 ] && [ $m -lt 1265 ]; }; }; }
 once() {
@@ -20,7 +25,10 @@ n=0
 while :; do
   t0=$(date +%s); n=$((n + 1)); echo "== refresh $n at $(date -u +%FT%TZ)"
   once || echo "refresh $n failed (will retry next cycle)"
-  inwin || { echo 'market closed - done'; break; }
-  next=$((t0 + 300)); [ $((next + 120 - START)) -gt "$MAXSEC" ] && { echo 'time limit reached - next trigger continues'; break; }
+  if ! inwin; then w=$(towin)
+    if [ "$w" -le "$WAITMAX" ] && [ $(( $(date +%s) + w * 60 + 600 - START )) -lt "$MAXSEC" ]; then echo "market opens in ${w} min - waiting"; sleep $((w * 60 + 30)); continue; fi
+    echo 'market closed - done'; break; fi
+  next=$((t0 + 300)); if [ $((next + 120 - START)) -gt "$MAXSEC" ]; then echo 'time limit reached - starting a follow-on run'
+    gh workflow run quotes.yml --ref main || echo 'self-dispatch failed (cron backups continue)'; break; fi
   s=$((next - $(date +%s))); [ $s -gt 0 ] && sleep $s
 done
