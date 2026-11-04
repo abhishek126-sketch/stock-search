@@ -38,8 +38,9 @@ from concurrent.futures import ThreadPoolExecutor
 IDIR = os.path.join(OUT, 'i'); os.makedirs(IDIR, exist_ok=True)
 ip = os.path.join(IDIR, '_idx.json'); IDX = json.load(open(ip)) if os.path.exists(ip) else {}
 T0 = time.time(); BUDGET = float(os.environ.get('INTRADAY_BUDGET', '70'))
+N429 = [0]
 def intraday(s):
-    if time.time() - T0 > BUDGET: return s, None
+    if time.time() - T0 > BUDGET or N429[0] > 15: return s, None  # Yahoo is rate-limiting: stop, protect the quote call next cycle
     for t in range(2):
         try:
             d = json.loads(OP.open('https://query1.finance.yahoo.com/v8/finance/chart/' + urllib.parse.quote(s) + '?range=5d&interval=5m&includePrePost=false', timeout=12).read())['chart']['result'][0]
@@ -58,14 +59,18 @@ def intraday(s):
                 prev = [b for a, b in bars if day(a) < lastday]; pc = prev[-1] if prev else m.get('chartPreviousClose')
             return s, {'tz': m.get('exchangeTimezoneName'), 'off': off, 'pc': pc, 'ses': ss, 'd1': d1, 'w': sorted([[a, b] for a, b in w.items()]) + d1[::6] + ([d1[-1]] if (len(d1) - 1) % 6 else []), 'asOf': int(time.time())}
         except Exception as e:
+            if getattr(e, 'code', 0) == 429: N429[0] += 1; return s, None
             if t: print('intraday fail', s, str(e)[:80])
             time.sleep(1)
     return s, None
-todo = [s for s in syms if s in q and q[s][2] and q[s][2] > IDX.get(s, 0)]
+try: PN = {r['s'] for r in json.load(open(os.path.join(OUT, 'summary.json')))['rows'] if r.get('pn')}
+except Exception: PN = set()
+# penny stocks (~2,000, thinly traded): intraday chart at most every 15 min to stay under Yahoo's rate limit
+todo = [s for s in syms if s in q and q[s][2] and q[s][2] > IDX.get(s, 0) and not (s in PN and q[s][2] - IDX.get(s, 0) < 900)]
 print('intraday to fetch', len(todo))
 n = 0
-with ThreadPoolExecutor(24) as ex:
+with ThreadPoolExecutor(10) as ex:
     for s, r in ex.map(intraday, todo):
         if r: json.dump(r, open(os.path.join(IDIR, s + '.json'), 'w'), separators=(',', ':')); IDX[s] = r['d1'][-1][0]; n += 1
 json.dump(IDX, open(ip, 'w'), separators=(',', ':'))
-print('intraday written', n, 'in', round(time.time() - T0, 1), 's')
+print('intraday written', n, 'rate-limited', N429[0], 'in', round(time.time() - T0, 1), 's')
