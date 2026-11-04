@@ -13,8 +13,8 @@ function applyQuote(d) {
   return d;
 }
 async function loadQuotes(force) {
-  await Promise.all([getJSON(force ? bust(DATA + 'quotes.json') : DATA + 'quotes.json').then(x => QUOTES = x).catch(() => { }),
-    getJSON(force ? bust(DATA + 'check.json') : DATA + 'check.json').then(x => CHECK = x).catch(() => { })]);
+  await Promise.all([getJSON(bust(DATA + 'quotes.json')).then(x => QUOTES = x).catch(() => { }),
+    getJSON(bust(DATA + 'check.json')).then(x => CHECK = x).catch(() => { })]);
   renderCheck();
 }
 // ---- second-source cross-check (NSE for India, Finnhub for US) ----
