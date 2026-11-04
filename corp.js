@@ -8,7 +8,7 @@ async function corpLoad(d, k, R) {
   let x = null; try { x = await getJSON(DATA + 'x/' + encodeURIComponent(d.symbol) + '.json'); } catch (e) { }
   if (!document.getElementById('corpx') || CUR !== d) return;
   el.innerHTML = corpHTML(d, k, R, x || {});
-  if (x && x.code && d.symbol.endsWith('.BO')) document.querySelectorAll('#view .links a[href*="screener.in"]').forEach(a => a.href = `https://www.screener.in/company/${x.code}/`);
+  const fl = document.getElementById('falinks'); if (fl && x) fl.innerHTML = fullAnalysisLinks(d, { ...(x.links || {}), code: x.code });
   corpBind(el, d, k, R, x); autoGloss(el);
 }
 function corpBind(el, d, k, R, x) {

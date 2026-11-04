@@ -273,12 +273,22 @@ function analyse(d, k) {
 }
 
 // ---------- external links & analysts ----------
+// 'Full analysis' buttons for Indian stocks: outbound links only (nothing is copied from these sites).
+// Direct pages come from data/x/<SYM>.json 'links' (Moneycontrol page + BSE code via ISIN, Tickertape slug); search URLs until then.
+function fullAnalysisLinks(d, L) {
+  const bse = d.symbol.endsWith('.BO'), sym = d.symbol.slice(0, -3), code = L.bc || (bse && ((d.penny && d.penny.code) || L.code)) || '';
+  const nm = (d.name || '').replace(/\b(limited|ltd\.?)\s*$/i, '').trim();
+  const a = (k, u, t, sub) => `<a class="btn fa" data-fa="${k}" href="${esc(u)}" target="_blank" rel="noopener"><b>${t} ↗</b><small>${sub}</small></a>`;
+  return a('sc', `https://www.screener.in/company/${encodeURIComponent(bse ? (code || sym) : sym)}/consolidated/`, 'Screener', 'financials · ratios · peers') +
+    a('mc', L.mc || `https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data=&cid=&mbsearch_str=&topsearch_type=1&search_str=${encodeURIComponent(nm || sym)}`, 'Moneycontrol', L.mc ? 'stock page' : 'search') +
+    (bse ? '' : a('nse', `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(sym)}`, 'NSE', 'official quote')) +
+    (code ? a('bse', `https://www.bseindia.com/stock-share-price/x/x/${code}/`, 'BSE', 'official quote · filings') : '') +
+    a('tt', L.tt || `https://www.tickertape.in/stocks?search=${encodeURIComponent(sym)}`, 'Tickertape', L.tt ? 'stock page' : 'search');
+}
 function extLinks(d) {
   const a = (u, t) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener">${t} ↗</a>`;
   const nm = (d.name || '').replace(/\b(limited|ltd\.?|inc\.?|corporation|corp\.?)\s*$/i, '').trim();
-  if (d.symbol.match(/\.(NS|BO)$/)) { const sym = d.symbol.slice(0, -3);
-    return a(`https://www.screener.in/company/${encodeURIComponent(sym)}/consolidated/`, 'Open in Screener') +
-      a(`https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data=&cid=&mbsearch_str=&topsearch_type=1&search_str=${encodeURIComponent(nm || sym)}`, 'Open in Moneycontrol'); }
+  if (d.symbol.match(/\.(NS|BO)$/)) return fullAnalysisLinks(d, {});
   if (d.symbol.endsWith('.BSE')) { const c = d.symbol.slice(0, -4);
     return a(`https://www.screener.in/search/?q=${encodeURIComponent(nm || c)}`, 'Search on Screener') + a(`https://www.moneycontrol.com/stocks/cptmarket/compsearchnew.php?search_data=&cid=&mbsearch_str=&topsearch_type=1&search_str=${encodeURIComponent(nm || c)}`, 'Open in Moneycontrol'); }
   return a(`https://finance.yahoo.com/quote/${encodeURIComponent(d.symbol)}/`, 'Open in Yahoo Finance');
@@ -368,7 +378,7 @@ function render() {
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
    ${d.penny ? PENNYWARN.replace('(shown as a red tag)', d.penny.surv ? `— <b>this stock is currently flagged: ${esc(d.penny.surv)}</b> (NSE list)` : d.penny.src === 'BSE' ? '— ASM/GSM status for BSE-only stocks is not available here; check bseindia.com' : '— not on NSE\'s current ASM/GSM lists') : ''}
    ${typeof srcLine === 'function' ? srcLine(d) : ''}
-   <div class="links">${extLinks(d)}</div>
+   ${d.symbol.match(/\.(NS|BO)$/) ? `<div class="fullan"><h3>🔎 Full analysis <span class="mut">— open this stock on trusted sites (new tab)</span></h3><div class="links" id="falinks">${extLinks(d)}</div></div>` : `<div class="links">${extLinks(d)}</div>`}
    <button class="btn sec" id="alBtn" style="margin-top:8px">🔔 Set alert</button>${(AL().alerts || []).some(a => a.s === d.symbol) ? ` <a href="#alerts" class="mut">${AL().alerts.filter(a => a.s === d.symbol).length} alert(s) — manage</a>` : ''}
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>

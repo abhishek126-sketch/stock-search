@@ -85,6 +85,35 @@ def main():
         json.dump(bst, open(os.path.join(CD, 'bse_ann.json'), 'w'), separators=(',', ':'))
     except Exception as e: print('bse rss fail', e)
     print('bse ann new', nb, 'companies', len(bst))
+    # --- outbound link slugs (URLs only; no third-party content is copied): Moneycontrol page via its ISIN search, Tickertape slug
+    isin = {}
+    try:
+        for r in csv.DictReader(io.StringIO(get('https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv', hdr={**H, 'Accept': '*/*'}).decode('utf-8-sig', 'ignore'))):
+            r = {k.strip(): (v or '').strip() for k, v in r.items() if k}; isin[r['SYMBOL'] + '.NS'] = r.get('ISIN NUMBER', '')
+    except Exception as e: print('EQUITY_L fail', e)
+    for s_, (c_, i_) in bse.items(): isin.setdefault(s_, i_)
+    LKS = ld(os.path.join(CD, 'links.json'), {})
+    def link(s_):
+        if time.time() - T0 > 400: return
+        o = dict(LKS.get(s_) or {}); i_ = isin.get(s_); base = s_[:-3]
+        if 'mc' not in o and i_:
+            try:
+                j = json.loads(get('https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php?classic=true&type=1&format=json&query=' + i_, tries=2, hdr={'User-Agent': H['User-Agent']}))
+                j = [x for x in j if i_ in (x.get('pdt_dis_nm') or '')]
+                o['mc'] = j[0]['link_src'] if j and (j[0].get('link_src') or '').startswith('https://www.moneycontrol.com/') else ''
+                m_ = re.search(r'\b(5\d{5})\b', (j[0].get('pdt_dis_nm') or '')) if j else None
+                if m_: o['bc'] = m_.group(1)
+            except Exception: pass
+        if 'tt' not in o:
+            try:
+                j = json.loads(get('https://api.tickertape.in/search?types=stock&text=' + urllib.request.quote(base), tries=2, hdr={'User-Agent': H['User-Agent']}))
+                st = [x for x in j['data']['stocks'] if x.get('ticker') == base and x.get('type') == 'stock']
+                o['tt'] = 'https://www.tickertape.in' + st[0]['slug'] if st else ''
+            except Exception: pass
+        LKS[s_] = o
+    with cf.ThreadPoolExecutor(4) as ex: list(ex.map(link, [s_ for s_ in syms if 'mc' not in (LKS.get(s_) or {}) or 'tt' not in (LKS.get(s_) or {})]))
+    json.dump(LKS, open(os.path.join(CD, 'links.json'), 'w'), separators=(',', ':'))
+    print('links mc', sum(1 for v in LKS.values() if v.get('mc')), 'tt', sum(1 for v in LKS.values() if v.get('tt')), 'bse code', sum(1 for v in LKS.values() if v.get('bc')), 'of', len(syms))
     deals_by = {}
     for x in dst['rows']: deals_by.setdefault(x[3], []).append(x)
     # --- per-stock NSE data, stalest first, within the time budget
@@ -143,7 +172,7 @@ def main():
             d['surv'] = SURV.get(isin) if isin else None
         else: d['src'] = 'NSE'; d['surv'] = SURV.get(s)
         d['deals'] = [{'d': x[0], 'x': x[1], 'k': x[2], 'c': x[4], 's': x[5], 'q': x[6], 'p': x[7]} for x in sorted(deals_by.get(s, []), reverse=True)][:30]
-        d['dealsSince'] = dst['since']
+        d['dealsSince'] = dst['since']; d['links'] = LKS.get(s) or {}
         json.dump(d, open(os.path.join(XD, s + '.json'), 'w'), separators=(',', ':'))
         n['files'] += 1; n['ann'] += bool(d.get('ann')); n['deals'] += bool(d['deals']); n['prom'] += bool(d.get('prom')); n['pledge'] += bool(d.get('pledge') and not d['pledge'].get('none')); n['surv'] += bool(d['surv'])
     cov = {'built': int(time.time()), **n, 'nseFresh': sum(1 for s in syms if s.endswith('.NS') and time.time() - prev[s].get('t', 0) < 2 * 86400), 'nse': sum(1 for s in syms if s.endswith('.NS')), 'bse': sum(1 for s in syms if s.endswith('.BO')), 'elapsed': int(time.time() - T0)}
