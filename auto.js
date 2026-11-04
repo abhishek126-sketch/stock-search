@@ -88,7 +88,7 @@ function autoHTML(d, k, A, R, x) {
   if (bse) rk.push('As a BSE-only stock, NSE shareholding/pledge data and BSE deal data are not available here.');
   // --- Scores
   const sc = [];
-  if (R && isNum(R.comp)) sc.push(`On the app's 25-point rule-based report the composite score is ${Math.round(R.comp)}/100 (${esc(R.verdict)}).`); else miss.push('25-point composite score');
+  if (R && isNum(R.comp)) sc.push(`On the app's 25-point rule-based report the composite score is ${Math.round(R.comp)}/100 (higher = more of the rules met).`); else miss.push('25-point composite score');
   if (A && isNum(A.overall)) sc.push(`The quick scorecard rates it ${A.overall.toFixed(1)}/10 overall.`);
   if (typeof moatCalc === 'function' && !d.etf) { try { const M = moatCalc(d, k); if (M.ev >= 4) { sc.push(`The moat check passes ${M.ps} of ${M.ev} tests, suggesting ${M.rating === 'Wide' ? 'a wide' : M.rating === 'Narrow' ? 'a narrow' : 'no clear'} moat on the numbers.`); if (M.rating === 'Wide') strengths.push('signs of a durable moat'); } else miss.push('moat check'); } catch (e) { } }
   if (A && A.style) sc.push(esc(A.style));
