@@ -3,13 +3,14 @@
 const CORP_TAG = { results: 'Results', fundraise: 'Fund-raising', order: 'Order / contract', auditor: 'Auditor', pledge: 'Pledge', mgmt: 'Management change', agm: 'Meeting' };
 let CORPF = 'key';
 function corpPlaceholder(d) { return d.symbol.match(/\.(NS|BO)$/) && !d.etf ? '<div id="corpx"><div class="card mut">Loading exchange filings, deals and red-flags check…</div></div>' : ''; }
-async function corpLoad(d, k, R) {
-  const el = document.getElementById('corpx'); if (!el) return;
+async function corpLoad(d, k, R, A) {
+  const el = document.getElementById('corpx'); if (!el) { if (typeof autoUpdate === 'function') autoUpdate(d, k, A, R, {}); return; }
   let x = null; try { x = await getJSON(DATA + 'x/' + encodeURIComponent(d.symbol) + '.json'); } catch (e) { }
   if (!document.getElementById('corpx') || CUR !== d) return;
   el.innerHTML = corpHTML(d, k, R, x || {});
   const fl = document.getElementById('falinks'); if (fl && x) fl.innerHTML = fullAnalysisLinks(d, { ...(x.links || {}), code: x.code });
   corpBind(el, d, k, R, x); autoGloss(el);
+  if (typeof autoUpdate === 'function') autoUpdate(d, k, A, R, x || {});
 }
 function corpBind(el, d, k, R, x) {
   el.querySelectorAll('[data-jump]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.jump); if (!t) return; if (t.tagName === 'DETAILS') t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });

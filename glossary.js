@@ -73,19 +73,21 @@ function autoGloss(root) {
   [...(root.matches && root.matches('.card, details.sec') ? [root] : []), ...root.querySelectorAll('.card, details.sec')].forEach(block => {
     if (block.parentElement && block.parentElement.closest('details.sec, .card') && block.parentElement.closest('details.sec, .card') !== block) return; // outermost blocks only
     const seen = new Set([...block.querySelectorAll('.gq')].map(x => x.dataset.g));
-    const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('a,button,sup,input,svg,script,style,option,select,.nogq,canvas,tr[data-s] td:not(:first-child),tr[data-s] td:first-child a,#gpop,.gloss') || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest('h1,h2,h3,h4,a,button,sup,input,svg,script,style,option,select,.nogq,canvas,tr[data-s] td:not(:first-child),tr[data-s] td:first-child a,#gpop,.gloss') || !n.nodeValue.trim() ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
     const nodes = []; while (w.nextNode()) nodes.push(w.currentNode);
     for (const n of nodes) {
       let node = n;
       for (const [re, k] of GLR) {
         if (seen.has(k) || !node || !node.parentNode) continue;
         const m = re.exec(node.nodeValue); if (!m) continue;
+        if (/[A-Za-z]/.test(node.nodeValue.charAt(m.index + m[0].length)) || (m.index + m[0].length === node.nodeValue.length && node.nextSibling && node.nextSibling.classList && node.nextSibling.classList.contains('gq')) || (m.index === 0 && node.previousSibling && node.previousSibling.classList && node.previousSibling.classList.contains('gq'))) continue; // no mid-word or doubled '?'
         seen.add(k);
         const after = node.splitText(m.index + m[0].length);
         const s = document.createElement('sup'); s.className = 'gq'; s.dataset.g = k; s.textContent = '?'; s.setAttribute('role', 'button'); s.tabIndex = 0;
         node.parentNode.insertBefore(s, after); node = after;
       }
     }
+    block.querySelectorAll('sup.gq + sup.gq').forEach(q => { const p = q.previousSibling; if (p && p.nodeType === 1) q.remove(); });
   });
 }
 // Popover

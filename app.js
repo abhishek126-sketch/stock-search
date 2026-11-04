@@ -378,7 +378,7 @@ function render() {
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
    ${d.penny ? PENNYWARN.replace('(shown as a red tag)', d.penny.surv ? `— <b>this stock is currently flagged: ${esc(d.penny.surv)}</b> (NSE list)` : d.penny.src === 'BSE' ? '— ASM/GSM status for BSE-only stocks is not available here; check bseindia.com' : '— not on NSE\'s current ASM/GSM lists') : ''}
    ${typeof srcLine === 'function' ? srcLine(d) : ''}
-   ${d.symbol.match(/\.(NS|BO)$/) ? `<div class="fullan"><h3>🔎 Full analysis <span class="mut">— open this stock on trusted sites (new tab)</span></h3><div class="links" id="falinks">${extLinks(d)}</div></div>` : `<div class="links">${extLinks(d)}</div>`}
+   ${d.symbol.match(/\.(NS|BO)$/) ? `<div class="fullan"><h3 class="nogq">🔎 Full analysis <span class="mut">— open this stock on trusted sites (new tab)</span></h3><div class="links" id="falinks">${extLinks(d)}</div></div>` : `<div class="links">${extLinks(d)}</div>`}
    <button class="btn sec" id="alBtn" style="margin-top:8px">🔔 Set alert</button>${(AL().alerts || []).some(a => a.s === d.symbol) ? ` <a href="#alerts" class="mut">${AL().alerts.filter(a => a.s === d.symbol).length} alert(s) — manage</a>` : ''}
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>
@@ -387,6 +387,7 @@ function render() {
     <div class="mut" id="tip">&nbsp;</div><svg id="chart"></svg><div class="mut" id="rchg"></div></div>
    ${d.etf ? etfKeyCard(d, k) : KEYCARD}
   </div>
+  ${typeof autoSection === 'function' ? autoSection(d, k, A, RPT.R) : ''}
   ${typeof corpPlaceholder === 'function' ? corpPlaceholder(d) : ''}
   ${d.etf ? '' : QUARTCARD}
   ${d.etf ? '' : (typeof moatSection === 'function' ? moatSection(d, k) : '')}
@@ -396,7 +397,7 @@ function render() {
   if ($('#liveBtn')) $('#liveBtn').onclick = liveQuote;
   if (!d.etf) { bindIV(d, k); bindReport(d, k, RPT.R); } autoGloss(v);
   v.querySelectorAll('[data-jump]').forEach(a => a.onclick = e => { e.preventDefault(); const t = document.getElementById(a.dataset.jump); if (t.tagName === 'DETAILS') t.open = true; t.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-  if (typeof corpLoad === 'function' && !d.etf) corpLoad(d, k, RPT.R); drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
+  if (typeof corpLoad === 'function' && !d.etf) corpLoad(d, k, RPT.R, A); else if (typeof autoUpdate === 'function' && d.etf) autoUpdate(d, k, A, RPT.R, {}); drawChart(); if (!d._keepScroll) window.scrollTo(0, 0); d._keepScroll = false;
 }
 window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz = setTimeout(drawChart, 150); });
 
