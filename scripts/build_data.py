@@ -118,7 +118,8 @@ def surveillance():
                     SURV[k] = SURV[k] + ' + ' + l if k in SURV and l not in SURV[k] else l
             print('surveillance', fn, n)
         except Exception as e: print('surveillance fail', fn, str(e)[:80])
-def penny(have):
+BSEX = {}
+def penny(have):  # penny stocks + every other NSE mainboard (EQUITY_L) and active BSE-only equity not in the index lists
     out = []
     try:
         surveillance()
@@ -128,7 +129,7 @@ def penny(have):
                 r = {k.strip(): (v or '').strip() for k, v in r.items() if k}; eq[r.get('SYMBOL')] = (r.get('NAME OF COMPANY'), r.get('ISIN NUMBER'))
         except Exception as e: print('EQUITY_L fail', e)
         raw, dn = _latest(lambda t: 'https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_' + time.strftime('%d%m%Y', t) + '.csv')
-        nse_isin, nn = set(), 0
+        nse_isin, nn, no = {i for _, i in eq.values() if i}, 0, 0
         for r in csv.DictReader(io.StringIO(raw)):
             r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
             nm, isin = eq.get(r['SYMBOL'], (None, None)); isin and nse_isin.add(isin)
@@ -136,19 +137,29 @@ def penny(have):
             try: c, v = float(r['CLOSE_PRICE']), int(float(r['TTL_TRD_QNTY'] or 0))
             except ValueError: continue
             sym = r['SYMBOL'] + '.NS'
-            if c >= 50 or v <= 0 or sym in PENNY: continue
+            if v <= 0 or sym in PENNY: continue
+            if c >= 50 and r['SERIES'] not in ('EQ', 'BE', 'BZ'): continue  # SME boards only as penny (unchanged)
+            if c >= 50:  # not an index member and not penny: still cover it (new IPOs, non-index stocks) as 'Other'
+                if sym not in have: have.add(sym); CAP[sym] = 'Other'; out.append((sym, nm or r['SYMBOL'], '')); no += 1
+                continue
             PENNY[sym] = {'src': 'NSE', 'series': r['SERIES'], 'isin': isin, 'close': c, 'date': dn}
             if sym not in have: have.add(sym); CAP[sym] = 'Penny'; out.append((sym, nm or r['SYMBOL'], '')); nn += 1
         raw, db = _latest(lambda t: 'https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_' + time.strftime('%Y%m%d', t) + '_F_0000.CSV')
-        nb = 0
+        nb, nob = 0, 0
         for r in csv.DictReader(io.StringIO(raw)):
             if r.get('FinInstrmTp') != 'STK' or r.get('SctySrs') not in BSE_GRP or r.get('ISIN') in nse_isin: continue
             try: c, v = float(r['ClsPric']), int(float(r['TtlTradgVol'] or 0))
             except ValueError: continue
             sym = r['TckrSymb'].strip() + '.BO'
-            if c >= 50 or v <= 0 or sym in have: continue
+            if v <= 0 or sym in have: continue
+            if c >= 50:
+                have.add(sym); CAP[sym] = 'Other'; BSEX[sym] = {'isin': r['ISIN'], 'code': (r.get('FinInstrmId') or '').strip()}; out.append((sym, r['FinInstrmNm'].strip().title(), '')); nob += 1; continue
             have.add(sym); CAP[sym] = 'Penny'; PENNY[sym] = {'src': 'BSE', 'series': r['SctySrs'], 'isin': r['ISIN'], 'close': c, 'date': db, 'code': (r.get('FinInstrmId') or '').strip()}
             out.append((sym, r['FinInstrmNm'].strip().title(), '')); nb += 1
+        # NSE mainboard listings (EQUITY_L) with no trade in the latest session (e.g. listed today): add so search finds them
+        for sy, (nm, isin) in eq.items():
+            if sy and sy + '.NS' not in have: have.add(sy + '.NS'); CAP[sy + '.NS'] = 'Other'; out.append((sy + '.NS', nm or sy, '')); no += 1
+        print('other (non-index, >= Rs 50) NSE', no, 'BSE-only', nob)
         print('penny NSE', nn, 'BSE-only', nb, 'already covered', sum(1 for k in PENNY if CAP.get(k) != 'Penny'), 'bhav', dn, db)
     except Exception as e: print('penny fail', e)
     return out
@@ -448,7 +459,7 @@ def main():
     docs, fails = {}, []
     def job(x):
         try:
-            if CAP.get(x[0]) == 'Penny':  # penny: full fundamentals at most once a day, otherwise price history only
+            if CAP.get(x[0]) in ('Penny', 'Other'):  # penny / non-index: full fundamentals at most once a day, otherwise price history only
                 pf = os.path.join(OUT, 's', x[0] + '.json'); prev = None
                 try: prev = json.load(open(pf)) if os.path.exists(pf) else None
                 except Exception: prev = None
@@ -473,6 +484,7 @@ def main():
         else: d['canslim'] = canslim(d, K[s], mkt, rsr); d['metrics'] = K[s]
         pm = PENNY.get(s) or ({} if not (s.endswith(('.NS', '.BO')) and isinstance(d.get('price'), (int, float)) and d['price'] < 50 and not et) else {'src': 'NSE' if s.endswith('.NS') else 'BSE'})
         d['penny'] = {**pm, 'surv': SURV.get(s) or SURV.get(pm.get('isin') or '-')} if pm else None
+        if s in BSEX: d['bse'] = BSEX[s]
         with open(os.path.join(OUT, 's', s + '.json'), 'w') as fh: json.dump(d, fh, separators=(',', ':'))
         k = K[s]; nw = d.get('news') or {}; pr = d.get('profile') or {}
         if not et: k = {**k, 'gm': pr.get('grossMargins'), 'om': pr.get('opMargins')}

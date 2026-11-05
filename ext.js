@@ -198,7 +198,7 @@ async function renderLists(tab) {
   await ensureSummary(); const box = $('#lists'); if (!box) return;
   if (!SUMMARY.rows.length) { box.innerHTML = `<p>${NA} — summary data could not be loaded.</p>`; return; }
   const rows = SUMMARY.rows.filter(r => mktOf(r.s) === HOMEMK);
-  const mkb = `<div class="tabs">${['IN', 'US'].map(m => `<button data-mk="${m}" class="${m === HOMEMK ? 'on' : ''}">${m === 'IN' ? '🇮🇳 NSE (NIFTY 500 + Microcap 250)' : '🇺🇸 US (S&P 500)'}</button>`).join('')}</div>`;
+  const mkb = `<div class="tabs">${['IN', 'US'].map(m => `<button data-mk="${m}" class="${m === HOMEMK ? 'on' : ''}">${m === 'IN' ? '🇮🇳 India (all NSE + BSE-only)' : '🇺🇸 US (S&P 500)'}</button>`).join('')}</div>`;
   if (tab === 'cap') return renderCaps(box);
   if (tab === 'cs') {
     const top = rows.filter(r => r.co >= 5).sort((a, b) => (b.cs / b.co) - (a.cs / a.co) || (b.rs || 0) - (a.rs || 0)).slice(0, 40);
@@ -211,8 +211,8 @@ async function renderLists(tab) {
   box.querySelectorAll('[data-mk]').forEach(b => b.onclick = () => { HOMEMK = b.dataset.mk; renderLists(tab); });
 }
 // ---- Browse by market-cap category ----
-const CAPS = [['All', 'All'], ['Large', 'Large cap', 'NIFTY 100'], ['Mid', 'Mid cap', 'NIFTY Midcap 150'], ['Small', 'Small cap', 'NIFTY Smallcap 250'], ['Micro', 'Micro cap', 'NIFTY Microcap 250'], ['US', 'US', 'S&P 500'], ['ETF-IN', 'ETF India', 'NSE-listed ETFs (official NSE list)'], ['ETF-US', 'ETF US', 'major US-listed ETFs'], ['Penny', 'Penny', 'NSE/BSE stocks under ₹50']];
-const CAPCOL = { Large: '#1d4ed8', Mid: '#7c3aed', Small: '#b45309', Micro: '#be123c', US: '#0f766e', 'ETF-IN': '#0369a1', 'ETF-US': '#4d7c0f', Penny: '#a16207' };
+const CAPS = [['All', 'All'], ['Large', 'Large cap', 'NIFTY 100'], ['Mid', 'Mid cap', 'NIFTY Midcap 150'], ['Small', 'Small cap', 'NIFTY Smallcap 250'], ['Micro', 'Micro cap', 'NIFTY Microcap 250'], ['US', 'US', 'S&P 500'], ['ETF-IN', 'ETF India', 'NSE-listed ETFs (official NSE list)'], ['ETF-US', 'ETF US', 'major US-listed ETFs'], ['Penny', 'Penny', 'NSE/BSE stocks under ₹50'], ['Other', 'Other listed', 'all other NSE mainboard (EQUITY_L) and active BSE-only stocks, incl. new listings']];
+const CAPCOL = { Large: '#1d4ed8', Mid: '#7c3aed', Small: '#b45309', Micro: '#be123c', US: '#0f766e', 'ETF-IN': '#0369a1', 'ETF-US': '#4d7c0f', Penny: '#a16207', Other: '#475569' };
 const PENNYWARN = `<div class="warnbox" style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:8px 10px;margin:6px 0 8px;font-size:13px">⚠️ <b>Penny stocks are high-risk.</b> They often have <b>low liquidity</b> (hard to sell at a fair price), are <b>easy to manipulate</b> (pump-and-dump tips on social media), and many have weak finances. Check whether NSE/BSE has put the stock under <b>ASM/GSM surveillance</b> (shown as a red tag) before trading. Educational only — not investment advice.</div>`;
 const survTag = sv => `<span class="tag" style="background:#dc2626;color:#fff" title="${esc(sv)}">${esc(/GSM/.test(sv) ? 'GSM' : 'ASM')}</span>`;
 const capOf = s => { const r = SUMMARY && SUMMARY.rows.find(x => x.s === s); return r && r.cap || null; };
@@ -228,7 +228,7 @@ async function renderCaps(box) {
   rows.sort((a, b) => { const x = val(a), y = val(b); if (x == null || (typeof x === 'number' && !isFinite(x))) return 1; if (y == null || (typeof y === 'number' && !isFinite(y))) return -1; return (x < y ? -1 : x > y ? 1 : 0) * dir; });
   const th = (key, lbl) => `<th data-sort="${key}" style="cursor:pointer;user-select:none">${lbl}${k === key ? (dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
   const shown = rows.slice(0, CAPN), cinfo = CAPS.find(x => x[0] === CAPF);
-  box.innerHTML = `<div class="tabs" id="capf">${CAPS.map(([c, l]) => `<button data-cap="${c}" class="${c === CAPF ? 'on' : ''}">${c === 'US' ? '🇺🇸 US' : c === 'ETF-IN' ? '🇮🇳 ETF India' : c === 'ETF-US' ? '🇺🇸 ETF US' : c === 'Penny' ? '⚠️ Penny' : l} <small>${cnt(c)}</small></button>`).join('')}</div>
+  box.innerHTML = `<div class="tabs" id="capf">${CAPS.map(([c, l]) => `<button data-cap="${c}" class="${c === CAPF ? 'on' : ''}">${c === 'US' ? '🇺🇸 US' : c === 'ETF-IN' ? '🇮🇳 ETF India' : c === 'ETF-US' ? '🇺🇸 ETF US' : c === 'Penny' ? '⚠️ Penny' : c === 'Other' ? '🇮🇳 Other listed' : l} <small>${cnt(c)}</small></button>`).join('')}</div>
   ${CAPF === 'Penny' ? PENNYWARN : ''}<input type="text" id="capq" placeholder="Filter by name or symbol…" value="${esc(CAPQ)}" style="margin-bottom:8px">
   <div class="tw"><table class="pt" id="capt"><tr>${th('n', 'Stock')}${th('p', 'Price')}${th('dc', 'Day %')}${th('mc', CAPF.startsWith('ETF') ? 'AUM' : CAPF === 'All' ? 'M.cap / AUM' : 'M.cap')}</tr>${shown.map(r => `<tr data-s="${esc(r.s)}"><td style="white-space:normal">${esc((r.n || r.s).slice(0, 34))} ${CAPF === 'All' ? capBadge(r.cap) : ''}${r.sv ? survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}</small></td><td>${fmtP(r.lp, r.c)}${r.ck && r.ck.st ? (r.ck.st === 'ok' ? ' <span class="up" title="matches ' + esc(r.ck.src) + '">✔</span>' : ' <span style="color:var(--warn)" title="Yahoo and ' + esc(r.ck.src) + ' differ by ' + (r.ck.d * 100).toFixed(1) + '%; showing ' + esc(r.src) + '\'s price">⚠</span>') : ''}</td><td>${isNum(r.dc) ? `<span class="${r.dc >= 0 ? 'up' : 'dn'}">${r.dc >= 0 ? '+' : ''}${(r.dc * 100).toFixed(2)}%</span>` : '<span class="mut">–</span>'}</td><td>${fmtBig(r.mc, r.c)}</td></tr>`).join('')}</table></div>
   ${rows.length > shown.length ? `<p style="text-align:center"><button class="btn sec" id="capMore">Show all ${rows.length}</button></p>` : ''}

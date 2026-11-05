@@ -51,7 +51,7 @@ function autoHTML(d, k, A, R, x) {
   else miss.push('P/E history');
   const peers = typeof SUMMARY !== 'undefined' && SUMMARY ? SUMMARY.rows.filter(r => r.sec && r.sec === d.sector && r.s !== d.symbol && /\.(NS|BO)$/.test(r.s) === india && r.pe > 0) : [];
   if (peers.length >= 3 && isNum(k.pe) && !k.loss) { const a = peers.map(r => r.pe).sort((p, q) => p - q), med = a[Math.floor(a.length / 2)];
-    va.push(`Among ${peers.length} ${esc(d.sector)} peers in the app's ${india ? 'NIFTY 500' : 'S&P 500'} snapshot, the median P/E is ${med.toFixed(1)}; this stock is ${k.pe > med * 1.15 ? 'more expensive' : k.pe < med * 0.85 ? 'cheaper' : 'roughly in line'} on that measure.`); }
+    va.push(`Among ${peers.length} ${esc(d.sector)} peers in the app's ${india ? 'Indian' : 'S&P 500'} list, the median P/E is ${med.toFixed(1)}; this stock is ${k.pe > med * 1.15 ? 'more expensive' : k.pe < med * 0.85 ? 'cheaper' : 'roughly in line'} on that measure.`); }
   else miss.push('peer P/E comparison');
   if (isNum(k.dy) && k.dy > 0) va.push(`Dividend yield is ${pc(k.dy, 2)}.`);
   if (R && isNum(R.peg)) va.push(`PEG is ${R.peg.toFixed(2)}.`);

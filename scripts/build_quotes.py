@@ -63,9 +63,9 @@ def intraday(s):
             if t: print('intraday fail', s, str(e)[:80])
             time.sleep(1)
     return s, None
-try: PN = {r['s'] for r in json.load(open(os.path.join(OUT, 'summary.json')))['rows'] if r.get('pn')}
+try: PN = {r['s'] for r in json.load(open(os.path.join(OUT, 'summary.json')))['rows'] if r.get('pn') or r.get('cap') == 'Other'}
 except Exception: PN = set()
-# penny stocks (~2,000, thinly traded): intraday chart at most every 15 min to stay under Yahoo's rate limit
+# penny + non-index stocks (thinly traded): intraday chart at most every 15 min to stay under Yahoo's rate limit
 todo = [s for s in syms if s in q and q[s][2] and q[s][2] > IDX.get(s, 0) and not (s in PN and q[s][2] - IDX.get(s, 0) < 900)]
 print('intraday to fetch', len(todo))
 n = 0

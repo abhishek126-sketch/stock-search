@@ -19,7 +19,7 @@ concurrency: { group: data-full, cancel-in-progress: false }
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - name: Check out data branch (depth 1)

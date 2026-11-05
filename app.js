@@ -35,7 +35,7 @@ async function getJSON(u) {
 async function loadIndex() {
   try {
     const d = await getJSON(DATA + 'index.json'); INDEX = d.symbols;
-    $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (NIFTY 500 + Microcap 250 + S&P 500 + ETFs). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
+    $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (all NSE mainboard + active BSE-only stocks, S&P 500, ETFs; new listings added by the nightly refresh). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
   } catch (e) { $('#dsinfo').textContent = 'Could not load the stock list (offline?). ' + (LS.get('avkey', '') ? 'Alpha Vantage search still works.' : ''); }
   renderChips();
 }
@@ -103,7 +103,7 @@ function showSug() {
   const q = $('#q').value, list = search(q), el = $('#sug'); sugIdx = -1;
   let h = list.map(r => `<div data-s="${esc(r[0])}"><b>${esc(r[0].replace(/\.(NS|BO)$/, ''))}</b> ${esc(r[1])}<br><small>${esc(r[2])}${r[3] ? ' · ' + esc(r[3]) : ''}</small></div>`).join('');
   if (q.trim() && LS.get('avkey', '')) h += `<div data-av="${esc(q.trim())}"><small>🔎 Search more (BSE / other US) via Alpha Vantage for “${esc(q.trim())}”</small></div>`;
-  else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (NIFTY 500 + Microcap 250 + S&P 500 + ETFs). Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
+  else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (all NSE mainboard + active BSE-only stocks, S&P 500, ETFs). Brand-new listings appear after the next full refresh. Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
   el.innerHTML = h; el.style.display = h ? 'block' : 'none';
   el.querySelectorAll('div[data-s]').forEach(d => d.onclick = () => openSym(d.dataset.s));
   el.querySelectorAll('div[data-av]').forEach(d => d.onclick = () => avSearch(d.dataset.av));
@@ -276,7 +276,7 @@ function analyse(d, k) {
 // 'Full analysis' buttons for Indian stocks: outbound links only (nothing is copied from these sites).
 // Direct pages come from data/x/<SYM>.json 'links' (Moneycontrol page + BSE code via ISIN, Tickertape slug); search URLs until then.
 function fullAnalysisLinks(d, L) {
-  const bse = d.symbol.endsWith('.BO'), sym = d.symbol.slice(0, -3), code = L.bc || (bse && ((d.penny && d.penny.code) || L.code)) || '';
+  const bse = d.symbol.endsWith('.BO'), sym = d.symbol.slice(0, -3), code = L.bc || (bse && ((d.penny && d.penny.code) || (d.bse && d.bse.code) || L.code)) || '';
   const nm = (d.name || '').replace(/\b(limited|ltd\.?)\s*$/i, '').trim();
   const a = (k, u, t, sub) => `<a class="btn fa" data-fa="${k}" href="${esc(u)}" target="_blank" rel="noopener"><b>${t} ↗</b><small>${sub}</small></a>`;
   return a('sc', `https://www.screener.in/company/${encodeURIComponent(bse ? (code || sym) : sym)}/consolidated/`, 'Screener', 'financials · ratios · peers') +
