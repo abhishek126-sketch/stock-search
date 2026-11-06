@@ -1,5 +1,16 @@
 {
- "topic": null,
- "alerts": [],
- "updated": 1793674178
+ "topic": "stocksearch-8l0riik6czn6ctm3",
+ "alerts": [
+  {
+   "id": "mw4tjd1r2iu1",
+   "s": "IPCALAB.NS",
+   "type": "below",
+   "v": 1800,
+   "note": null,
+   "ver": 1793960121,
+   "trig": null,
+   "trigP": null
+  }
+ ],
+ "updated": 1793960130
 }
