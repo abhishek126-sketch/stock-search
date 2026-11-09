@@ -22,14 +22,18 @@ const SW_RULES = () => `<ul style="margin:4px 0;padding-left:18px">
   <li><b>Position size${swq('possize')}:</b> quantity = (capital × risk %) ÷ (entry − stop), so a stop-out costs about your chosen risk %${swq('riskpct')}.</li></ul>`;
 const SW_DISC = `<div class="disc" style="margin-top:8px"><b>Educational tool, not a recommendation.</b> These levels come from fixed technical rules applied to official closing prices; they don't know news, order flow or your situation. Gaps at the open can skip past a stop. Check the chart yourself, use a stop-loss, risk only a small part of your capital per trade, and consult a SEBI-registered adviser before trading.</div>`;
 
+const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'trend') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const swModeWire = box => box.querySelectorAll('[data-swmode]').forEach(b => b.onclick = () => { SWF.mode = b.dataset.swmode; swSave(); renderSwing(box); });
+
 async function renderSwing(box) {
-  if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `<p>${NA} — summary data could not be loaded.</p>`; return; }
+  if (SWF.mode === 'mom') return renderMomentum(box);
+  if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `${swMode()}<p>${NA} — summary data could not be loaded.</p>`; swModeWire(box); return; }
   const asOf = SUMMARY.swingAsOf || '', all = SUMMARY.rows.filter(r => r.sw && r.sw.t && /\.(NS|BO)$/.test(r.s));
   const caps = ['All', 'Large', 'Mid', 'Small', 'Micro', 'Other'], cnt = st => all.filter(r => r.sw.st === st).length;
   let rows = all.filter(r => (SWF.st === 'all' || r.sw.st === SWF.st) && (!SWF.t || r.sw.t === SWF.t) && (SWF.cap === 'All' || r.cap === SWF.cap) && (!SWF.cf || r.sw.cf));
   rows.sort((a, b) => (b.sw.sc || 0) - (a.sw.sc || 0));
   const stale = asOf && (Date.now() - Date.parse(asOf + 'T15:30:00+05:30')) / 864e5 > 4;
-  box.innerHTML = `<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar select,.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff}.swbar input[type=number]{width:110px}#swt td:not(:first-child),#swt th:not(:first-child){text-align:right}</style>
+  box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar select,.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff}.swbar input[type=number]{width:110px}#swt td:not(:first-child),#swt th:not(:first-child){text-align:right}</style>
   <p style="margin:0 0 6px">${asOf ? `Swing setups${swq('swing')} from the close of <b>${swDate(asOf)}</b> — for the next session, <b>${swDate(swNext(asOf))}</b>.` : 'No swing setups computed yet — they appear after the next evening refresh.'} <span class="mut">Recomputed every evening once NSE/BSE publish official closing prices (normally by 20:30 IST).</span>${stale ? ' <span class="doubt" style="text-decoration:none">⚠ these setups are more than 4 days old</span>' : ''}</p>
   <div class="tabs">${[['ready', 'Ready'], ['watch', 'Watch'], ['avoid', 'Avoid'], ['all', 'All']].map(([k, l]) => `<button data-swst="${k}" class="${SWF.st === k ? 'on' : ''}">${l} <small>${k === 'all' ? all.length : cnt(k)}</small></button>`).join('')}<span class="mut" style="font-size:12px;align-self:center">what these mean${swq('swingst')}</span></div>
   <div class="swbar"><select id="swt-t"><option value="">All setups</option><option value="breakout" ${SWF.t === 'breakout' ? 'selected' : ''}>🚀 Breakouts</option><option value="pullback" ${SWF.t === 'pullback' ? 'selected' : ''}>↩️ Pullbacks</option></select>
@@ -42,12 +46,47 @@ async function renderSwing(box) {
     : `<p class="mut">No ${SWF.st === 'all' ? '' : SWS[SWF.st][0].toLowerCase() + ' '}setups match these filters.</p>`}
   <details class="how"><summary>How the setups are found</summary><div class="mut">${SW_RULES()}<p>Score (0–100) ranks setups by trend strength, relative strength vs the market, volume or RSI confirmation, how tight the stop is, room to the 52-week high and the CANSLIM backdrop. Tap a stock for its full setup and reasons.</p></div></details>${SW_DISC}</div>`;
   const re = () => { swSave(); const y = window.scrollY; renderSwing(box).then(() => window.scrollTo(0, y)); };
+  swModeWire(box);
   box.querySelectorAll('[data-swst]').forEach(b => b.onclick = () => { SWF.st = b.dataset.swst; re(); });
   box.querySelector('#swt-t').onchange = e => { SWF.t = e.target.value; re(); };
   box.querySelector('#swt-cap').onchange = e => { SWF.cap = e.target.value; re(); };
   box.querySelector('#swt-cf').onchange = e => { SWF.cf = e.target.checked; re(); };
   box.querySelector('#swt-cash').onchange = e => { SWF.cash = Math.max(0, +e.target.value || 0); re(); };
   box.querySelector('#swt-risk').onchange = e => { SWF.riskPct = Math.min(5, Math.max(0.1, +e.target.value || 1)); re(); };
+}
+
+// ===== Earnings-momentum scan (scripts/momentum.js → momentum.json; profits from scripts/results.js) =====
+const MOT = { vcp: ['🌀 VCP', 'Volatility contraction: each pullback shallower than the last, volume drying up — a base tightening before a breakout'], tight: ['📏 Tight range', 'Price held in a narrow range near the 52-week high'], pullback: ['↩️ Pullback', 'Dipped back to the 20-day EMA / 50-DMA on light volume, trend intact'], extended: ['⏳ Extended', 'Strong, but too far above its averages to buy now — wait'], none: ['— No setup', 'Passes the screen but no clean chart setup yet'] };
+let MOM = null;
+const moPct = v => v === 'turn' ? 'loss → profit' : v == null ? '?' : v + '%';
+async function renderMomentum(box) {
+  if (!MOM) { box.innerHTML = `${swMode()}<p class="mut">Loading…</p>`; swModeWire(box); try { MOM = await getJSON(DATA + 'momentum.json'); } catch (e) { MOM = { err: e.message }; } }
+  const m = MOM, f = SWF.mof || 'act';
+  if (!m || m.err || !m.list) { box.innerHTML = `${swMode()}<p>${NA} — the earnings-momentum scan hasn't run yet; it appears after the next evening refresh.</p>`; swModeWire(box); return; }
+  const act = m.list.filter(r => ['vcp', 'tight', 'pullback'].includes(r.t)), rows = f === 'act' ? act : f === 'all' ? m.list : null;
+  const R = m.rules || {}, cov = m.coverage;
+  const tr = r => { const q = r.e ? swQty(r.e, r.sl) : null;
+    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small></td>
+      <td style="white-space:normal"><span title="${esc(MOT[r.t][1])}">${MOT[r.t][0]}</span><br><small class="mut">${esc((r.why || [])[0] || '')}</small>${(r.warn || []).map(w => `<br><small class="dn">⚠ ${esc(w)}</small>`).join('')}</td>
+      <td>${r.e ? `<b>₹${r.e}</b><br><small class="mut">${r.t === 'pullback' ? 'close above' : 'close above, vol ≥ ' + (r.volNeed / 1e5).toFixed(1) + ' L'}</small>` : `<small class="mut">${esc(r.wait || '–')}</small>`}</td>
+      <td>${r.sl ? `₹${r.sl}<br><small class="dn">−${r.rp}%</small>` : '–'}</td><td>${q === null ? '–' : q.toLocaleString('en-IN')}</td>
+      <td><small>Qtr ${moPct(r.qg)}<br>5 yr ${moPct(r.g5)}<br>ROCE ${r.roce}%</small></td><td>${r.sc}</td></tr>`; };
+  box.innerHTML = `${swMode()}<div class="nogq"><style>#mot td:not(:first-child):not(:nth-child(2)),#mot th:not(:first-child):not(:nth-child(2)){text-align:right}</style>
+  <p style="margin:0 0 6px">Stocks passing your earnings-momentum screen${m.asOf ? `, with chart setups from the close of <b>${swDate(m.asOf)}</b> — for <b>${swDate(swNext(m.asOf))}</b>` : ''}.</p>
+  ${m.cnt && m.cnt.pending ? `<p class="doubt" style="text-decoration:none;font-size:13px">⚠ Profit figures are still being read from NSE filings (${cov ? `${cov.have} of ${cov.of} companies so far` : 'first pass'}); ${m.cnt.pending} stocks that pass the price, volume and ROCE tests are not checked yet. The list fills in over the next few runs.</p>` : ''}
+  <p class="mut" style="font-size:13px;margin:0 0 6px">Screen: quarterly profit growth &gt; ${R.qg}% · 5-year profit growth &gt; ${R.g5}% a year · ROCE${swq('roce')} &gt; ${R.roce}% · price &gt; ${Math.round(R.hi * 100)}% of the 52-week high · 1-month average volume &gt; ${(R.vol / 1e5).toFixed(0)} lakh shares · no banks, finance or real estate.</p>
+  <div class="tabs">${[['act', 'Actionable', act.length], ['all', 'All passing', m.list.length], ['unk', "Couldn't check", (m.unchecked || []).length]].map(([k, l, n]) => `<button data-mof="${k}" class="${f === k ? 'on' : ''}">${l} <small>${n}</small></button>`).join('')}</div>
+  ${rows ? (rows.length ? `<div class="tw"><table class="pt" id="mot"><tr><th>Stock</th><th>Setup</th><th>Entry trigger${swq('trigger')}</th><th>Stop-loss${swq('stoploss')}</th><th>Qty${swq('possize')}</th><th>Growth</th><th>Rank score</th></tr>${rows.map(tr).join('')}</table></div>` : '<p class="mut">No stock has a clean setup today.</p>')
+    : `<p class="mut" style="font-size:13px">These pass the price, volume and ROCE tests, but NSE doesn't hold the profit figures needed for the growth tests — usually a company listed in the last few years (its earlier results are in the IPO prospectus, not NSE filings) or one that changed its name. Check them on Screener before trading.</p>
+       <div class="tw"><table class="pt"><tr><th>Stock</th><th>Qtr growth</th><th>5-yr growth</th><th>What's missing</th></tr>${(m.unchecked || []).map(r => `<tr data-s="${esc(r.s)}"><td class="nogq">${esc((r.n || r.s).slice(0, 28))}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}</small></td><td>${moPct(r.qg)}</td><td>${moPct(r.g5)}</td><td style="white-space:normal"><small class="mut">${esc(r.why)}</small></td></tr>`).join('')}</table></div>`}
+  <details class="how"><summary>How this scan works</summary><div class="mut"><ul style="margin:4px 0;padding-left:18px">
+   <li><b>Profits</b> come from each company's own results filed on NSE: profit attributable to shareholders, consolidated where filed. Quarterly growth compares the latest quarter with the same quarter a year earlier; 5-year growth is the yearly rate from 5 years before to the latest March year. A loss turning into a profit counts as growth.${cov ? ` Read so far for ${cov.have} of ${cov.of} NSE companies.` : ''}</li>
+   <li><b>🌀 VCP:</b> the last three pullbacks (over ~60 sessions) each shallower, the last one ≤ 12%, price within 8% of the base high. <b>📏 Tight range:</b> last 10 sessions within ~8% and within 6% of the 52-week high. <b>↩️ Pullback:</b> back at the 20-day EMA or 50-DMA with the last 5 sessions' volume under 80% of normal.</li>
+   <li><b>Entry:</b> for VCP / tight range, a close above the base high on volume at least 1.5× the 1-month average; for a pullback, a close back above the last session's high and the 20-day EMA.</li>
+   <li><b>Stop-loss:</b> below the lowest low of the last 5 sessions (10 if that's too close), never more than 2.5 × ATR below the entry. Quantity uses the capital and risk % from the Trend setups view.</li>
+   <li><b>Rank:</b> setup quality, how tight the stop is, volume drying up, closeness to the 52-week high, relative strength and earnings growth; promoter pledge over 20%, surveillance or results within a week lower it.</li></ul></div></details>${SW_DISC}</div>`;
+  swModeWire(box);
+  box.querySelectorAll('[data-mof]').forEach(b => b.onclick = () => { SWF.mof = b.dataset.mof; swSave(); renderMomentum(box); });
 }
 
 // stock page card

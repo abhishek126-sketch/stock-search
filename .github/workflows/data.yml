@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', 'scripts/swing.js', '.github/workflows/data.yml']
+    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', 'scripts/swing.js', 'scripts/momentum.js', '.github/workflows/data.yml']
 permissions:
   contents: write
   actions: write
@@ -46,6 +46,9 @@ jobs:
       - name: Swing-trade setups (from official closing prices)
         if: env.SKIP != '1'
         run: node scripts/swing.js || echo 'swing setups skipped'
+      - name: Earnings-momentum scan (profits from the exchange-data job)
+        if: env.SKIP != '1'
+        run: node scripts/momentum.js || echo 'momentum scan skipped'
       - if: env.SKIP != '1'
         run: python3 scripts/build_quotes.py || true
       - name: Cross-check (NSE / Finnhub)

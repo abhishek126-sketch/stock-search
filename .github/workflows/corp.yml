@@ -9,18 +9,21 @@ on:
   workflow_dispatch:
   push:                       # run right away when the exchange-data script changes
     branches: [main]
-    paths: ['scripts/build_corp.py', '.github/workflows/corp.yml']
+    paths: ['scripts/build_corp.py', 'scripts/results.js', '.github/workflows/corp.yml']
 permissions:
   contents: write
 concurrency: { group: data-corp, cancel-in-progress: false }
 jobs:
   corp:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
         with: { sparse-checkout: "scripts\n.github", fetch-depth: 1 }
       - run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data
       - run: python3 scripts/build_corp.py
         env: { MAXSEC: '1500' }
+      - name: Quarterly / annual profits from results filings (for the earnings-momentum scan)
+        run: node scripts/results.js || echo 'results skipped'
+        env: { RES_MAXSEC: '660' }
       - run: bash .github/workflows/publish.sh corp
