@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from build_data import surveillance, SURV, _latest
 OUT = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), '..', 'data'); XD = os.path.join(OUT, 'x'); CD = os.path.join(OUT, 'corp')
 MAXSEC = int(os.environ.get('MAXSEC', '1500')); STALE = 20 * 3600; T0 = time.time()
-RV = 2   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
+RV = 3   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
 H = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
      'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9', 'Referer': 'https://www.nseindia.com/'}
 OP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -64,9 +64,23 @@ FII_TOTAL = re.compile(r'(InstitutionsForeign|ForeignInstitutions?)Member$', re.
 FPI_TOTAL = re.compile(r'ForeignPortfolioInvestors?Member$', re.I)
 FPI_PART = re.compile(r'ForeignPortfolioInvestors?Cat\w*Member$|ForeignInstitutionalInvestors?Member$', re.I)   # "Catergory" typo exists in filings
 DII_TOTAL = re.compile(r'(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
-def shp_inst(url):
+DIAG_SYMS = ('RELIANCE.NS', 'LT.NS', 'SUZLON.NS', 'TCS.NS', 'BEL.NS')   # dump their foreign/institution figures for checking
+def shp_inst(url, sym=''):
     """-> (fii %, dii %) from one shareholding-pattern XBRL (None where not found)."""
     x = get(url, tries=2, hdr={**H, 'Accept': '*/*'}).decode('utf-8', 'ignore')
+    if sym in DIAG_SYMS:
+        with LK:
+            dd = IDIAG.setdefault('dump', {}).setdefault(sym, {})
+            if not dd:
+                tags = sorted(set(re.findall(r'<([\w-]+:\w*[Ss]hareholding\w*)\b', x)))[:15]
+                rows = []
+                for cid, body in _CTX.findall(x):
+                    mem = [s.split(':')[-1] for s in _MEM.findall(body)]
+                    if any(re.search(r'foreign|portfolio|institution', m_, re.I) for m_ in mem):
+                        vals_ = re.findall(r'<([\w-]+:\w+)\b[^>]*contextRef="%s"[^>]*>\s*([-0-9.Ee]+)\s*<' % re.escape(cid), x)
+                        pct = [v for t, v in vals_ if 'Percentage' in t]
+                        rows.append('/'.join(mem)[:110] + ('|typed' if 'typedMember' in body else '') + ' = ' + ','.join(pct[:3]))
+                dd.update({'url': url[-60:], 'tags': tags, 'rows': rows[:40]})
     ctx = {}
     for cid, body in _CTX.findall(x):
         if 'typedMember' in body: continue                       # individual shareholder rows
@@ -90,7 +104,8 @@ def shp_inst(url):
     pick = lambda rx: [v for k, v in vals.items() if rx.search(k)] or [v for k, v in valsM.items() if rx.search(k)]
     f = pick(FII_TOTAL) or pick(FPI_TOTAL) or ([sum(pick(FPI_PART))] if pick(FPI_PART) else [])
     dii = pick(DII_TOTAL)
-    if not f and dii: f = [0.0]                                 # institutions table present but no foreign category = no FII holding
+    # 0% only when the filing has no foreign category at all; otherwise leave it unknown rather than show a false 0
+    if not f and dii and not any(re.search(r'foreign|portfolio', k, re.I) for k in list(vals) + list(valsM)): f = [0.0]
     return (round(f[0] * scale, 2) if f else None, round(dii[0] * scale, 2) if dii else None)
 def ld(p, dflt):
     try: return json.load(open(p))
@@ -208,7 +223,7 @@ def main():
     prev = {s: ld(os.path.join(XD, s + '.json'), {}) for s in syms}
     # due = not refreshed for STALE hours, or never read with the FII/pledge reader yet (no 'inst' key) — new fields fill in at once
     due = lambda s: time.time() - prev[s].get('t', 0) > STALE or prev[s].get('rv') != RV
-    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: (prev[s].get('rv') == RV, prev[s].get('t', 0)))
+    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: (s not in DIAG_SYMS, prev[s].get('rv') == RV, prev[s].get('t', 0)))
     print('NSE due', len(todo))
     frm, to = time.strftime('%d-%m-%Y', time.gmtime(time.time() - 365 * 86400)), time.strftime('%d-%m-%Y', time.gmtime(time.time() + 19800))
     done = []
@@ -219,7 +234,9 @@ def main():
         sh = nse(f'corporate-share-holdings-master?index=equities&symbol={q}')
         if an == [] and sh == []: an = nse(f'corporate-announcements?index=sme&symbol={q}&from_date={frm}&to_date={to}'); sh = nse(f'corporate-share-holdings-master?index=sme&symbol={q}')
         pl = nse(f'corporate-pledgedata?index=equities&symbol={q}')
-        if pledge_rows(pl) == [] and isinstance(sh, list) and not sh: pl = nse(f'corporate-pledgedata?index=sme&symbol={q}') or pl  # SME board
+        if pledge_rows(pl) == []:                                  # SME-board companies' pledges are listed under index=sme
+            ps = nse(f'corporate-pledgedata?index=sme&symbol={q}')
+            if pledge_rows(ps): pl = ps
         if an is None and sh is None and pl is None: return
         d = dict(prev[s]); d['t'] = int(time.time()); d['rv'] = RV
         if prev[s].get('rv') != RV: d.pop('inst', None)          # re-read FII/DII with the current reader
@@ -246,7 +263,7 @@ def main():
             for q in need:
                 if time.time() - T0 > MAXSEC: break
                 try:
-                    fv, dv = shp_inst(xb[q]); have[q] = [q, fv, dv]
+                    fv, dv = shp_inst(xb[q], s); have[q] = [q, fv, dv]
                     with LK: IDIAG['parsed'] += 1; IDIAG['noFii'] += fv is None
                 except Exception as e:
                     with LK:
