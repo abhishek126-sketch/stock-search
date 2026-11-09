@@ -27,6 +27,11 @@ def batch(i):  # ~1,300 symbols -> ~27 batches of 50, fetched 6 at a time
 with ThreadPoolExecutor(6) as ex:
     for r in ex.map(batch, range(0, len(syms), 50)): q.update(r)
 now = int(time.time())
+# Yahoo sometimes returns a frozen quote months old (TGL.NS on 9 Nov 2026: ₹472.10 dated Jul vs ~₹10 actual).
+# Drop quotes older than 20 days (longer than any market holiday); the app then uses the stock file's daily close.
+stale = sorted(s for s, v in q.items() if v[2] and now - v[2] > 20 * 86400)
+for s in stale: del q[s]
+if stale: print('dropped', len(stale), 'stale quotes (> 20 days old):', stale[:20])
 json.dump({'built': now, 'q': q}, open(os.path.join(OUT, 'quotes.json'), 'w'), separators=(',', ':'))
 mp = os.path.join(OUT, 'meta.json'); meta = json.load(open(mp)) if os.path.exists(mp) else {}
 meta.update({'quotes': now, 'nQuotes': len(q)}); json.dump(meta, open(mp, 'w'))

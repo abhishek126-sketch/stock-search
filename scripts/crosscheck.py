@@ -102,7 +102,8 @@ if nse['mode'] != 'live':
             close, pcl = float(r['CLOSE_PRICE']), float(r['PREV_CLOSE'])
             yd = dt.datetime.fromtimestamp(y[2], IST).date() if y[2] else None
             # compare like with like: same session -> Yahoo price vs NSE close; Yahoo already on a later session -> Yahoo prev close vs NSE close
-            cmpv = y[0] if yd == day else (y[1] if yd and yd > day else None)
+            # Yahoo's quote more than 5 days behind NSE's session = frozen/stale quote: compare it anyway so it is flagged
+            cmpv = y[0] if yd == day else (y[1] if yd and yd > day else (y[0] if yd and (day - yd).days > 5 else None))
             put(s, 'NSE', close, pcl, int(dt.datetime.combine(day, dt.time(15, 30), IST).timestamp()), 'eod', cmpv); n += 1
         nse.update({'mode': 'eod', 'date': day.isoformat(), 'n': n}); break
 print('NSE', nse)

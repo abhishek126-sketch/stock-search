@@ -248,6 +248,17 @@ def cagr(a):
     x, y, n = a[0][1], a[-1][1], days(a[-1][0], a[0][0]) / 365.25
     return (y / x) ** (1 / n) - 1 if x > 0 and y > 0 and n >= 0.9 else None
 
+def fix_stale_price(d):
+    """Yahoo's chart 'regularMarketPrice' is sometimes frozen at an old value while the daily closes are current
+    (e.g. TGL.NS on 9 Nov 2026: ₹472.10 dated Jul while the daily closes and NSE showed ~₹10). If the quote is more
+    than 3 days older than the latest daily bar, use that bar instead. Returns 1 when it changed something."""
+    h, pt = d.get('hist') or [], d.get('priceTime') or 0
+    if not h or not isinstance(h[-1][1], (int, float)) or pt >= h[-1][0] - 3 * 86400: return 0
+    print('stale price', d.get('symbol'), d.get('price'), '@', pt, '-> last close', h[-1][1], '@', h[-1][0])
+    d['price'], d['priceTime'] = h[-1][1], h[-1][0]; d['staleFixed'] = True
+    if len(h) >= 2: d['prevClose'] = h[-2][1]
+    return 1
+
 def metrics(d):
     f, price, hist = d['fund'], d['price'], d['hist']; now = hist[-1][0] if hist else time.time(); k = {}
     eps = series(f, 'quarterlyDilutedEPS')[-4:]
@@ -467,6 +478,7 @@ def main():
             else: docs[x[0]] = (fetch_etf if CAP.get(x[0], '').startswith('ETF') else fetch)(*x)
         except Exception as e: fails.append(x[0]); print('fail', x[0], e)
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
+    nfix = sum(fix_stale_price(d) for d in docs.values()); print('stale Yahoo prices replaced by latest daily close:', nfix)
     K = {s: metrics(d) for s, d in docs.items()}
     # relative strength rank (O'Neil-style weighting) within each market
     rsr = {}
