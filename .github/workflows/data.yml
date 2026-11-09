@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', '.github/workflows/data.yml']
+    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', 'scripts/swing.js', '.github/workflows/data.yml']
 permissions:
   contents: write
   actions: write
@@ -43,6 +43,9 @@ jobs:
           EOF
       - if: env.SKIP != '1'
         run: python3 scripts/build_data.py
+      - name: Swing-trade setups (from official closing prices)
+        if: env.SKIP != '1'
+        run: node scripts/swing.js || echo 'swing setups skipped'
       - if: env.SKIP != '1'
         run: python3 scripts/build_quotes.py || true
       - name: Cross-check (NSE / Finnhub)

@@ -33,6 +33,14 @@ keyword-tagged into orders / plans / negative — automated and unverified), num
 Graham revised formula, sector P/E multiple, EPV, dividend discount, justified P/B; editable assumptions), and a mechanised CANSLIM check,
 plus CANSLIM-leaders and sector browsing lists on the home screen. Promoter pledge and auditor data are not available from free sources.
 
+## Swing setups (Indian stocks)
+`scripts/swing.js` runs after `build_data.py` in every full refresh (so the evening run uses NSE/BSE official closes) and writes
+`s/<SYM>.json .swing`, summary rows `.sw` and `swing.json`. Long-only rules: trend filter (close > 50-DMA > rising 200-DMA),
+breakout (within 2% of / above the 20-session high; volume ≥ 1.5× confirms) or pullback (near the 20-EMA, RSI 40–60);
+trigger above the high, stop below the 5-session low capped at ~2–2.5 × ATR(14), targets 2R / 3R; ready only with ≥ 1.5R to the
+52-week high and RSI ≤ 80; avoid thin turnover (< ₹2 Cr/day), penny, ASM/GSM, results within 7 days, stale prices.
+Home tab "📈 Swing setups" (Ready / Watch / Avoid, position size from capital × risk %) and a card on each stock page. Educational only.
+
 ## Refresh schedule
 * **Quotes job** (`quotes.yml`, ~30–60 s): every 5 min Mon–Fri 09:15–16:00 IST (NSE) and 19:00–02:30 IST (US, covers both DST states), every 3 h otherwise. Updates `quotes.json` + `meta.json` only.
 * **Full job** (`data.yml`, ~4–5 min): 08:50 IST (pre-open), **19:00 IST with backups 20:30 / 22:00** (after NSE publishes its official closing file) and 03:00 IST (after US close) on weekdays — fundamentals, analysts, news, CANSLIM, summaries.

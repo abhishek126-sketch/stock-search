@@ -317,6 +317,10 @@ def apply_exchange_close(docs, ex):
         if lastday and lastday > day: continue                      # Yahoo already has a newer session
         if h and lastday == day: h[-1] = [h[-1][0], round(close, 2)]
         else: h.append([t_bar, round(close, 2)])
+        oh = d.get('ohlc') or []                                        # keep the OHLC bars in step with the official close
+        if oh and dt.datetime.fromtimestamp(oh[-1][0], ist).date() == day:
+            b = oh[-1]; oh[-1] = [b[0], b[1], round(max(b[2], close), 2), round(min(b[3], close), 2), round(close, 2), b[5]]
+        elif oh and dt.datetime.fromtimestamp(oh[-1][0], ist).date() < day: oh.append([t_bar, round(close, 2), round(close, 2), round(close, 2), round(close, 2), 0]); d['ohlcPartial'] = 1
         if isinstance(d.get('price'), (int, float)) and d['price'] and abs(d['price'] / close - 1) > 0.01: moved += 1
         d['price'], d['priceTime'] = close, t_close
         if pcl: d['prevClose'] = pcl
@@ -443,6 +447,10 @@ def fetch(sym, name, sector, prev=None):
     ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
     m = ch['meta']; ts = ch.get('timestamp') or []; qd = ch['indicators']['quote'][0]; cl = qd.get('close') or []; vo = qd.get('volume') or []
     hist = [[t, round(c, 2)] for t, c in zip(ts, cl) if c is not None]
+    # last 80 daily bars with open/high/low/close/volume (for ATR and swing-trade levels; hist keeps closes only)
+    o_, h_, l_ = qd.get('open') or [], qd.get('high') or [], qd.get('low') or []
+    ohlc = [[t, round(o, 2), round(h, 2), round(l, 2), round(c, 2), int(v or 0)] for t, o, h, l, c, v in zip(ts, o_, h_, l_, cl, list(vo) + [0] * (len(ts) - len(vo)))
+            if None not in (o, h, l, c)][-80:]
     divs = [[int(k), v['amount']] for k, v in (ch.get('events', {}).get('dividends') or {}).items()]
     cv = [(c, v) for c, v in zip(cl, vo) if c is not None and v is not None][-51:]
     vol = None
@@ -451,7 +459,7 @@ def fetch(sym, name, sector, prev=None):
         vol = {'avg50': round(sum(v for _, v in cv[1:]) / (len(cv) - 1)), 'last': cv[-1][1], 'udr': round(upv / dnv, 3) if dnv else None}
     now = int(time.time())
     if prev:  # light refresh: new prices/history, keep the day-old fundamentals, news and analysts
-        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now})
+        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now})
         if len(hist) >= 2: prev['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (prev['price'] or 0)) < 1e-6 else hist[-1][1]
         return prev
     fu = json.loads(get(f'https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{q}?type={TYPES}&period1={now-6*365*86400}&period2={now+86400}'))
@@ -474,7 +482,7 @@ def fetch(sym, name, sector, prev=None):
     d = {'symbol': sym, 'name': m.get('longName') or m.get('shortName') or name, 'sector': pr.get('sector') or sector, 'industry': pr.get('industry'),
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
-         'priceTime': m.get('regularMarketTime'), 'hist': hist, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
+         'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
          'analyst': an, 'cap': CAP.get(sym), 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
     if len(hist) >= 2: d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     d['news'] = news(sym, d['name'])

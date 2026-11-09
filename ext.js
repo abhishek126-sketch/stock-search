@@ -200,6 +200,7 @@ async function renderLists(tab) {
   const rows = SUMMARY.rows.filter(r => mktOf(r.s) === HOMEMK);
   const mkb = `<div class="tabs">${['IN', 'US'].map(m => `<button data-mk="${m}" class="${m === HOMEMK ? 'on' : ''}">${m === 'IN' ? '🇮🇳 India (all NSE + BSE-only)' : '🇺🇸 US (S&P 500)'}</button>`).join('')}</div>`;
   if (tab === 'cap') return renderCaps(box);
+  if (tab === 'swing') return typeof renderSwing === 'function' ? renderSwing(box) : void (box.innerHTML = `<p>${NA}</p>`);
   if (tab === 'sc') return typeof renderScores === 'function' ? renderScores(box) : void (box.innerHTML = `<p>${NA}</p>`);
   if (tab === 'cs') {
     const top = rows.filter(r => r.co >= 5).sort((a, b) => (b.cs / b.co) - (a.cs / a.co) || (b.rs || 0) - (a.rs || 0)).slice(0, 40);
