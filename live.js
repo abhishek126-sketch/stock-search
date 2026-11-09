@@ -23,39 +23,43 @@ async function loadQuotes(force) {
 }
 // ---- second-source cross-check (NSE for India, Finnhub for US) ----
 const istDay = t => t ? new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : '';
-// returns preferred [price, prevClose, time, source, checkEntry] given Yahoo values; NSE wins on a >1% disagreement for the same session
+// an Indian exchange's own price (NSE for .NS stocks, BSE for BSE-only .BO stocks)
+const isEx = s => s === 'NSE' || s === 'BSE';
+// returns preferred [price, prevClose, time, source, checkEntry] given Yahoo values
 function prefQuote(sym, p, pc, t) {
   const c = CHECK && CHECK.s && CHECK.s[sym];
-  // NSE's official close is also used whenever it is from a later session than Yahoo's price (Yahoo stale / missing a session)
-  // After the close: NSE's official closing price for the same session always wins (even when it agrees within 1%)
-  if (c && c.src === 'NSE' && isNum(c.p) && ((c.mode === 'eod' && istDay(c.t) === istDay(t)) || (c.st === 'mm' && c.mode === 'live') || (c.t || 0) > (t || 0) + 12 * 3600)) return [c.p, isNum(c.pc) ? c.pc : pc, c.mode === 'live' || (c.t || 0) > (t || 0) ? c.t : t, 'NSE', c];
+  // After the close: the exchange's official closing price for the same session always wins (even when it agrees within 1%);
+  // it is also used whenever it is from a later session than Yahoo's price (Yahoo stale / missing a session)
+  if (c && isEx(c.src) && isNum(c.p) && ((c.mode === 'eod' && istDay(c.t) === istDay(t)) || (c.st === 'mm' && c.mode === 'live') || (c.t || 0) > (t || 0) + 12 * 3600)) return [c.p, isNum(c.pc) ? c.pc : pc, c.mode === 'live' || (c.t || 0) > (t || 0) ? c.t : t, c.src, c];
   return [p, pc, t, 'Yahoo', c];
 }
 function applyCheck(d) {
   const [p, pc, t, src, c] = prefQuote(d.symbol, d.price, d.prevClose, d.priceTime);
-  if (src === 'NSE') { d.yPrice = d.price; d.yTime = d.priceTime; d.price = p; d.prevClose = pc; d.priceTime = t; const h = d.hist;
+  if (isEx(src)) { d.yPrice = d.price; d.yTime = d.priceTime; d.price = p; d.prevClose = pc; d.priceTime = t; const h = d.hist;
     if (h && h.length && istDay(h[h.length - 1][0]) === istDay(t)) h[h.length - 1] = [h[h.length - 1][0], p]; else if (h && h.length && t > h[h.length - 1][0]) h.push([t, p]); }
   d.priceSrc = src; d.check = c || null; return d;
 }
 const dPlain = iso => iso ? new Date(iso + (iso.length === 10 ? 'T12:00:00Z' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 function srcLine(d) {
   const c = d.check, ccy = d.currency, us = !/\.(NS|BO)$/.test(d.symbol);
-  const what = c ? (c.src === 'NSE' ? (c.mode === 'live' ? "NSE's live price" : "NSE's official closing price for " + dPlain(istDay(c.t))) : "Finnhub's price") : '';
-  if (d.priceSrc === 'NSE' && c && c.st !== 'mm') return d.yTime && istDay(d.yTime) === istDay(c.t)
+  const what = c ? (isEx(c.src) ? (c.mode === 'live' ? c.src + "'s live price" : c.src + "'s official closing price for " + dPlain(istDay(c.t))) : "Finnhub's price") : '';
+  if (isEx(d.priceSrc) && c && c.st !== 'mm') return d.yTime && istDay(d.yTime) === istDay(c.t)
     ? `<div class="mut"><span class="up">✔</span> Price is ${what} (market closed)${c.st === 'ok' ? ` · Yahoo Finance agreed within 1% (${fmtP(d.yPrice, ccy)})` : ''}.</div>`
-    : `<div class="mut">Price is ${what} (${fmtP(c.p, ccy)}). Yahoo Finance's latest price is older${d.yTime ? ' (' + dPlain(istDay(d.yTime)) + ')' : ''}, so NSE's is shown.</div>`;
+    : `<div class="mut">Price is ${what} (${fmtP(c.p, ccy)}). Yahoo Finance's latest price is older${d.yTime ? ' (' + dPlain(istDay(d.yTime)) + ')' : ''}, so ${c.src}'s is shown.</div>`;
   if (!c || !c.st) return `<div class="mut">Price from Yahoo Finance. ${us ? (CHECK && CHECK.fh && CHECK.fh.mode === 'no-key' ? 'Not double-checked (US price check is off until a Finnhub key is added).' : 'Not double-checked yet — US stocks are checked a few at a time.') : 'Not double-checked yet.'}</div>`;
   if (c.st === 'ok') return `<div class="mut">Price from Yahoo Finance · <span class="up">✔ matches</span> ${what} (${fmtP(c.p, ccy)}).</div>`;
-  return `<div class="mut" style="color:var(--warn)">⚠ Yahoo shows ${fmtP(d.priceSrc === 'NSE' ? d.yPrice : d.price, ccy)} but ${what} is ${fmtP(c.p, ccy)} (${(c.d * 100).toFixed(1)}% apart). ${d.priceSrc === 'NSE' ? "Showing NSE's price." : "Showing Yahoo's newer price."}</div>`;
+  return `<div class="mut" style="color:var(--warn)">⚠ Yahoo shows ${fmtP(isEx(d.priceSrc) ? d.yPrice : d.price, ccy)} but ${what} is ${fmtP(c.p, ccy)} (${(c.d * 100).toFixed(1)}% apart). ${isEx(d.priceSrc) ? `Showing ${d.priceSrc}'s price.` : "Showing Yahoo's newer price."}</div>`;
 }
 function renderCheck() {
   const el = document.getElementById('dcheck'); if (!el) return;
   if (!CHECK) { el.innerHTML = '<h2>🔎 Data check</h2><p class="mut">The price double-check isn\'t available yet.</p>'; return; }
   const n = CHECK.nse || {}, f = CHECK.fh || {}, mm = CHECK.mm || [], S = CHECK.s || {};
   const nUs = Object.values(S).filter(v => v.src === 'Finnhub').length;
-  const nseTxt = n.mode === 'live' ? `Indian prices are double-checked against NSE's live prices (${n.n} stocks).` : n.mode === 'eod' ? `Indian prices are double-checked against NSE's official closing prices (last check: ${dPlain(n.date)}, ${n.n} stocks). Live prices come from Yahoo every 5 minutes.` : "Indian price check: NSE couldn't be reached this time; prices come from Yahoo.";
+  const b = CHECK.bse || {};
+  const nseTxt = (n.mode === 'live' ? `Indian prices are double-checked against NSE's live prices (${n.n} stocks).` : n.mode === 'eod' ? `During market hours prices come from Yahoo every 5 minutes. After the close, NSE stocks show NSE's official closing price (latest: ${dPlain(n.date)}, ${n.n} stocks)` : "Indian price check: NSE couldn't be reached this time; prices come from Yahoo.")
+    + (n.mode === 'eod' ? (b.mode === 'eod' ? ` and BSE-only stocks show BSE's (latest: ${dPlain(b.date)}, ${b.n} stocks).` : '; BSE-only stocks: BSE\'s closing file wasn\'t available this time, so they show Yahoo\'s price.') : '');
   const fhTxt = f.mode === 'live' ? `US prices are double-checked against Finnhub, a few stocks at a time (${nUs} checked in the last day).` : f.mode === 'no-key' ? 'US price check: off until a Finnhub key is added.' : "US price check: Finnhub isn't responding right now.";
-  const mmTxt = mm.length ? `${mm.length} stock${mm.length > 1 ? 's' : ''} differ by more than 1% between sources — for Indian stocks we show NSE's price.` : 'All checked prices agree (within 1%).';
+  const mmTxt = mm.length ? `${mm.length} stock${mm.length > 1 ? 's' : ''} differ by more than 1% between sources — for Indian stocks we show the exchange's price.` : 'All checked prices agree (within 1%).';
   const row = s => { const c = S[s]; return `<tr data-s="${esc(s)}"><td>${esc(s.replace(/\.(NS|BO)$/, ''))}</td><td>${esc(c.src)}</td><td>${fmtP(c.p, s.match(/\.(NS|BO)$/) ? 'INR' : 'USD')}</td><td>${(c.d * 100).toFixed(1)}%</td></tr>`; };
   el.innerHTML = `<h2>🔎 Data check <span class="mut">(${CHECK.nOk} ✔ match · ${mm.length} ⚠ differ)</span></h2><p class="mut">${nseTxt}<br>${fhTxt}<br>${mmTxt}<br>Last checked ${tIST(CHECK.built)} IST.</p>
   ${mm.length ? `<details><summary class="mut">Show the ${mm.length} stocks that differ</summary><div class="tw"><table class="pt"><tr><th>Stock</th><th>Checked against</th><th>Their price</th><th>Gap vs Yahoo</th></tr>${mm.map(row).join('')}</table></div></details>` : ''}`;

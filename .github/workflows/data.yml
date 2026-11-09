@@ -29,14 +29,16 @@ jobs:
         run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data || (mkdir -p pub && cd pub && git init -q && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
       - name: Skip if not needed (scheduled runs only)
         if: github.event_name == 'schedule'
-        # evening slots (after 18:00 IST): skip once NSE's official close for today has been applied;
+        # evening slots (after 18:00 IST): skip once NSE's and BSE's official closes for today have both been applied
+        # (the 22:00 slot runs only if NSE's is still missing, so a missing BSE file can't keep it running);
         # other slots: skip if a full refresh ran in the last 100 min
         run: |
           python3 - <<'EOF' || { echo 'not needed - skipping'; echo SKIP=1 >> $GITHUB_ENV; }
           import json, time, sys, datetime as dt
           m = json.load(open('pub/data/meta.json'))
           now = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
-          if now.hour >= 18: sys.exit(0 if m.get('nseDay') != now.date().isoformat() else 1)
+          today = now.date().isoformat()
+          if now.hour >= 18: sys.exit(0 if m.get('nseDay') != today or (m.get('bseDay') != today and now.hour < 21) else 1)
           sys.exit(0 if time.time() - m.get('full', 0) > 6000 else 1)
           EOF
       - if: env.SKIP != '1'

@@ -108,6 +108,30 @@ if nse['mode'] != 'live':
         nse.update({'mode': 'eod', 'date': day.isoformat(), 'n': n}); break
 print('NSE', nse)
 
+# ---------------- BSE (BSE-only stocks, .BO): official end-of-day UDiFF bhavcopy ----------------
+bse = {'mode': 'failed'}
+if any(s.endswith('.BO') for s in Q):
+    for back in range(0, 8):
+        day = dt.datetime.now(IST).date() - dt.timedelta(days=back)
+        try:
+            raw = urllib.request.urlopen(urllib.request.Request('https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_%s_F_0000.CSV' % day.strftime('%Y%m%d'),
+                                                                headers={'User-Agent': UA, 'Referer': 'https://www.bseindia.com/'}), timeout=25).read().decode('utf-8', 'ignore')
+        except Exception: continue
+        n = 0
+        for r in csv.DictReader(io.StringIO(raw)):
+            if (r.get('FinInstrmTp') or '').strip() != 'STK': continue
+            s = (r.get('TckrSymb') or '').strip() + '.BO'; y = Q.get(s)
+            if not y: continue
+            try: close = float(r['ClsPric']); pcl = float(r.get('PrvsClsgPric') or 0) or None
+            except (KeyError, ValueError, TypeError): continue
+            if close <= 0: continue
+            yd = dt.datetime.fromtimestamp(y[2], IST).date() if y[2] else None
+            cmpv = y[0] if yd == day else (y[1] if yd and yd > day else (y[0] if yd and (day - yd).days > 5 else None))
+            put(s, 'BSE', close, pcl, int(dt.datetime.combine(day, dt.time(15, 30), IST).timestamp()), 'eod', cmpv); n += 1
+        if n:
+            bse = {'mode': 'eod', 'date': day.isoformat(), 'n': n}; break
+print('BSE', bse)
+
 # ---------------- Finnhub (US) ----------------
 KEY = os.environ.get('FINNHUB_KEY', '').strip(); fh = {'mode': 'no-key'}; REC = dict(PREV.get('rec') or {})
 for s, v in (PREV.get('s') or {}).items():  # keep earlier rotating-subset results (US) for up to 1 day
@@ -148,6 +172,6 @@ if KEY:
 print('Finnhub', fh)
 
 mm = sorted([s for s, v in S.items() if v.get('st') == 'mm'], key=lambda s: -(S[s]['d'] or 0))
-json.dump({'built': now, 'tol': TOL, 'nse': nse, 'fh': fh, 'nOk': sum(1 for v in S.values() if v.get('st') == 'ok'), 'mm': mm, 's': S, 'rec': REC},
+json.dump({'built': now, 'tol': TOL, 'nse': nse, 'bse': bse, 'fh': fh, 'nOk': sum(1 for v in S.values() if v.get('st') == 'ok'), 'mm': mm, 's': S, 'rec': REC},
           open(cp, 'w'), separators=(',', ':'))
 print('checked', sum(1 for v in S.values() if v.get('st')), 'ok', sum(1 for v in S.values() if v.get('st') == 'ok'), 'mismatch', len(mm), mm[:15])
