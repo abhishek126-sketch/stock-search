@@ -47,7 +47,7 @@ function doubtsFor(d, k) {
 const dq = (f, html) => DQ[f] ? `<span class="doubt" title="${esc(DQ[f])}">${html} ⚠</span>` : html;
 function doubtBanner() {
   const ks = Object.keys(DQ); if (!ks.length) return '';
-  return `<div class="dqbox nogq"><b>⚠ ${ks.length} value${ks.length > 1 ? 's' : ''} on this page look${ks.length > 1 ? '' : 's'} inconsistent</b> — shown in <span class="doubt">red with ⚠</span>. Please verify on NSE / BSE before relying on ${ks.length > 1 ? 'them' : 'it'}.
+  return `<div class="dqbox nogq"><b>⚠ ${ks.length} value${ks.length > 1 ? 's' : ''} on this page look${ks.length > 1 ? '' : 's'} inconsistent</b> — shown in <span class="doubt">red with ⚠</span>${typeof gq === 'function' ? gq('doubt') : ''}. Please verify on NSE / BSE before relying on ${ks.length > 1 ? 'them' : 'it'}.
     <ul>${ks.map(f => `<li><b>${DQ_LABEL[f] || f}:</b> ${esc(DQ[f])}</li>`).join('')}</ul></div>`;
 }
 // list rows (Browse / Score filter): reasons by field, from the one-line summary + the price check

@@ -2,6 +2,7 @@
 // Data: data/x/<SYM>.json built by scripts/build_corp.py from free official NSE/BSE files (no keys).
 const CORP_TAG = { results: 'Results', fundraise: 'Fund-raising', order: 'Order / contract', auditor: 'Auditor', pledge: 'Pledge', mgmt: 'Management change', agm: 'Meeting' };
 let CORPF = 'key', CORPCOV = null;
+const cpq = k => typeof gq === 'function' ? gq(k) : '';   // tappable "?" (plain-language glossary)
 // NSE returned "no pledge" for (almost) every company in the last run -> a "no pledge" result can't be trusted
 const pledgeSuspect = () => !!(CORPCOV && !CORPCOV.pledge && ((CORPCOV.pledgeNone || 0) > 500 || (CORPCOV.nse || 0) > 500));
 function corpPlaceholder(d) { return d.symbol.match(/\.(NS|BO)$/) && !d.etf ? '<div id="corpx"><div class="card mut">Loading exchange filings, deals and red-flags check…</div></div>' : ''; }
@@ -90,22 +91,22 @@ function promoterHTML(d, x) {
   if (pr.length) {
     const last = pr[pr.length - 1], yr = pr.length > 4 ? pr[pr.length - 5] : pr[0], ch = last[1] - yr[1];
     const gap = isNum(yi) ? Math.abs(last[1] - yi * 100) : null;
-    hold = `<div class="kv"><div><span>Promoter holding (${qd(last[0])})</span><b style="font-size:20px">${last[1].toFixed(2)}%</b></div>
-      <div><span>Change since ${qd(yr[0])}</span><b class="${ch <= -1 ? 'dn' : ch >= 1 ? 'up' : ''}">${ch >= 0 ? '+' : ''}${ch.toFixed(2)} pts${ch <= -1 ? ' ⚠' : ''}</b></div>
-      <div><span>Yahoo Finance (insiders)</span><b>${yTxt ? (gap > 10 ? `<span class="doubt" title="NSE says ${last[1].toFixed(1)}%, Yahoo says ${yTxt} — ${gap.toFixed(0)} pts apart; Yahoo's 'insiders' is not the same definition as SEBI 'promoter group', but a gap this large needs checking">${yTxt} ⚠</span>` : yTxt) : NA}</b></div></div>
+    hold = `<div class="kv"><div><span>Promoter holding${cpq('promoter')} (${qd(last[0])})</span><b style="font-size:20px">${last[1].toFixed(2)}%</b></div>
+      <div><span>Change since ${qd(yr[0])}${cpq('promtrend')}</span><b class="${ch <= -1 ? 'dn' : ch >= 1 ? 'up' : ''}">${ch >= 0 ? '+' : ''}${ch.toFixed(2)} pts${ch <= -1 ? ' ⚠' : ''}</b></div>
+      <div><span>Yahoo Finance (insiders)${cpq('insider')}</span><b>${yTxt ? (gap > 10 ? `<span class="doubt" title="NSE says ${last[1].toFixed(1)}%, Yahoo says ${yTxt} — ${gap.toFixed(0)} pts apart; Yahoo's 'insiders' is not the same definition as SEBI 'promoter group', but a gap this large needs checking">${yTxt} ⚠</span>` : yTxt) : NA}</b></div></div>
       <div class="tw" style="margin-top:8px"><table><tr><th>Quarter</th>${pr.map(p => `<th>${qd(p[0])}</th>`).join('')}</tr><tr><td>Promoter %</td>${pr.map((p, i) => { const c = i ? p[1] - pr[i - 1][1] : 0; return `<td class="${c <= -0.5 ? 'dn' : c >= 0.5 ? 'up' : ''}">${p[1].toFixed(2)}</td>`; }).join('')}</tr></table></div>
       ${last[1] < 25 ? `<p class="dn" style="margin:6px 0 0">⚠ Promoters own only ${last[1].toFixed(1)}% — low promoter "skin in the game".</p>` : ''}${ch <= -1 ? `<p class="dn" style="margin:6px 0 0">⚠ Promoters have cut their stake by ${(-ch).toFixed(2)} pts in this period — read the shareholding filings for the reason.</p>` : ''}`;
   } else if (bse) {
-    hold = `<div class="kv"><div><span>Promoter / insider holding</span><b style="font-size:20px">${yTxt ? `<span class="doubt" title="From Yahoo Finance 'insiders' — an approximation of SEBI's promoter group; BSE's own shareholding data can't be downloaded automatically">${yTxt} ⚠</span>` : NA}</b></div></div>
+    hold = `<div class="kv"><div><span>Promoter / insider holding${cpq('approx')}</span><b style="font-size:20px">${yTxt ? `<span class="doubt" title="From Yahoo Finance 'insiders' — an approximation of SEBI's promoter group; BSE's own shareholding data can't be downloaded automatically">${yTxt} ⚠</span>` : NA}</b></div></div>
       <p class="mut">BSE-only stock: the official promoter-holding history isn't freely downloadable (BSE's data service blocks automated access). ${yTxt ? "The figure above is Yahoo Finance's \"insiders\" holding — shown in red as approximate." : ''} Check the latest shareholding pattern on BSE.</p>`;
   } else hold = `<p class="mut">Promoter holding not fetched yet for this stock (NSE data is refreshed in daily batches).${yTxt ? ` Yahoo Finance shows insiders holding ${yTxt}.` : ''}</p>`;
-  if (bse) pledge = `<p><b>Pledge:</b> <span class="mut">not available for BSE-only stocks (BSE's pledge disclosures can't be downloaded automatically) — check BSE.</span></p>`;
+  if (bse) pledge = `<p><b>Pledge${cpq('pledge')}:</b> <span class="mut">not available for BSE-only stocks (BSE's pledge disclosures can't be downloaded automatically) — check BSE.</span></p>`;
   else if (pl && isNum(pl.pp)) { const col = pl.pp > 25 ? '#b91c1c' : pl.pp > 5 ? '#b45309' : '#15803d';
-    pledge = `<div class="kv" style="margin-top:8px"><div><span>Promoter shares pledged</span><b style="font-size:20px;color:${col}">${pl.pp.toFixed(2)}%${pl.pp > 5 ? ' ⚠' : ''}</b></div><div><span>Pledged, % of all shares</span><b>${pl.pt.toFixed(2)}%</b></div><div><span>As of</span><b>${esc(pl.shp || '') || NA}</b></div></div>
+    pledge = `<div class="kv" style="margin-top:8px"><div><span>Promoter shares pledged${cpq('pledge')}</span><b style="font-size:20px;color:${col}">${pl.pp.toFixed(2)}%${pl.pp > 5 ? ' ⚠' : ''}</b></div><div><span>Pledged, % of all shares</span><b>${pl.pt.toFixed(2)}%</b></div><div><span>As of</span><b>${esc(pl.shp || '') || NA}</b></div></div>
       <p class="mut">${pl.pp > 25 ? '<b class="dn">Above 25% is serious</b> — if the share price falls, lenders can sell pledged shares, which can push the price down further.' : pl.pp > 5 ? 'Above 5% is worth watching.' : 'Low pledge.'} Source: NSE pledge disclosure.</p>`; }
   else if (pl && pl.none) pledge = pledgeSuspect()
-    ? `<p><b>Pledge:</b> <span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> <span class="mut">— NSE returned no pledge data for <i>any</i> company in the latest update, which looks like a data problem, so "no pledge" can't be trusted. Check NSE's pledge disclosures.</span></p>`
-    : `<p><b>Pledge:</b> <span class="up">none disclosed</span> <span class="mut">— no promoter pledge disclosure on NSE.</span></p>`;
+    ? `<p><b>Pledge${cpq('pledge')}:</b> <span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> <span class="mut">— NSE returned no pledge data for <i>any</i> company in the latest update, which looks like a data problem, so "no pledge" can't be trusted. Check NSE's pledge disclosures.</span></p>`
+    : `<p><b>Pledge${cpq('pledge')}:</b> <span class="up">none disclosed</span> <span class="mut">— no promoter pledge disclosure on NSE.</span></p>`;
   else pledge = `<p><b>Pledge:</b> <span class="mut">${pl && pl.unk ? "NSE's pledge data couldn't be read in the latest update." : 'not fetched yet.'}</span></p>`;
   // FII (foreign institutions / FPIs) and DII (domestic institutions) from the quarterly shareholding-pattern filings
   const inst = (x.inst || []).filter(q => isNum(q[1]) || isNum(q[2]));
@@ -113,11 +114,11 @@ function promoterHTML(d, x) {
   if (inst.length) {
     const tr = i => { const v = inst.filter(q => isNum(q[i])); if (v.length < 2) return ''; const c = v[v.length - 1][i] - v[0][i];
       return ` <span class="${c >= 0.5 ? 'up' : c <= -0.5 ? 'dn' : 'mut'}">${c >= 0.5 ? '▲ increasing' : c <= -0.5 ? '▼ decreasing' : 'flat'} (${c >= 0 ? '+' : ''}${c.toFixed(2)} pts since ${qd(v[0][0])})</span>`; };
-    fii = `<h3>🌍 Institutional holding</h3><div class="tw"><table><tr><th>Quarter</th>${inst.map(q => `<th>${qd(q[0])}</th>`).join('')}</tr>
-      <tr><td>FII / FPI %</td>${inst.map(q => `<td>${isNum(q[1]) ? q[1].toFixed(2) : '–'}</td>`).join('')}</tr>
-      <tr><td>DII %</td>${inst.map(q => `<td>${isNum(q[2]) ? q[2].toFixed(2) : '–'}</td>`).join('')}</tr></table></div>
-      <p style="margin:4px 0"><b>FII:</b>${tr(1) || ' <span class="mut">trend needs 2+ quarters (filling in)</span>'} · <b>DII:</b>${tr(2) || ' <span class="mut">—</span>'}</p>`;
-  } else if (!bse) fii = `<p class="mut"><b>FII / DII holding:</b> not read yet — taken from each quarterly shareholding filing, filling in over the next few days.</p>`;
+    fii = `<h3>🌍 Institutional holding${cpq('inst')}</h3><div class="tw"><table><tr><th>Quarter</th>${inst.map(q => `<th>${qd(q[0])}</th>`).join('')}</tr>
+      <tr><td>FII / FPI %${cpq('fii')}</td>${inst.map(q => `<td>${isNum(q[1]) ? q[1].toFixed(2) : '–'}</td>`).join('')}</tr>
+      <tr><td>DII %${cpq('dii')}</td>${inst.map(q => `<td>${isNum(q[2]) ? q[2].toFixed(2) : '–'}</td>`).join('')}</tr></table></div>
+      <p style="margin:4px 0"><b>FII${cpq('fiitrend')}:</b>${tr(1) || ' <span class="mut">trend needs 2+ quarters (filling in)</span>'} · <b>DII:</b>${tr(2) || ' <span class="mut">—</span>'}</p>`;
+  } else if (!bse) fii = `<p class="mut"><b>FII${cpq('fii')} / DII${cpq('dii')} holding:</b> not read yet — taken from each quarterly shareholding filing, filling in over the next few days.</p>`;
   else fii = `<p class="mut"><b>FII / DII holding:</b> not available for BSE-only stocks (BSE's shareholding data can't be downloaded automatically).</p>`;
   const link = bse ? `https://www.bseindia.com/stock-share-price/x/${esc(base)}/${esc(x.code || '')}/` : `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(base)}`;
   return `<div class="card nogq" id="promoter"><h2>👥 Promoter holding, pledge &amp; FIIs</h2>${hold}${pledge}${fii}
@@ -144,9 +145,10 @@ function growthHTML(d, x) {
   const N = ((d.news && d.news.items) || []).map(n => { const s = String(n.t || '').toLowerCase(), g = growthCats(n.t, GRX.order.test(s) && !/acqui|stake|merger|order dated|court/.test(s) ? ['order'] : []);
     return { src: 'news', d: n.d, ts: n.d, t: n.t, u: n.u, s: n.s, g }; });
   const pick = k => [...F.filter(i => i.g.has(k)), ...N.filter(i => i.g.has(k))].sort((a, b) => (a.src === b.src ? 0 : a.src === 'filing' ? -1 : 1) || b.ts - a.ts);
-  const item = i => `<li>${i.src === 'filing' ? `<span class="tag" style="background:#dcfce7;color:#166534;margin-left:0">${ex} filing</span>` : `<span class="tag" style="background:#f1f5f9;color:#475569;margin-left:0" title="Headline matched by keywords — not verified">News</span>`} <small class="mut">${fd(i.d)}</small><br>${i.u ? `<a href="${esc(i.u)}" target="_blank" rel="noopener">${esc(i.t)}</a>` : esc(i.t)}${i.s ? ` <small class="mut">— ${esc(i.s)}</small>` : ''}</li>`;
+  const item = i => `<li>${i.src === 'filing' ? `<span class="tag" style="background:#dcfce7;color:#166534;margin-left:0">${ex} filing</span>${cpq('filing')}` : `<span class="tag" style="background:#f1f5f9;color:#475569;margin-left:0" title="Headline matched by keywords — not verified">News</span>`} <small class="mut">${fd(i.d)}</small><br>${i.u ? `<a href="${esc(i.u)}" target="_blank" rel="noopener">${esc(i.t)}</a>` : esc(i.t)}${i.s ? ` <small class="mut">— ${esc(i.s)}</small>` : ''}</li>`;
+  const GK = { expansion: 'expansion', order: 'orderwin', done: 'ordercomp', legal: 'legal' };
   const block = (k, title, none, red) => { const L = pick(k), nf = L.filter(i => i.src === 'filing').length;
-    return `<details class="gsec" ${L.length ? 'open' : ''}><summary><b${red && L.length ? ' style="color:#b91c1c"' : ''}>${title}</b> <span class="mut">(${nf} filing${nf === 1 ? '' : 's'}${L.length - nf ? ' · ' + (L.length - nf) + ' news' : ''})</span></summary>
+    return `<details class="gsec" ${L.length ? 'open' : ''}><summary><b${red && L.length ? ' style="color:#b91c1c"' : ''}>${title}</b>${cpq(GK[k])} <span class="mut">(${nf} filing${nf === 1 ? '' : 's'}${L.length - nf ? ' · ' + (L.length - nf) + ' news' : ''})</span></summary>
       ${L.length ? `<ul class="news">${L.slice(0, 8).map(item).join('')}</ul>${L.length > 8 ? `<details><summary class="mut">Show ${L.length - 8} more</summary><ul class="news">${L.slice(8).map(item).join('')}</ul></details>` : ''}` : `<p class="mut">${none}</p>`}</details>`; };
   const nfAll = F.length, period = bse ? `BSE filings collected since ${fd(x.bseSince) || 'recently'}` : 'NSE filings of the last 12 months';
   return `<div class="card nogq" id="growth"><h2>🏗️ Growth plans, orders &amp; legal matters</h2>
@@ -156,5 +158,5 @@ function growthHTML(d, x) {
    ${block('order', '📥 Orders &amp; contracts received', 'No order or contract wins filed or reported.')}
    ${block('done', '✅ Orders &amp; projects completed', 'No completion, execution or commissioning of orders/projects filed or reported. (Companies rarely announce completions separately; they usually show up in quarterly results.)')}
    ${block('legal', '⚖️ Court cases, legal &amp; regulatory matters', 'No litigation, tribunal, penalty, tax-demand or regulatory-action filings or headlines found.', true)}
-   <p class="src"><b>How this is built:</b> ${period}${nfAll ? ` (${nfAll} kept)` : ''} and Google News headlines of the last 90 days, sorted by keywords in the exchange's own subject line or the headline. <b>Filings</b> are the company's official disclosures; <b>News</b> items are unverified. <b>Court cases:</b> only matters the company disclosed to the exchange (SEBI rules require material litigation to be disclosed) or that made the news are shown — this is <b>not a complete list of pending cases</b>. For the full picture see the annual report (contingent liabilities / legal proceedings) and the company's page on <a href="${bse ? `https://www.bseindia.com/stock-share-price/x/${esc(base)}/${esc(x.code || '')}/corp-announcements/` : `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(base)}`}" target="_blank" rel="noopener">${ex} ↗</a>. Educational only.</p></div>`;
+   <p class="src"><b>How this is built:</b> ${period}${nfAll ? ` (${nfAll} kept)` : ''} and Google News headlines of the last 90 days, sorted by keywords in the exchange's own subject line or the headline. <b>Filings</b> are the company's official disclosures; <b>News</b> items are unverified. <b>Court cases:</b> only matters the company disclosed to the exchange (SEBI rules require material litigation to be disclosed${cpq('reg30')}) or that made the news are shown — this is <b>not a complete list of pending cases</b>. For the full picture see the annual report (contingent liabilities / legal proceedings) and the company's page on <a href="${bse ? `https://www.bseindia.com/stock-share-price/x/${esc(base)}/${esc(x.code || '')}/corp-announcements/` : `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(base)}`}" target="_blank" rel="noopener">${ex} ↗</a>. Educational only.</p></div>`;
 }
