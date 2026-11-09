@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from build_data import surveillance, SURV, _latest
 OUT = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), '..', 'data'); XD = os.path.join(OUT, 'x'); CD = os.path.join(OUT, 'corp')
 MAXSEC = int(os.environ.get('MAXSEC', '1500')); STALE = 20 * 3600; T0 = time.time()
+RV = 2   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
 H = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
      'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9', 'Referer': 'https://www.nseindia.com/'}
 OP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -46,10 +47,14 @@ def pledge_parse(pl):
     if rows == []: return {'none': 1}
     if not rows or not isinstance(rows[0], dict): return {'unk': 1}
     r = max(rows, key=lambda x: dt(x.get('broadcastDt') or x.get('shp') or '') or '')
-    tp, npl = _num(r.get('totPromoterHolding')), _num(r.get('numSharesPledged'))
+    # NSE gives the pledge directly: percPromoterShares = % of promoter shares pledged (Screener's "Pledged %"),
+    # percTotShares = pledged shares as % of all shares. Older replies only had share counts.
+    pps, pts_ = _num(r.get('percPromoterShares')), _num(r.get('percTotShares'))
+    tp, npl = _num(r.get('totPromoterShares') or r.get('totPromoterHolding')), _num(r.get('numSharesPledged'))
     pt, ph = _num(r.get('percSharesPledged')), _num(r.get('percPromoterHolding'))
-    if tp is None and npl is None and pt is None: return {'unk': 1}
-    return {'pp': round(100 * npl / tp, 2) if tp and npl is not None else (0.0 if npl == 0 else None), 'pt': pt or 0.0, 'ph': ph or 0.0, 'shp': r.get('shp'), 'bd': dt(r.get('broadcastDt') or '')}
+    pp = pps if pps is not None else (round(100 * npl / tp, 2) if tp and npl is not None and tp > 100 else (0.0 if npl == 0 else None))
+    if pp is None and pt is None and pts_ is None: return {'unk': 1}
+    return {'pp': round(pp, 2) if pp is not None else None, 'pt': pts_ if pts_ is not None else (pt or 0.0), 'ph': ph or 0.0, 'shp': r.get('shp'), 'bd': dt(r.get('broadcastDt') or '')}
 # ---- FII / DII holding from the quarterly shareholding-pattern XBRL (link in NSE's shareholding list, file on nsearchives)
 IDIAG = {'parsed': 0, 'fail': 0, 'noFii': 0, 'members': [], 'errs': []}
 _CTX = re.compile(r'<(?:\w+:)?context\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</(?:\w+:)?context>', re.S)
@@ -57,7 +62,7 @@ _MEM = re.compile(r'explicitMember[^>]*>\s*([^<\s]+)\s*<')
 _PCT = re.compile(r'<[\w-]+:ShareholdingAsAPercentageOfTotalNumberOfShares\b[^>]*contextRef="([^"]+)"[^>]*>\s*([-0-9.Ee]+)\s*<')
 FII_TOTAL = re.compile(r'(InstitutionsForeign|ForeignInstitutions?)Member$', re.I)
 FPI_TOTAL = re.compile(r'ForeignPortfolioInvestors?Member$', re.I)
-FPI_PART = re.compile(r'ForeignPortfolioInvestors?Category\w*Member$|ForeignInstitutionalInvestors?Member$', re.I)
+FPI_PART = re.compile(r'ForeignPortfolioInvestors?Cat\w*Member$|ForeignInstitutionalInvestors?Member$', re.I)   # "Catergory" typo exists in filings
 DII_TOTAL = re.compile(r'(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
 def shp_inst(url):
     """-> (fii %, dii %) from one shareholding-pattern XBRL (None where not found)."""
@@ -85,6 +90,7 @@ def shp_inst(url):
     pick = lambda rx: [v for k, v in vals.items() if rx.search(k)] or [v for k, v in valsM.items() if rx.search(k)]
     f = pick(FII_TOTAL) or pick(FPI_TOTAL) or ([sum(pick(FPI_PART))] if pick(FPI_PART) else [])
     dii = pick(DII_TOTAL)
+    if not f and dii: f = [0.0]                                 # institutions table present but no foreign category = no FII holding
     return (round(f[0] * scale, 2) if f else None, round(dii[0] * scale, 2) if dii else None)
 def ld(p, dflt):
     try: return json.load(open(p))
@@ -201,8 +207,8 @@ def main():
     except Exception as e: print('nse home', e)
     prev = {s: ld(os.path.join(XD, s + '.json'), {}) for s in syms}
     # due = not refreshed for STALE hours, or never read with the FII/pledge reader yet (no 'inst' key) — new fields fill in at once
-    due = lambda s: time.time() - prev[s].get('t', 0) > STALE or 'inst' not in prev[s]
-    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: ('inst' in prev[s], prev[s].get('t', 0)))
+    due = lambda s: time.time() - prev[s].get('t', 0) > STALE or prev[s].get('rv') != RV
+    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: (prev[s].get('rv') == RV, prev[s].get('t', 0)))
     print('NSE due', len(todo))
     frm, to = time.strftime('%d-%m-%Y', time.gmtime(time.time() - 365 * 86400)), time.strftime('%d-%m-%Y', time.gmtime(time.time() + 19800))
     done = []
@@ -215,7 +221,8 @@ def main():
         pl = nse(f'corporate-pledgedata?index=equities&symbol={q}')
         if pledge_rows(pl) == [] and isinstance(sh, list) and not sh: pl = nse(f'corporate-pledgedata?index=sme&symbol={q}') or pl  # SME board
         if an is None and sh is None and pl is None: return
-        d = dict(prev[s]); d['t'] = int(time.time())
+        d = dict(prev[s]); d['t'] = int(time.time()); d['rv'] = RV
+        if prev[s].get('rv') != RV: d.pop('inst', None)          # re-read FII/DII with the current reader
         if an is not None:
             items = []
             for a in an:
