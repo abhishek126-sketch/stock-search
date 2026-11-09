@@ -23,6 +23,33 @@ def get(u, tries=3, hdr=H):
 def nse(path):
     try: j = json.loads(get('https://www.nseindia.com/api/' + path)); STAT['nse_ok'] += 1; return j
     except Exception: STAT['nse_err'] += 1; return None
+# ---- promoter pledge (NSE corporate-pledgedata). The reply's shape is recorded (keys only) so a format change is visible
+PDIAG = {'shapes': {}, 'rows': 0, 'empty': 0, 'unreadable': 0, 'keys': None}
+def pledge_rows(pl):
+    if isinstance(pl, list): return pl
+    if isinstance(pl, dict):
+        for k in ('data', 'Data', 'rows'):
+            if isinstance(pl.get(k), list): return pl[k]
+    return None
+def _num(v):
+    try: return float(str(v).replace(',', '').strip())
+    except (TypeError, ValueError): return None
+def pledge_parse(pl):
+    """-> {'pp','pt','ph','shp','bd'} | {'none':1} (NSE says no pledge rows) | {'unk':1} (reply missing or not readable)"""
+    shape = type(pl).__name__ + (':' + ','.join(sorted(pl.keys()))[:120] if isinstance(pl, dict) else '')
+    rows = pledge_rows(pl)
+    with LK:
+        PDIAG['shapes'][shape] = PDIAG['shapes'].get(shape, 0) + 1
+        if rows: PDIAG['rows'] += 1; PDIAG['keys'] = PDIAG['keys'] or sorted(rows[0].keys())[:40] if isinstance(rows[0], dict) else PDIAG['keys']
+        elif rows == []: PDIAG['empty'] += 1
+        else: PDIAG['unreadable'] += 1
+    if rows == []: return {'none': 1}
+    if not rows or not isinstance(rows[0], dict): return {'unk': 1}
+    r = max(rows, key=lambda x: dt(x.get('broadcastDt') or x.get('shp') or '') or '')
+    tp, npl = _num(r.get('totPromoterHolding')), _num(r.get('numSharesPledged'))
+    pt, ph = _num(r.get('percSharesPledged')), _num(r.get('percPromoterHolding'))
+    if tp is None and npl is None and pt is None: return {'unk': 1}
+    return {'pp': round(100 * npl / tp, 2) if tp and npl is not None else (0.0 if npl == 0 else None), 'pt': pt or 0.0, 'ph': ph or 0.0, 'shp': r.get('shp'), 'bd': dt(r.get('broadcastDt') or '')}
 def ld(p, dflt):
     try: return json.load(open(p))
     except Exception: return dflt
@@ -148,6 +175,7 @@ def main():
         sh = nse(f'corporate-share-holdings-master?index=equities&symbol={q}')
         if an == [] and sh == []: an = nse(f'corporate-announcements?index=sme&symbol={q}&from_date={frm}&to_date={to}'); sh = nse(f'corporate-share-holdings-master?index=sme&symbol={q}')
         pl = nse(f'corporate-pledgedata?index=equities&symbol={q}')
+        if pledge_rows(pl) == [] and isinstance(sh, list) and not sh: pl = nse(f'corporate-pledgedata?index=sme&symbol={q}') or pl  # SME board
         if an is None and sh is None and pl is None: return
         d = dict(prev[s]); d['t'] = int(time.time())
         if an is not None:
@@ -166,13 +194,9 @@ def main():
                 except Exception: pass
             d['prom'] = sorted(pts.items())[-8:]
         if pl is not None:
-            r = (pl.get('data') or [None])[0] if isinstance(pl, dict) else None
-            if r:
-                try:
-                    tp, npl = float(r.get('totPromoterHolding') or 0), float(r.get('numSharesPledged') or 0)
-                    d['pledge'] = {'pp': round(100 * npl / tp, 2) if tp else 0.0, 'pt': float(r.get('percSharesPledged') or 0), 'ph': float((r.get('percPromoterHolding') or '0').strip() or 0), 'shp': r.get('shp'), 'bd': dt(r.get('broadcastDt') or '')}
-                except Exception: pass
-            else: d['pledge'] = {'none': 1}
+            try: d['pledge'] = pledge_parse(pl)
+            except Exception: d['pledge'] = {'unk': 1}
+        elif 'pledge' not in d: d['pledge'] = {'unk': 1}
         prev[s] = d
         with LK: done.append(s)
     with cf.ThreadPoolExecutor(3) as ex: list(ex.map(one, todo))
@@ -191,7 +215,7 @@ def main():
         d['deals'] = [{'d': x[0], 'x': x[1], 'k': x[2], 'c': x[4], 's': x[5], 'q': x[6], 'p': x[7]} for x in sorted(deals_by.get(s, []), reverse=True)][:30]
         d['dealsSince'] = dst['since']; d['links'] = LKS.get(s) or {}
         json.dump(d, open(os.path.join(XD, s + '.json'), 'w'), separators=(',', ':'))
-        n['files'] += 1; n['ann'] += bool(d.get('ann')); n['deals'] += bool(d['deals']); n['prom'] += bool(d.get('prom')); n['pledge'] += bool(d.get('pledge') and not d['pledge'].get('none')); n['surv'] += bool(d['surv'])
-    cov = {'built': int(time.time()), **n, 'nseFresh': sum(1 for s in syms if s.endswith('.NS') and time.time() - prev[s].get('t', 0) < 2 * 86400), 'nse': sum(1 for s in syms if s.endswith('.NS')), 'bse': sum(1 for s in syms if s.endswith('.BO')), 'elapsed': int(time.time() - T0)}
+        n['files'] += 1; n['ann'] += bool(d.get('ann')); n['deals'] += bool(d['deals']); n['prom'] += bool(d.get('prom')); n['pledge'] += bool(d.get('pledge') and isinstance(d['pledge'].get('pp'), (int, float)) and d['pledge']['pp'] > 0); n['pledgeNone'] = n.get('pledgeNone', 0) + bool(d.get('pledge') and d['pledge'].get('none')); n['pledgeUnk'] = n.get('pledgeUnk', 0) + bool(d.get('pledge') and d['pledge'].get('unk')); n['surv'] += bool(d['surv'])
+    cov = {'built': int(time.time()), **n, 'nseFresh': sum(1 for s in syms if s.endswith('.NS') and time.time() - prev[s].get('t', 0) < 2 * 86400), 'nse': sum(1 for s in syms if s.endswith('.NS')), 'bse': sum(1 for s in syms if s.endswith('.BO')), 'elapsed': int(time.time() - T0), 'pledgeDiag': PDIAG}
     json.dump(cov, open(os.path.join(CD, 'coverage.json'), 'w')); print('coverage', cov)
 if __name__ == '__main__': main()

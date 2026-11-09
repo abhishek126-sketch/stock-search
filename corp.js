@@ -1,11 +1,14 @@
 // ===== Exchange data for Indian stocks: red-flags check, filings, bulk/block deals, rule-based quality score =====
 // Data: data/x/<SYM>.json built by scripts/build_corp.py from free official NSE/BSE files (no keys).
 const CORP_TAG = { results: 'Results', fundraise: 'Fund-raising', order: 'Order / contract', auditor: 'Auditor', pledge: 'Pledge', mgmt: 'Management change', agm: 'Meeting' };
-let CORPF = 'key';
+let CORPF = 'key', CORPCOV = null;
+// NSE returned "no pledge" for (almost) every company in the last run -> a "no pledge" result can't be trusted
+const pledgeSuspect = () => !!(CORPCOV && !CORPCOV.pledge && ((CORPCOV.pledgeNone || 0) > 500 || (CORPCOV.nse || 0) > 500));
 function corpPlaceholder(d) { return d.symbol.match(/\.(NS|BO)$/) && !d.etf ? '<div id="corpx"><div class="card mut">Loading exchange filings, deals and red-flags check…</div></div>' : ''; }
 async function corpLoad(d, k, R, A) {
   const el = document.getElementById('corpx'); if (!el) { if (typeof autoUpdate === 'function') autoUpdate(d, k, A, R, {}); return; }
   let x = null; try { x = await getJSON(DATA + 'x/' + encodeURIComponent(d.symbol) + '.json'); } catch (e) { }
+  if (!CORPCOV) { try { CORPCOV = await getJSON(DATA + 'corp/coverage.json'); } catch (e) { CORPCOV = {}; } }
   if (!document.getElementById('corpx') || CUR !== d) return;
   el.innerHTML = corpHTML(d, k, R, x || {});
   const fl = document.getElementById('falinks'); if (fl && x) fl.innerHTML = fullAnalysisLinks(d, { ...(x.links || {}), code: x.code });
@@ -22,7 +25,9 @@ function corpHTML(d, k, R, x) {
   // 1 promoter pledge
   const pl = x.pledge;
   if (pl && !pl.none && isNum(pl.pp)) add(pl.pp > 5 ? 'warn' : 'ok', 'Promoter pledge', `${pl.pp.toFixed(1)}% of promoter shares pledged (${pl.pt.toFixed(2)}% of all shares), as of ${esc(pl.shp || '')} · NSE disclosure. Warning if above 5%; above 25% is serious.`);
+  else if (pl && pl.none && pledgeSuspect()) add('na', 'Promoter pledge', '<span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> — NSE returned no pledge data for any company in the latest update, so "no pledge" can\'t be trusted right now. Check NSE\'s pledge disclosures.');
   else if (pl && pl.none) add('ok', 'Promoter pledge', 'no pledge disclosure on NSE (usually means no promoter shares pledged).');
+  else if (pl && pl.unk) add('na', 'Promoter pledge', 'NSE\'s pledge data could not be read in the latest update.');
   else add('na', 'Promoter pledge', bse ? 'not available for BSE-only stocks (BSE\'s data service blocks automated access) — check the BSE shareholding pattern.' : 'not fetched yet (refreshed in daily batches).');
   // 2 promoter holding trend
   const pr = x.prom || [];
@@ -74,7 +79,37 @@ function corpHTML(d, k, R, x) {
      <p class="mut" style="margin-top:6px">${R.parts.map(p => `${p[0]} ${isNum(p[1]) ? Math.round(p[1]) : 'n/a'} (weight ${p[2]})`).join(' · ')}</p>
      <p class="src"><b>This is an estimate from fixed rules, not expert opinion and not a recommendation.</b> It is the weighted composite of the 25-point research report below (fundamentals, Buffett, Graham, Fisher, Lynch, CANSLIM, technicals), using only the free data shown on this page; missing data is left out. The exchange red-flags check above is not part of the score — read both. <a href="#" data-jump="r-exec">See the full report ↓</a></p></div>`; }
   else qs = `<div class="card"><h2>🧮 Quality score <span class="mut">(rule-based estimate)</span></h2><p class="mut">Not enough data to compute the score from the 25-point report for this stock.</p></div>`;
-  return `<div class="grid two">${flags}${qs}</div>${growthHTML(d, x)}${filings}${deals}`;
+  return `<div class="grid two">${flags}${qs}</div>${promoterHTML(d, x)}${growthHTML(d, x)}${filings}${deals}`;
+}
+// ===== Promoter holding & pledge (NSE disclosures for NSE stocks; Yahoo Finance holder data as cross-check / for BSE-only) =====
+function promoterHTML(d, x) {
+  const bse = d.symbol.endsWith('.BO'), base = d.symbol.replace(/\.(NS|BO)$/, ''), pr = x.prom || [], pl = x.pledge, yi = d.profile && d.profile.insiders;
+  const qd = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '';
+  const yTxt = isNum(yi) ? `${(yi * 100).toFixed(1)}%` : null;
+  let hold = '', pledge = '';
+  if (pr.length) {
+    const last = pr[pr.length - 1], yr = pr.length > 4 ? pr[pr.length - 5] : pr[0], ch = last[1] - yr[1];
+    const gap = isNum(yi) ? Math.abs(last[1] - yi * 100) : null;
+    hold = `<div class="kv"><div><span>Promoter holding (${qd(last[0])})</span><b style="font-size:20px">${last[1].toFixed(2)}%</b></div>
+      <div><span>Change since ${qd(yr[0])}</span><b class="${ch <= -1 ? 'dn' : ch >= 1 ? 'up' : ''}">${ch >= 0 ? '+' : ''}${ch.toFixed(2)} pts${ch <= -1 ? ' ⚠' : ''}</b></div>
+      <div><span>Yahoo Finance (insiders)</span><b>${yTxt ? (gap > 10 ? `<span class="doubt" title="NSE says ${last[1].toFixed(1)}%, Yahoo says ${yTxt} — ${gap.toFixed(0)} pts apart; Yahoo's 'insiders' is not the same definition as SEBI 'promoter group', but a gap this large needs checking">${yTxt} ⚠</span>` : yTxt) : NA}</b></div></div>
+      <div class="tw" style="margin-top:8px"><table><tr><th>Quarter</th>${pr.map(p => `<th>${qd(p[0])}</th>`).join('')}</tr><tr><td>Promoter %</td>${pr.map((p, i) => { const c = i ? p[1] - pr[i - 1][1] : 0; return `<td class="${c <= -0.5 ? 'dn' : c >= 0.5 ? 'up' : ''}">${p[1].toFixed(2)}</td>`; }).join('')}</tr></table></div>
+      ${last[1] < 25 ? `<p class="dn" style="margin:6px 0 0">⚠ Promoters own only ${last[1].toFixed(1)}% — low promoter "skin in the game".</p>` : ''}${ch <= -1 ? `<p class="dn" style="margin:6px 0 0">⚠ Promoters have cut their stake by ${(-ch).toFixed(2)} pts in this period — read the shareholding filings for the reason.</p>` : ''}`;
+  } else if (bse) {
+    hold = `<div class="kv"><div><span>Promoter / insider holding</span><b style="font-size:20px">${yTxt ? `<span class="doubt" title="From Yahoo Finance 'insiders' — an approximation of SEBI's promoter group; BSE's own shareholding data can't be downloaded automatically">${yTxt} ⚠</span>` : NA}</b></div></div>
+      <p class="mut">BSE-only stock: the official promoter-holding history isn't freely downloadable (BSE's data service blocks automated access). ${yTxt ? "The figure above is Yahoo Finance's \"insiders\" holding — shown in red as approximate." : ''} Check the latest shareholding pattern on BSE.</p>`;
+  } else hold = `<p class="mut">Promoter holding not fetched yet for this stock (NSE data is refreshed in daily batches).${yTxt ? ` Yahoo Finance shows insiders holding ${yTxt}.` : ''}</p>`;
+  if (bse) pledge = `<p><b>Pledge:</b> <span class="mut">not available for BSE-only stocks (BSE's pledge disclosures can't be downloaded automatically) — check BSE.</span></p>`;
+  else if (pl && isNum(pl.pp)) { const col = pl.pp > 25 ? '#b91c1c' : pl.pp > 5 ? '#b45309' : '#15803d';
+    pledge = `<div class="kv" style="margin-top:8px"><div><span>Promoter shares pledged</span><b style="font-size:20px;color:${col}">${pl.pp.toFixed(2)}%${pl.pp > 5 ? ' ⚠' : ''}</b></div><div><span>Pledged, % of all shares</span><b>${pl.pt.toFixed(2)}%</b></div><div><span>As of</span><b>${esc(pl.shp || '') || NA}</b></div></div>
+      <p class="mut">${pl.pp > 25 ? '<b class="dn">Above 25% is serious</b> — if the share price falls, lenders can sell pledged shares, which can push the price down further.' : pl.pp > 5 ? 'Above 5% is worth watching.' : 'Low pledge.'} Source: NSE pledge disclosure.</p>`; }
+  else if (pl && pl.none) pledge = pledgeSuspect()
+    ? `<p><b>Pledge:</b> <span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> <span class="mut">— NSE returned no pledge data for <i>any</i> company in the latest update, which looks like a data problem, so "no pledge" can't be trusted. Check NSE's pledge disclosures.</span></p>`
+    : `<p><b>Pledge:</b> <span class="up">none disclosed</span> <span class="mut">— no promoter pledge disclosure on NSE.</span></p>`;
+  else pledge = `<p><b>Pledge:</b> <span class="mut">${pl && pl.unk ? "NSE's pledge data couldn't be read in the latest update." : 'not fetched yet.'}</span></p>`;
+  const link = bse ? `https://www.bseindia.com/stock-share-price/x/${esc(base)}/${esc(x.code || '')}/` : `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(base)}`;
+  return `<div class="card nogq" id="promoter"><h2>👥 Promoter holding &amp; pledge</h2>${hold}${pledge}
+    <p class="src">${bse ? 'Yahoo Finance holder data (approximate).' : 'NSE shareholding-pattern and pledge disclosures (quarterly); Yahoo Finance "insiders" shown as a cross-check.'} Promoters are the founders / controlling group. A falling stake or a high pledge is a reason to read the filings, not a verdict. <a href="${link}" target="_blank" rel="noopener">Shareholding on ${bse ? 'BSE' : 'NSE'} ↗</a></p></div>`;
 }
 // ===== Growth plans, orders received / completed, court cases & legal matters (Indian stocks) =====
 // Same keyword rules as scripts/build_corp.py, re-applied here so older stored filings are tagged too.
