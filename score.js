@@ -38,13 +38,17 @@ function scoreRow(r) {
   o.m = isNum(r.rs) && (isNum(r.r3m) || isNum(r.r1y)) ? r.rs : undefined;
   const parts = Object.keys(SCW).filter(k => isNum(o[k])), pw = parts.reduce((s, k) => s + SCW[k], 0);
   o.ov = pw >= 50 ? parts.reduce((s, k) => s + o[k] * SCW[k], 0) / pw : undefined;
+  // promoter holding (NSE shareholding pattern; Yahoo "insiders" as an approximation when that's missing, e.g. BSE-only) and pledge
+  o.proV = isNum(r.pro) ? r.pro : isNum(r.proY) ? r.proY : undefined; o.proX = !isNum(r.pro) && isNum(r.proY);
+  o.plV = isNum(r.pp) ? r.pp : r.plz ? 0 : undefined;
   return o;
 }
 function scoreRows() {
   if (SCROWS && SCBUILT === SUMMARY.built) return SCROWS;
   SCROWS = SUMMARY.rows.filter(r => !(r.cap || '').startsWith('ETF')).map(scoreRow); SCBUILT = SUMMARY.built; return SCROWS;
 }
-const SCDEF = { mk: 'IN', cap: 'All', sec: '', min: {}, sort: ['ov', -1], q: '' };
+// pro = minimum promoter holding %, pl = maximum pledge % ('' any, '0' none), proUp = promoter stake not cut by 1+ pt in a year
+const SCDEF = { mk: 'IN', cap: 'All', sec: '', min: {}, sort: ['ov', -1], q: '', pro: 0, pl: '', proUp: false };
 let SCF = Object.assign({}, SCDEF, LS.get('scf', {})), SCN = 50;
 const SCPRESETS = [
   ['⭐ Top overall', { ov: 65 }, ['ov', -1]],
@@ -52,13 +56,26 @@ const SCPRESETS = [
   ['💰 Value', { v: 65 }, ['v', -1]],
   ['🌱 Growth', { g: 70 }, ['g', -1]],
   ['⚖️ GARP', { l: 65 }, ['l', -1]],
-  ['🚀 Momentum', { m: 80, c: 55 }, ['m', -1]]];
+  ['🚀 Momentum', { m: 80, c: 55 }, ['m', -1]],
+  ['🛡️ Promoter-backed', { q: 50 }, ['proV', -1], { pro: 50, pl: '5', proUp: true }, 'IN']];
+const PRO_OPTS = [0, 25, 40, 50, 60, 70, 75], PL_OPTS = [['', 'Pledge: any'], ['0', 'Pledge: none'], ['5', 'Pledge ≤ 5%'], ['10', 'Pledge ≤ 10%'], ['25', 'Pledge ≤ 25%']];
 // which scores rest on which doubtful field (for red marking in the table)
 const SC_USES = { pe: ['v', 'l', 'ov'], pb: ['v', 'ov'], r1y: ['m', 'c', 'ov'], roe: ['q', 'ov'], p: ['v', 'l', 'm', 'ov'] };
 function scDoubt(W) { const o = {}; for (const [f, why] of Object.entries(W)) for (const k of SC_USES[f] || []) (o[k] = o[k] || []).push(why); return o; }
 const scCol = s => !isNum(s) ? '#94a3b8' : s >= 65 ? '#15803d' : s >= 45 ? '#a16207' : '#b91c1c';
 const scCell = s => isNum(s) ? `<b style="color:${scCol(s)}">${Math.round(s)}</b>` : '<span class="mut">–</span>';
 function scSave() { LS.set('scf', SCF); }
+function proCell(r) {
+  if (!isNum(r.proV)) return '<span class="mut">–</span>';
+  if (r.proX) return `<span class="doubt" title="Yahoo Finance 'insiders' — an approximation of the promoter group (NSE shareholding data not available for this stock)">${r.proV.toFixed(1)} ⚠</span>`;
+  const ch = isNum(r.proCh) ? `<br><small class="${r.proCh <= -1 ? 'dn' : r.proCh >= 1 ? 'up' : 'mut'}" title="change over about a year">${r.proCh >= 0 ? '+' : ''}${r.proCh.toFixed(1)}${r.proCh <= -1 ? ' ⚠' : ''}</small>` : '';
+  return `<span${r.proV < 25 ? ' class="dn" title="low promoter holding"' : ''}>${r.proV.toFixed(1)}</span>${ch}`;
+}
+function plCell(r, sus) {
+  if (isNum(r.pp)) return `<b style="color:${r.pp > 25 ? '#b91c1c' : r.pp > 5 ? '#b45309' : '#15803d'}">${r.pp.toFixed(1)}${r.pp > 5 ? ' ⚠' : ''}</b>`;
+  if (r.plz) return sus ? `<span class="doubt" title="NSE returned 'no pledge' for every company in the latest update — uncertain">0? ⚠</span>` : '<span class="up">0</span>';
+  return `<span class="mut" title="${r.s.endsWith('.BO') ? 'not available for BSE-only stocks' : 'not fetched yet'}">–</span>`;
+}
 async function renderScores(box) {
   if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `<p>${NA} — summary data could not be loaded.</p>`; return; }
   const all = scoreRows(), mk = SCF.mk, ql = (SCF.q || '').toLowerCase();
@@ -71,6 +88,15 @@ async function renderScores(box) {
   if (ql) rows = rows.filter(r => r.s.toLowerCase().includes(ql) || (r.n || '').toLowerCase().includes(ql));
   const act = Object.entries(SCF.min).filter(([, v]) => v > 0);
   rows = rows.filter(r => act.every(([k, v]) => isNum(r[k]) && r[k] >= v));
+  // promoter holding & pledge filters (India only; stocks without the data are left out when a filter is set)
+  const india = mk === 'IN', nPro = india ? (SCF.pro > 0) + (SCF.pl !== '') + !!SCF.proUp : 0;
+  if (india) {
+    if (SCF.pro > 0) rows = rows.filter(r => isNum(r.proV) && r.proV >= SCF.pro);
+    if (SCF.pl !== '') rows = rows.filter(r => isNum(r.plV) && r.plV <= +SCF.pl);
+    if (SCF.proUp) rows = rows.filter(r => isNum(r.proCh) && r.proCh > -1);
+  }
+  if (typeof CORPCOV !== 'undefined' && CORPCOV === null && india) { CORPCOV = {}; getJSON(DATA + 'corp/coverage.json').then(c => { CORPCOV = c; if (document.getElementById('sct')) renderScores(box); }).catch(() => { }); }
+  const plSus = typeof pledgeSuspect === 'function' && pledgeSuspect();
   const [sk, sd] = SCF.sort;
   rows.sort((a, b) => { const x = sk === 'n' ? (a.n || a.s).toLowerCase() : a[sk], y = sk === 'n' ? (b.n || b.s).toLowerCase() : b[sk]; if (!isNum(x) && sk !== 'n') return 1; if (!isNum(y) && sk !== 'n') return -1; return (x < y ? -1 : x > y ? 1 : 0) * sd || (b.ov ?? -1) - (a.ov ?? -1); });  // ties (many 100s) -> higher Overall first
   const shown = rows.slice(0, SCN);
@@ -82,13 +108,17 @@ async function renderScores(box) {
   <div class="scbar">${caps.length > 1 ? `<select id="sccap" aria-label="Market-cap group">${caps.map(c => `<option value="${c}" ${c === SCF.cap ? 'selected' : ''}>${c === 'All' ? 'All sizes' : c === 'Other' ? 'Other listed' : c === 'Penny' ? '⚠️ Penny (under ₹50)' : c + ' cap'}</option>`).join('')}</select>` : ''}
   <select id="scsec" aria-label="Sector"><option value="">All sectors</option>${secs.map(s => `<option ${s === SCF.sec ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
   <input type="text" id="scq" placeholder="Name or symbol…" value="${esc(SCF.q || '')}"></div>
+  ${india ? `<div class="scbar"><select id="scpro" aria-label="Minimum promoter holding">${PRO_OPTS.map(v => `<option value="${v}" ${+SCF.pro === v ? 'selected' : ''}>${v ? 'Promoter ≥ ' + v + '%' : 'Promoter: any'}</option>`).join('')}</select>
+  <select id="scpl" aria-label="Maximum promoter pledge">${PL_OPTS.map(([v, l]) => `<option value="${v}" ${SCF.pl === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+  <label class="mut" style="font-size:13px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="scup" ${SCF.proUp ? 'checked' : ''}> Promoter stake not cut (by 1+ pt in a year)</label></div>
+  ${plSus && SCF.pl !== '' ? `<p class="doubt" style="text-decoration:none;margin:4px 0">⚠ Pledge data is uncertain right now: NSE returned "no pledge" for every company in the latest update, so the pledge filter may let pledged companies through.</p>` : ''}` : ''}
   <p class="mut" style="margin:6px 0 0">Minimum scores (0–100). Drag right to tighten. Hover or long-press a name to see how it's scored.</p>
   <div class="scg">${SCORES.map(slider).join('')}</div>
   ${SCF.cap === 'Penny' && typeof PENNYWARN !== 'undefined' ? PENNYWARN : ''}
-  <p><b>${rows.length.toLocaleString()}</b> of ${inMk.length.toLocaleString()} stocks match${act.length ? ` (${act.length} score filter${act.length > 1 ? 's' : ''})` : ''}.</p>
-  <div class="tw"><table class="pt" id="sct"><tr>${th('n', 'Stock')}${SCORES.map(([k, l]) => th(k, l)).join('')}${th('pe', 'P/E')}</tr>${shown.map(r => { const W = typeof rowDoubts === 'function' ? rowDoubts(r) : {}, bad = scDoubt(W);
+  <p><b>${rows.length.toLocaleString()}</b> of ${inMk.length.toLocaleString()} stocks match${act.length + nPro ? ` (${act.length + nPro} filter${act.length + nPro > 1 ? 's' : ''})` : ''}.</p>
+  <div class="tw"><table class="pt" id="sct"><tr>${th('n', 'Stock')}${SCORES.map(([k, l]) => th(k, l)).join('')}${th('pe', 'P/E')}${india ? th('proV', 'Promoter %') + th('plV', 'Pledge %') : ''}</tr>${shown.map(r => { const W = typeof rowDoubts === 'function' ? rowDoubts(r) : {}, bad = scDoubt(W);
     const cell = k => isNum(r[k]) && bad[k] ? `<span class="doubt" title="${esc('Built on doubtful data: ' + bad[k].join('; '))}">${Math.round(r[k])} ⚠</span>` : scCell(r[k]);
-    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 30))}${typeof rowDoubtTag === 'function' ? rowDoubtTag(W) : ''}${r.sv ? ' ' + survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.sec ? ' · ' + esc(r.sec) : ''}</small></td>${SCORES.map(([k]) => `<td>${cell(k)}</td>`).join('')}<td>${W.pe ? `<span class="doubt" title="${esc(W.pe)}">${fx(r.pe)} ⚠</span>` : fx(r.pe)}</td></tr>`; }).join('')}</table></div>
+    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 30))}${typeof rowDoubtTag === 'function' ? rowDoubtTag(W) : ''}${r.sv ? ' ' + survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.sec ? ' · ' + esc(r.sec) : ''}</small></td>${SCORES.map(([k]) => `<td>${cell(k)}</td>`).join('')}<td>${W.pe ? `<span class="doubt" title="${esc(W.pe)}">${fx(r.pe)} ⚠</span>` : fx(r.pe)}</td>${india ? `<td>${proCell(r)}</td><td>${plCell(r, plSus)}</td>` : ''}</tr>`; }).join('')}</table></div>
   <p class="mut" style="font-size:12px"><span class="doubt">Red with ⚠</span> = built on data that looks inconsistent (unusual P/E or P/B, extreme 1-year return, ROE beyond ±100%, or Yahoo vs exchange price gap). Hover, or open the stock, to see why.</p>
   ${rows.length > shown.length ? `<p style="text-align:center"><button class="btn sec" id="scMore">Show ${Math.min(rows.length - shown.length, 200)} more</button></p>` : ''}
   <details class="how"><summary>How the scores work</summary><div class="mut">${SCORES.map(([, l, why]) => `<p><b>${l}:</b> ${why}</p>`).join('')}<p>Each criterion earns 0 → full points on a straight line between the "poor" and "good" values shown (poor → good). A score is only given when data covers at least 40% of its weight; missing data is left out, never guessed. A stock with no score for a filter you've set is excluded.</p><p>These <b>quick scores</b> use the one-line summary kept for every stock. The full report on a stock's page also uses cash flow, dividends, margin history, technicals and more, so its Buffett / Graham / Fisher / Lynch / composite numbers can differ.</p></div></details>
@@ -97,16 +127,21 @@ async function renderScores(box) {
   box.querySelectorAll('[data-smk]').forEach(b => b.onclick = () => { SCF.mk = b.dataset.smk; SCN = 50; scSave(); rerender(); });
   box.querySelectorAll('[data-sp]').forEach(b => b.onclick = () => {
     if (b.dataset.sp === 'reset') SCF = Object.assign({}, SCDEF, { mk: SCF.mk, min: {} });
-    else { const p = SCPRESETS[+b.dataset.sp]; SCF.min = Object.fromEntries(Object.entries(p[1]).filter(([, v]) => v > 0)); SCF.sort = p[2]; }
+    else { const p = SCPRESETS[+b.dataset.sp]; SCF.min = Object.fromEntries(Object.entries(p[1]).filter(([, v]) => v > 0)); SCF.sort = p[2];
+      Object.assign(SCF, { pro: 0, pl: '', proUp: false }, p[3] || {}); if (p[4]) SCF.mk = p[4]; }
     SCN = 50; scSave(); rerender();
   });
-  box.querySelectorAll('[data-ss]').forEach(t => t.onclick = () => { const k = t.dataset.ss; SCF.sort = [k, SCF.sort[0] === k ? -SCF.sort[1] : (k === 'n' || k === 'pe' ? 1 : -1)]; scSave(); rerender(); });
+  box.querySelectorAll('[data-ss]').forEach(t => t.onclick = () => { const k = t.dataset.ss; SCF.sort = [k, SCF.sort[0] === k ? -SCF.sort[1] : (k === 'n' || k === 'pe' || k === 'plV' ? 1 : -1)]; scSave(); rerender(); });
   box.querySelectorAll('[data-min]').forEach(inp => {
     inp.oninput = () => { const k = inp.dataset.min, v = +inp.value; box.querySelector('#scv-' + k).textContent = v ? '≥ ' + v : 'any'; };
     inp.onchange = () => { const k = inp.dataset.min, v = +inp.value; if (v) SCF.min[k] = v; else delete SCF.min[k]; SCN = 50; scSave(); const y = window.scrollY; rerender().then(() => window.scrollTo(0, y)); };
   });
   const cs = box.querySelector('#sccap'); if (cs) cs.onchange = () => { SCF.cap = cs.value; SCN = 50; scSave(); rerender(); };
   const ss = box.querySelector('#scsec'); ss.onchange = () => { SCF.sec = ss.value; SCN = 50; scSave(); rerender(); };
+  const keep = () => { SCN = 50; scSave(); const y = window.scrollY; rerender().then(() => window.scrollTo(0, y)); };
+  const sp = box.querySelector('#scpro'); if (sp) sp.onchange = () => { SCF.pro = +sp.value; keep(); };
+  const spl = box.querySelector('#scpl'); if (spl) spl.onchange = () => { SCF.pl = spl.value; keep(); };
+  const su = box.querySelector('#scup'); if (su) su.onchange = () => { SCF.proUp = su.checked; keep(); };
   const qi = box.querySelector('#scq'); qi.oninput = () => { SCF.q = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { const pos = qi.selectionStart; scSave(); rerender().then(() => { const n = box.querySelector('#scq'); n.focus(); n.setSelectionRange(pos, pos); }); }, 250); };
   const mb = box.querySelector('#scMore'); if (mb) mb.onclick = () => { SCN += 200; const y = window.scrollY; rerender().then(() => window.scrollTo(0, y)); };
 }

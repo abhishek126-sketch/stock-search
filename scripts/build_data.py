@@ -320,6 +320,26 @@ def apply_exchange_close(docs, ex):
     print(ex, 'official close applied to', n, 'stocks for', day, '-', moved, 'of them differed from Yahoo by > 1%')
     return day.isoformat(), n
 
+def promoter_fields(s, pr):
+    """Promoter holding & pledge for the summary row (Score filter), from data/x/<SYM>.json written by build_corp.py.
+    pro = latest promoter % (NSE shareholding pattern), proCh = change vs ~1 year earlier (pts), proQ = quarter end;
+    pp = % of promoter shares pledged, plz = 1 when NSE shows no pledge, plu = 1 when pledge unknown;
+    proY = Yahoo 'insiders' % (approximation, used for BSE-only stocks or when NSE data is missing)."""
+    o = {}
+    if not s.endswith(('.NS', '.BO')): return o
+    try: x = json.load(open(os.path.join(OUT, 'x', s + '.json')))
+    except Exception: x = {}
+    p = x.get('prom') or []
+    if p:
+        o['pro'] = round(p[-1][1], 2); o['proQ'] = p[-1][0]
+        if len(p) >= 2: o['proCh'] = round(p[-1][1] - p[max(0, len(p) - 5)][1], 2)
+    pl = x.get('pledge') or {}
+    if isinstance(pl.get('pp'), (int, float)): o['pp'] = round(pl['pp'], 2)
+    elif pl.get('none'): o['plz'] = 1
+    else: o['plu'] = 1
+    if 'pro' not in o and isinstance(pr.get('insiders'), (int, float)): o['proY'] = round(pr['insiders'] * 100, 2)
+    return o
+
 def metrics(d):
     f, price, hist = d['fund'], d['price'], d['hist']; now = hist[-1][0] if hist else time.time(); k = {}
     eps = series(f, 'quarterlyDilutedEPS')[-4:]
@@ -564,7 +584,7 @@ def main():
         if s in BSEX: d['bse'] = BSEX[s]
         with open(os.path.join(OUT, 's', s + '.json'), 'w') as fh: json.dump(d, fh, separators=(',', ':'))
         k = K[s]; nw = d.get('news') or {}; pr = d.get('profile') or {}
-        if not et: k = {**k, 'gm': pr.get('grossMargins'), 'om': pr.get('opMargins')}
+        if not et: k = {**k, 'gm': pr.get('grossMargins'), 'om': pr.get('opMargins'), **promoter_fields(s, pr)}
         rows.append({'s': s, 'n': d['name'], 'x': d['exchange'] or '', 'sec': '' if et else (d['sector'] or ''), 'ind': d.get('industry') or '', 'p': d['price'], 'pc': d.get('prevClose'), 'c': d['currency'], 'cap': CAP.get(s),
                      **k, 'cs': d['canslim']['score'], 'co': d['canslim']['of'], 'rs': rsr.get(s), 'an': 1 if d.get('analyst') else 0,
                      'nn': len(nw.get('items', [])), 'neg': sum(1 for i in nw.get('items', []) if 'neg' in i['g']),
