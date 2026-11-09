@@ -4,7 +4,7 @@ const GL = {
   pe: ['P/E (price-to-earnings)', 'Share price ÷ earnings per share. How many rupees/dollars you pay for ₹1/$1 of yearly profit.', 'Price ₹500, EPS ₹25 → P/E 20: you pay 20 years of current profit.'],
   pb: ['P/B (price-to-book)', 'Share price ÷ book value per share (net assets on the balance sheet per share).', 'Price ₹300, book value ₹100 → P/B 3.'],
   roe: ['ROE (return on equity)', 'Net profit ÷ shareholders\' equity. How much profit the company earns on owners\' money.', 'Profit ₹20 Cr on equity ₹100 Cr → ROE 20%.'],
-  roce: ['ROCE (return on capital employed)', 'Operating profit (EBIT) ÷ (total assets − current liabilities). Returns on all long-term capital, debt included.', 'EBIT ₹30 Cr, capital ₹150 Cr → ROCE 20%.'],
+  roce: ['ROCE (return on capital employed)', 'Operating profit (EBIT) ÷ capital employed (shareholders\' equity + borrowings). Returns on all capital, debt included.', 'EBIT ₹30 Cr, capital ₹150 Cr → ROCE 20%.'],
   eps: ['EPS (earnings per share)', 'Net profit ÷ number of shares. Profit belonging to one share.', 'Profit ₹100 Cr, 10 Cr shares → EPS ₹10.'],
   ttm: ['TTM (trailing twelve months)', 'The sum of the last four reported quarters — the most recent full year of results.', 'EPS of 4 quarters 5+6+6+7 → TTM EPS 24.'],
   peg: ['PEG ratio', 'P/E ÷ earnings growth rate (%). Lynch also adds dividend yield to growth. Below 1 = growth is cheap.', 'P/E 20, growth 20% → PEG 1.0.'],

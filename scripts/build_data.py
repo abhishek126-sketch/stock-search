@@ -369,12 +369,17 @@ def metrics(d):
     eqs = series(f, 'annualStockholdersEquity')
     if ni and eq and eq[1] > 0:
         avg = (eq[1] + eqs[-2][1]) / 2 if len(eqs) > 1 and eqs[-2][1] > 0 else eq[1]; k['roe'] = ni[1] / avg
-    if ebit and ta and cl and ta[0] == cl[0] and ta[1] - cl[1] > 0:
-        # ROCE = EBIT / average capital employed (total assets - current liabilities, this and last year), as Screener does
-        tas, cls = dict(series(f, 'annualTotalAssets')), dict(series(f, 'annualCurrentLiabilities'))
-        prv = sorted(d_ for d_ in tas if d_ < ta[0] and d_ in cls)
-        ce = ta[1] - cl[1]
-        if prv and tas[prv[-1]] - cls[prv[-1]] > 0: ce = (ce + tas[prv[-1]] - cls[prv[-1]]) / 2
+    # Yahoo omits debt for debt-free companies: no debt figures at all, or the latest year missing after a 0 year -> 0
+    nodebt = not series(f, 'annualTotalDebt') or bool(debt and eq and debt[1] == 0 and debt[0] < eq[0])
+    dbt = debt[1] if debt and eq and debt[0] == eq[0] else 0.0 if nodebt else None
+    if ebit and eq and dbt is not None and ebit[0] == eq[0] and eq[1] + dbt > 0:
+        # ROCE = EBIT / average capital employed, capital employed = shareholders' equity + borrowings (this and last year),
+        # as Screener does. (The old total assets - current liabilities version left out short-term borrowings and
+        # overstated companies like Titan 45% vs Screener 21%; checked on 23 stocks, 10 Nov 2026.) EBIT = PBT + interest.
+        eqd, dbd = dict(eqs), dict(series(f, 'annualTotalDebt'))
+        prv = sorted(d_ for d_ in eqd if d_ < eq[0] and (d_ in dbd or nodebt))
+        ce = eq[1] + dbt
+        if prv and eqd[prv[-1]] + dbd.get(prv[-1], 0.0) > 0: ce = (ce + eqd[prv[-1]] + dbd.get(prv[-1], 0.0)) / 2
         k['roce'] = ebit[1] / ce
     if debt and eq and eq[1] > 0 and debt[0] == eq[0]: k['de'] = debt[1] / eq[1]
     k['revG'] = cagr(series(f, 'annualTotalRevenue')); k['niG'] = cagr(series(f, 'annualNetIncome'))

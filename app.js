@@ -188,10 +188,12 @@ function compute(d) {
   const aNI = last(f.annualNetIncome), aEq = f.annualStockholdersEquity || [], aD = last(f.annualTotalDebt), aE = last(f.annualEBIT), aTA = last(f.annualTotalAssets), aCL = last(f.annualCurrentLiabilities);
   const eqL = last(aEq), eqP = aEq.length > 1 ? aEq[aEq.length - 2] : null;
   if (isNum(ov.roe)) k.roe = ov.roe; else if (aNI && eqL && eqL[1] > 0) k.roe = aNI[1] / (eqP && eqP[1] > 0 ? (eqL[1] + eqP[1]) / 2 : eqL[1]);
-  if (aE && aTA && aCL && aTA[0] === aCL[0] && aTA[1] - aCL[1] > 0) {
-    // ROCE = EBIT / average capital employed (total assets − current liabilities, this and last year) — same as the refresh script
-    const CLm = Object.fromEntries(f.annualCurrentLiabilities || []), pv = (f.annualTotalAssets || []).filter(x => x[0] < aTA[0] && isNum(CLm[x[0]]) && x[1] - CLm[x[0]] > 0).pop();
-    k.roce = aE[1] / (pv ? (aTA[1] - aCL[1] + pv[1] - CLm[pv[0]]) / 2 : aTA[1] - aCL[1]);
+  // Yahoo omits debt for debt-free companies: no debt figures at all, or the latest year missing after a ₹0 year → 0
+  const noDebt = !(f.annualTotalDebt || []).length || (aD && aD[1] === 0 && eqL && aD[0] < eqL[0]), dL = aD && eqL && aD[0] === eqL[0] ? aD[1] : noDebt ? 0 : null;
+  if (aE && eqL && dL !== null && aE[0] === eqL[0] && eqL[1] + dL > 0) {
+    // ROCE = EBIT / average capital employed (shareholders' equity + borrowings, this and last year), as Screener does — same as the refresh script
+    const Dm = Object.fromEntries(f.annualTotalDebt || []), dv = x => isNum(Dm[x[0]]) ? Dm[x[0]] : noDebt ? 0 : undefined, pv = aEq.filter(x => x[0] < eqL[0] && isNum(dv(x)) && x[1] + dv(x) > 0).pop();
+    k.roce = aE[1] / (pv ? (eqL[1] + dL + pv[1] + dv(pv)) / 2 : eqL[1] + dL);
   }
   if (aD && eqL && eqL[1] > 0 && aD[0] === eqL[0]) k.de = aD[1] / eqL[1];
   if (eqL && eqL[1] <= 0) k.negEquity = true;

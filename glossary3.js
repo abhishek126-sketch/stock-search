@@ -44,7 +44,7 @@ Object.assign(GL, {
   approx: ['Approximate value', 'A figure from a less exact source, shown in red — for example promoter holding of BSE-only stocks, taken from Yahoo Finance "insiders" instead of the official shareholding pattern.', 'Yahoo 61.4% vs official 52.6%.', 'Use it as a rough guide only.'],
 });
 // easier wording for a few earlier entries
-GL.roce[1] = 'Operating profit (EBIT) ÷ average capital employed (total assets − current liabilities, this year and last). Shows how much profit the company makes on all the long-term money in the business, borrowed money included.';
+GL.roce[1] = 'Operating profit (EBIT = profit before tax + interest) ÷ average capital employed (shareholders\' equity + borrowings, this year and last) — the same way Screener.in calculates it. Shows how much profit the company makes on all the money in the business, borrowed money included.';
 // auto-annotation: more specific patterns first
 GLR.unshift([/FII trend|FII % \(trend\)/, 'fiitrend'], [/[Vv]olume[- ]confirmed/, 'volconf'], [/20-EMA|\bEMA\b/, 'ema'], [/20-session high/, 'hi20'], [/[Ss]top-?loss/, 'stoploss'], [/[Bb]uy above/, 'trigger'], [/[Pp]osition size/, 'possize'], [/[Rr]isk per trade/, 'riskpct'], [/[Gg]ap risk/, 'gaprisk'], [/[Qq]uick scores?/, 'qsc'], [/Promoter-backed/, 'promback'], [/FIIs buying/, 'fiibuy']);
 GLR.push([/\bFIIs?\b|\bFPIs?\b/, 'fii'], [/\bDIIs?\b/, 'dii'], [/[Ss]wing (trade|setup)s?/, 'swing'], [/[Pp]ullbacks?/, 'pullback'], [/\b[23]R\b|[Rr]eward ?: ?risk/, 'rmult'], [/NCLT|NCLAT/, 'nclt'], [/[Ss]how-?cause/, 'showcause'], [/(GST|[Tt]ax) demand/, 'taxdemand'], [/Regulation 30/, 'reg30'], [/[Cc]ourt cases?|[Ll]itigation/, 'legal'], [/[Ee]xpansion/, 'expansion'], [/[Ff]rozen/, 'frozen'], [/[Aa]pproximat/, 'approx']);
