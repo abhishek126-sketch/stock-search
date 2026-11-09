@@ -266,7 +266,7 @@ function fullReport(d, k, A) {
   // 14 Catalysts
   const it = d.news && d.news.items || [], cat = it.filter(x => x.g.includes('ord') || x.g.includes('plan')).slice(0, 8), ed = (pr.earnDates || []).filter(x => x > Date.now() / 1000 - 3 * DAY);
   out.push(RSEC(14, 'r-cat', '🚀 Catalysts', `<ul>${ed.length ? `<li>📅 Next results date (Yahoo): <b>${ed.map(x => dstr(x)).join(' – ')}</b></li>` : '<li class="mut">Next results date: not available.</li>'}${pr.exDiv && pr.exDiv > Date.now() / 1000 ? `<li>💸 Ex-dividend date: <b>${dstr(pr.exDiv)}</b></li>` : ''}${k.cross === 'golden' ? `<li>📈 Golden cross on ${dstr(k.crossT)}</li>` : ''}
-   ${cat.map(x => `<li>${x.g.includes('ord') ? '📦' : '🚀'} <a href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.t)}</a> <small class="mut">${esc(x.s)} · ${dstr(x.d)}</small></li>`).join('') || '<li class="mut">No order/plan headlines tagged in the last 90 days.</li>'}</ul>
+   ${cat.map(x => `<li>${x.g.includes('ord') ? '📦' : '🚀'} <a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener">${esc(x.t)}</a> <small class="mut">${esc(x.s)} · ${dstr(x.d)}</small></li>`).join('') || '<li class="mut">No order/plan headlines tagged in the last 90 days.</li>'}</ul>
    <p class="mut" style="font-size:12px">Headline tags are automated and unverified — confirm in exchange filings.</p>
    <details><summary class="mut">All tagged news (plans, orders & negative)</summary>${inner(newsSection(d))}</details>`));
   // 15 Red flags extended

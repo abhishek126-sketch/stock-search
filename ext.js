@@ -63,7 +63,7 @@ function newsSection(d) {
   const n = d.news;
   if (!n || !n.items) return sec('s-news', '📰 Plans, orders & negative news', `<p>${NA} — no headlines fetched for this stock.</p>`);
   const it = n.items, grp = g => it.filter(x => x.g.includes(g));
-  const row = x => `<li><a href="${esc(x.u)}" target="_blank" rel="noopener">${esc(x.t)}</a><br><small class="mut">${esc(x.s)} · ${dstr(x.d)}</small></li>`;
+  const row = x => `<li><a href="${esc(safeUrl(x.u))}" target="_blank" rel="noopener">${esc(x.t)}</a><br><small class="mut">${esc(x.s)} · ${dstr(x.d)}</small></li>`;
   const block = (t, a) => `<h3>${t} <span class="mut">(${a.length})</span></h3>${a.length ? `<ul class="news">${a.slice(0, 10).map(row).join('')}</ul>` : `<p class="mut">None found in last 90 days' headlines (not available ≠ none exist).</p>`}`;
   const other = it.filter(x => !x.g.length);
   return sec('s-news', `📰 Plans, orders & negative news <span class="mut">(${it.length} headlines)</span>`, `

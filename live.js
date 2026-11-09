@@ -129,7 +129,7 @@ async function updateNow() {
       if (run.status === 'completed') break;
     }
     if (!run || run.status !== 'completed') return done('<span class="dn">update still running — will appear automatically</span>');
-    if (run.conclusion !== 'success') return done(`<span class="dn">update ${esc(run.conclusion)}</span> <a href="${esc(run.html_url)}" target="_blank" rel="noopener">log</a>`);
+    if (run.conclusion !== 'success') return done(`<span class="dn">update ${esc(run.conclusion)}</span> <a href="${esc(safeUrl(run.html_url))}" target="_blank" rel="noopener">log</a>`);
     for (let i = 0; i < 6; i++) { const before = META && META.quotes; await checkMeta(true); if (META && META.quotes !== before) break; await new Promise(r => setTimeout(r, 5000)); }
     done('✔ updated just now');
   } catch (e) { done(`<span class="dn">${esc(e.message)}</span>`); }

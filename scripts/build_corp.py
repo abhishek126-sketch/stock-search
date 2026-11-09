@@ -237,7 +237,8 @@ def main():
     except Exception as e: print('nse home', e)
     prev = {s: ld(os.path.join(XD, s + '.json'), {}) for s in syms}
     # due = not refreshed for STALE hours, or never read with the FII/pledge reader yet (no 'inst' key) — new fields fill in at once
-    due = lambda s: time.time() - prev[s].get('t', 0) > STALE or prev[s].get('rv') != RV
+    # also due: NSE's pledge list had no row and the filing fallback hasn't read this stock yet (no 'plx')
+    due = lambda s: time.time() - prev[s].get('t', 0) > STALE or prev[s].get('rv') != RV or ((prev[s].get('pledge') or {}).get('none') and 'plx' not in prev[s])
     todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: (prev[s].get('rv') == RV, prev[s].get('t', 0)))
     print('NSE due', len(todo))
     frm, to = time.strftime('%d-%m-%Y', time.gmtime(time.time() - 365 * 86400)), time.strftime('%d-%m-%Y', time.gmtime(time.time() + 19800))
@@ -298,11 +299,12 @@ def main():
             if (d.get('plx') or [None])[0] != ql and time.time() - T0 < MAXSEC:
                 try:
                     pv = shp_pledge(xlast or shp_text(xb[ql]), ql)
-                    if pv: d['plx'] = [ql, pv]
+                    d['plx'] = [ql, pv]    # pv None = filing had no promoter figures; recorded so it isn't retried until the next quarter
                     with LK: PDIAG['shp'] = PDIAG.get('shp', 0) + 1; PDIAG['shpPledged'] = PDIAG.get('shpPledged', 0) + bool(pv and pv['pp'] > 0)
                 except Exception as e:
                     with LK: PDIAG['shpErr'] = PDIAG.get('shpErr', 0) + 1
-            if (d.get('plx') or [None])[0] == ql: d['pledge'] = d['plx'][1]
+            if (d.get('plx') or [None])[0] == ql and d['plx'][1]: d['pledge'] = d['plx'][1]
+        elif sh is not None and not xb and p0.get('none'): d.setdefault('plx', [None, None])   # no filing to read: don't keep re-queuing it
         prev[s] = d
         with LK: done.append(s)
     with cf.ThreadPoolExecutor(3) as ex: list(ex.map(one, todo))

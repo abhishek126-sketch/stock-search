@@ -1,9 +1,19 @@
 'use strict';
 const qs = new URLSearchParams(location.search);
-const DATA = qs.get('data') || 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/data/data/';
+const RAW = 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/data/', CDN = 'https://cdn.jsdelivr.net/gh/abhishek126-sketch/stock-search@data/';
+// ?data= may only point at this app's own data (same site, or the repo's data branch) — a link to someone else's server
+// could feed in harmful content and reach the GitHub token kept in Settings
+const DATA = (() => { const dflt = RAW + 'data/', p = qs.get('data'); if (!p) return dflt;
+  try { const u = new URL(p, location.href), own = u.protocol === location.protocol && (u.origin === location.origin || u.protocol === 'file:');
+    if ((own || u.href.startsWith(RAW) || u.href.startsWith(CDN)) && /^(https?|file):$/.test(u.protocol)) return u.href.replace(/\/?$/, '/'); } catch { }
+  console.warn("ignored ?data= (not this app's data):", p); return dflt; })();
+// links that come from data files: only http(s) addresses become clickable
+const safeUrl = u => /^https?:\/\//i.test(String(u || '').trim()) ? String(u).trim() : '#';
+// decodeURIComponent throws on a stray "%" (e.g. a hand-edited link #100%) — never let that blank the page
+const dec = s => { try { return decodeURIComponent(s); } catch { return s; } };
 const $ = s => document.querySelector(s);
 const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn('storage full/blocked', k, e); } } };
-let INDEX = [], CUR = null, RANGE = '1Y', SHOW_DMA = true;
+let INDEX = [], INDEX_FAILED = false, CUR = null, RANGE = '1Y', SHOW_DMA = true;
 const NA = '<span class="mut">not available</span>';
 const isNum = v => typeof v === 'number' && isFinite(v);
 const DAY = 86400;
@@ -26,7 +36,6 @@ function err(m) { const e = $('#msg'); e.innerHTML = m; e.style.display = m ? 'b
 
 // ---------- data loading ----------
 async function getJSON1(u) { const r = await fetch(u, { cache: 'no-cache' }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }
-const RAW = 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/data/', CDN = 'https://cdn.jsdelivr.net/gh/abhishek126-sketch/stock-search@data/';
 async function getJSON(u) {
   let e0; for (let i = 0; i < 3; i++) { try { return await getJSON1(u); } catch (e) { e0 = e; if (/HTTP 404/.test(e.message) && !u.startsWith(RAW)) break; await new Promise(r => setTimeout(r, 600 * (i + 1))); } }
   if (u.startsWith(RAW)) { try { const d = await getJSON1(u.replace(RAW, CDN)); d._viaCDN = true; return d; } catch { } }  // fallback mirror (may lag up to ~12 h)
@@ -36,8 +45,10 @@ async function loadIndex() {
   try {
     const d = await getJSON(DATA + 'index.json'); INDEX = d.symbols;
     $('#dsinfo').textContent = `${INDEX.length.toLocaleString()} stocks in built-in list (all NSE mainboard + active BSE-only stocks, S&P 500, ETFs; new listings added by the nightly refresh). Data snapshot built ${new Date(d.built * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}.`;
-  } catch (e) { $('#dsinfo').textContent = 'Could not load the stock list (offline?). ' + (LS.get('avkey', '') ? 'Alpha Vantage search still works.' : ''); }
+  } catch (e) { INDEX_FAILED = true; $('#dsinfo').textContent = 'Could not load the stock list (offline?). ' + (LS.get('avkey', '') ? 'Alpha Vantage search still works.' : ''); }
   renderChips();
+  if ($('#q').value.trim() && document.activeElement === $('#q')) showSug();   // typed while the list was loading
+  if (typeof ensureSummary === 'function') ensureSummary().then(() => { CAPMAP = null; if ($('#q').value.trim() && document.activeElement === $('#q')) showSug(); });
 }
 function renderChips() {
   const fav = LS.get('fav', []); const picks = ['RELIANCE.NS', 'TCS.NS', 'ITC.NS', 'HDFCBANK.NS', 'INFY.NS', 'AAPL', 'MSFT', 'NVDA'];
@@ -90,11 +101,23 @@ async function liveQuote() {
 
 // ---------- search ----------
 let sugIdx = -1;
+// tidy what people type: one space between words, no trailing "Ltd." / "Limited"
+const normQ = s => s.toUpperCase().replace(/\s+/g, ' ').trim().replace(/\s*\b(LIMITED|LTD)\.?$/, '').trim();
+const alnum = s => s.replace(/[^A-Z0-9]/g, '');            // "L&T" -> "LT", "BRK.B" -> "BRKB", "BAJAJ AUTO" -> "BAJAJAUTO"
+// bigger companies first among similar matches (ICICIBANK before ICICIGI / ICICIB22, HDFCBANK before HDFCAMC):
+// 0–10 points from market value in summary.json (₹1 bn -> 0, ₹100 trn -> 10; US $ converted roughly)
+let CAPMAP = null;
+const capBonus = r => { if (!CAPMAP && typeof SUMMARY !== 'undefined' && SUMMARY && SUMMARY.rows && SUMMARY.rows.length)
+    CAPMAP = Object.fromEntries(SUMMARY.rows.filter(x => isNum(x.mcap) && x.mcap > 0).map(x => [x.s, x.mcap * (x.c === 'USD' ? 85 : 1)]));
+  const m = CAPMAP && CAPMAP[r[0]]; return m ? Math.max(0, Math.min(10, (Math.log10(m) - 9) * 2)) : r[4] ? 3 : 0; };
 function search(q) {
-  q = q.trim().toUpperCase(); if (!q) return [];
-  const out = [];
-  for (const r of INDEX) { const s = r[0].toUpperCase(), base = s.replace(/\.(NS|BO)$/, ''), n = r[1].toUpperCase();
-    let sc = base === q ? 100 : s === q ? 99 : base.startsWith(q) ? 80 - base.length : n.startsWith(q) ? 60 : n.includes(' ' + q) ? 45 : n.includes(q) || s.includes(q) ? 30 : 0;
+  q = normQ(q); if (!q) return [];
+  const qa = alnum(q), out = [];
+  for (const r of INDEX) { const s = r[0].toUpperCase(), base = s.replace(/\.(NS|BO)$/, ''), ba = alnum(base), n = normQ(r[1]), na = alnum(n);
+    const len = Math.min(base.length, 12) * 0.2;
+    let sc = base === q ? 100 : s === q ? 99 : qa && ba === qa ? 98 : base.startsWith(q) ? 70 - len : qa.length > 1 && ba.startsWith(qa) ? 69 - len
+      : n.startsWith(q) ? 69.5 - len : n.includes(' ' + q) ? 45 : n.includes(q) || s.includes(q) ? 30 : qa.length > 2 && na.includes(qa) ? 25 : 0;
+    if (sc && sc < 98) sc += capBonus(r) - (s.endsWith('.BO') ? 1 : 0);
     if (sc) out.push([sc, r]); }
   return out.sort((a, b) => b[0] - a[0]).slice(0, 12).map(x => x[1]);
 }
@@ -103,6 +126,7 @@ function showSug() {
   const q = $('#q').value, list = search(q), el = $('#sug'); sugIdx = -1;
   let h = list.map(r => `<div data-s="${esc(r[0])}"><b>${esc(r[0].replace(/\.(NS|BO)$/, ''))}</b> ${esc(r[1])}<br><small>${esc(r[2])}${r[3] ? ' · ' + esc(r[3]) : ''}</small></div>`).join('');
   if (q.trim() && LS.get('avkey', '')) h += `<div data-av="${esc(q.trim())}"><small>🔎 Search more (BSE / other US) via Alpha Vantage for “${esc(q.trim())}”</small></div>`;
+  else if (q.trim() && !INDEX.length) h = `<div><small>${INDEX_FAILED ? 'The stock list could not be loaded (offline?). Check your connection and reload.' : 'Loading the stock list… results will appear in a moment.'}</small></div>`;
   else if (q.trim() && !list.length) h = `<div><small>Not in the built-in list (all NSE mainboard + active BSE-only stocks, S&P 500, ETFs). Brand-new listings appear after the next full refresh. Add a free Alpha Vantage key in Settings to search all BSE / US stocks.</small></div>`;
   el.innerHTML = h; el.style.display = h ? 'block' : 'none';
   el.querySelectorAll('div[data-s]').forEach(d => d.onclick = () => openSym(d.dataset.s));
@@ -125,21 +149,24 @@ $('#q').addEventListener('keydown', e => {
 });
 document.addEventListener('click', e => { if (!e.target.closest('.sbox')) $('#sug').style.display = 'none'; });
 
+let OPEN_SEQ = 0;   // bumped by every openSym / goHome: a slower, older load must not draw over the newer page
 async function openSym(sym, viaAV) {
-  $('#sug').style.display = 'none'; $('#q').value = ''; $('#q').blur(); err('');
+  const my = ++OPEN_SEQ; $('#sug').style.display = 'none'; $('#q').value = ''; $('#q').blur(); err('');
   $('#home').hidden = true; const v = $('#view'); v.hidden = false; v.innerHTML = '<div class="card">Loading ' + esc(sym) + '…</div>';
   navTo('#' + encodeURIComponent(sym) + (viaAV ? '~av' : ''));
   try {
     await ensureSummary();
     const inIdx = INDEX.some(r => r[0] === sym);
-    CUR = (!viaAV && (inIdx || !INDEX.length)) ? await getJSON(DATA + 's/' + encodeURIComponent(sym) + '.json') : await loadAV(sym);
+    const d = (!viaAV && (inIdx || !INDEX.length)) ? await getJSON(DATA + 's/' + encodeURIComponent(sym) + '.json') : await loadAV(sym);
+    if (my !== OPEN_SEQ) return;                                // user has moved on (another stock, or Back)
+    CUR = d;
     if (typeof applyQuote === 'function') applyQuote(CUR);
     render();
-  } catch (e) { v.innerHTML = ''; err(`Could not load <b>${esc(sym)}</b>: ${esc(e.message)}`); $('#home').hidden = false; }
+  } catch (e) { if (my !== OPEN_SEQ) return; v.innerHTML = ''; err(`Could not load <b>${esc(sym)}</b>: ${esc(e.message)}`); $('#home').hidden = false; }
 }
 // history: each page change adds one entry (Android back steps back through pages); same-hash navigations don't duplicate
-function navTo(hash) { if (decodeURIComponent(location.hash) !== decodeURIComponent(hash)) history.pushState(null, '', hash || location.pathname + location.search); }
-function goHome(fromHistory) { $('#view').hidden = true; $('#view').innerHTML = ''; $('#home').hidden = false; CUR = null; $('#q').value = ''; $('#sug').style.display = 'none'; err(''); if (!fromHistory) navTo(''); window.scrollTo(0, 0); renderChips(); updFav(); renderLists(LISTTAB); }
+function navTo(hash) { if (dec(location.hash) !== dec(hash)) history.pushState(null, '', hash || location.pathname + location.search); }
+function goHome(fromHistory) { OPEN_SEQ++; $('#view').hidden = true; $('#view').innerHTML = ''; $('#home').hidden = false; CUR = null; $('#q').value = ''; $('#sug').style.display = 'none'; err(''); if (!fromHistory) navTo(''); window.scrollTo(0, 0); renderChips(); updFav(); renderLists(LISTTAB); }
 let LISTTAB = 'cap';
 
 // ---------- analytics ----------
@@ -418,9 +445,9 @@ $('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); LS.se
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });
 
-loadIndex().then(() => { const h = decodeURIComponent(location.hash.slice(1)); if (h === 'glossary') showGlossary(); else if (h === 'alerts') showAlerts(); else if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
+loadIndex().then(() => { const h = dec(location.hash.slice(1)); if (h === 'glossary') showGlossary(); else if (h === 'alerts') showAlerts(); else if (h.startsWith('sector:')) openSector(h.slice(7)); else if (h) { const [sy, jump] = h.split('@'); openSym(sy.replace(/~av$/, ''), sy.endsWith('~av')).then(() => { const t = jump && document.getElementById(jump); if (t) { t.open = true; window.scrollTo(0, t.getBoundingClientRect().top + window.scrollY - 160); } }); } renderLists(LISTTAB); });
 window.addEventListener('popstate', () => { if (!location.hash) goHome(true); });
-window.addEventListener('hashchange', () => { const h = decodeURIComponent(location.hash.slice(1)); if (!h) return goHome(true); if (h === 'glossary') return showGlossary(); if (h === 'alerts') return showAlerts(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
+window.addEventListener('hashchange', () => { const h = dec(location.hash.slice(1)); if (!h) return goHome(true); if (h === 'glossary') return showGlossary(); if (h === 'alerts') return showAlerts(); if (h.startsWith('sector:')) openSector(h.slice(7)); else { const sy = h.split('@')[0].replace(/~av$/, ''); if (!CUR || CUR.symbol !== sy) openSym(sy, h.split('@')[0].endsWith('~av')); } });
 document.querySelectorAll('#ltabs button').forEach(b => b.onclick = () => { LISTTAB = b.dataset.t; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x === b)); renderLists(LISTTAB); });
 updFav();
 document.getElementById('tokHow').onclick = e => { e.preventDefault(); document.getElementById('dlg').close(); document.getElementById('tokHelp').showModal(); };

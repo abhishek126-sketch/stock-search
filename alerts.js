@@ -3,6 +3,14 @@
 // existing "Update now" token — needs only Actions: Read and write). The quotes job checks them every 5 min and
 // pushes to ntfy.sh/<topic>. Topic = random 22-char name generated here (not a credential; stored in alerts.json).
 const AL_RAW = 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/alerts/alerts.json';
+// "1,200" / "1,00,000" (thousands commas) -> 1200 / 100000; "1200,50" (comma as decimal point on some keyboards) -> 1200.5;
+// "₹ 1,200" ok. Anything else that isn't a plain number -> NaN (parseFloat alone read "1,200" as 1)
+function parseAmount(s) {
+  s = String(s || '').replace(/[₹$%\s]/g, '');
+  if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(',', '.');              // single comma + 1-2 digits = decimal comma
+  else if (/^\d{1,3}(,\d{2,3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, ''); // Indian or international digit grouping
+  return /^(\d+\.?\d*|\.\d+)$/.test(s) ? parseFloat(s) : NaN;
+}
 const AT = { above: 'Price ≥', below: 'Price ≤', chgUp: 'Day change ≥ +', chgDn: 'Day change ≤ −' };
 const newTopic = () => 'stocksearch-' + Array.from(crypto.getRandomValues(new Uint8Array(16)), b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
 function AL() { const a = LS.get('alerts', null) || { topic: null, alerts: [] }; if (!a.topic) { a.topic = newTopic(); LS.set('alerts', a); } return a; }
@@ -49,7 +57,7 @@ function alertDialog(sym, id) {
   <p class="mut" id="alMsg"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="alX">Cancel</button><button class="btn" id="alS">Save alert</button></div>`;
   d.showModal(); $('#alX').onclick = () => d.close();
   $('#alS').onclick = async () => {
-    const v = parseFloat($('#alV').value); if (!isFinite(v) || v <= 0) { $('#alMsg').textContent = 'Enter a positive number.'; return; }
+    const v = parseAmount($('#alV').value); if (!isFinite(v) || v <= 0) { $('#alMsg').textContent = 'Enter a positive number, e.g. 1200 or 1,200.50'; return; }
     const A2 = AL(), n = { id: a.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 6), s: a.s, type: $('#alT').value, v, note: $('#alN').value.trim() || null, ver: Math.floor(Date.now() / 1000), trig: null, trigP: null };
     A2.alerts = A2.alerts.filter(x => x.id !== n.id).concat(n); LS.set('alerts', A2);
     if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
