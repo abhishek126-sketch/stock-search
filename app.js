@@ -348,23 +348,25 @@ function drawChart() {
 function render() {
   const d = CUR, k = compute(d), A = d.etf ? null : analyse(d, k), c = d.currency, v = $('#view'); updFav(); const RPT = d.etf ? { html: etfBody(d, k), R: null } : fullReport(d, k, A);
   const base = d.symbol.replace(/\.(NS|BO)$/, '');
+  // doubtful values (inconsistent / uncertain data) are shown in red with ⚠ — see doubt.js
+  if (typeof doubtsFor === 'function') DQ = doubtsFor(d, k); const Q = typeof dq === 'function' ? dq : (f, h) => h;
   const scoreRow = (n, s) => `<div class="score"><span class="l">${n}</span><span class="bar"><i style="width:${isNum(s) ? s * 10 : 0}%;background:${!isNum(s) ? '#cbd5e1' : s >= 7 ? '#16a34a' : s >= 4.5 ? '#eab308' : '#dc2626'}"></i></span><span class="v">${isNum(s) ? s.toFixed(1) + '/10' : '<span class="mut">n/a</span>'}</span></div>`;
   const q = k.quarters, unit = c === 'INR' ? 'Cr' : 'M', div = c === 'INR' ? 1e7 : 1e6;
   const qn = x => isNum(x) ? (x / div).toLocaleString(c === 'INR' ? 'en-IN' : 'en-US', { maximumFractionDigits: 0 }) : '<span class="mut">n/a</span>';
   const ageH = (Date.now() / 1000 - (d.fetched || 0)) / 3600;
   const KEYCARD = d.etf ? '' : `   <div class="card"><h2>Key numbers</h2><div class="kv">
     <div><span>Market cap</span><b>${fmtBig(k.mcap, c)}</b></div>
-    <div><span>P/E (TTM)</span><b>${k.loss ? 'n/m (loss)' : isNum(k.pe) ? k.pe.toFixed(1) : NA}</b></div>
-    <div><span>P/B</span><b>${isNum(k.pb) ? k.pb.toFixed(2) : NA}</b></div>
-    <div><span>EPS (TTM)${k.epsDerived ? '*' : ''}</span><b>${fmtP(k.eps, c)}</b></div>
-    <div><span>Dividend yield</span><b>${isNum(k.dy) ? fmtPct(k.dy, 2) : NA}</b></div>
-    <div><span>52-wk high / low</span><b>${isNum(k.hi52) ? fmtP(k.hi52, c) + ' / ' + fmtP(k.lo52, c) : NA}</b></div>
-    <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${fmtPct(k.roe)}</b></div>
-    <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${fmtPct(k.roce)}</b></div>
-    <div><span>Debt / equity</span><b>${k.negEquity ? 'negative equity' : isNum(k.de) ? k.de.toFixed(2) : NA}</b></div>
-    <div><span>50 / 200 DMA</span><b>${isNum(k.dma50) ? fmtP(k.dma50, c) : NA} / ${isNum(k.dma200) ? fmtP(k.dma200, c) : NA}</b></div>
+    <div><span>P/E (TTM)</span><b>${k.loss ? 'n/m (loss)' : isNum(k.pe) ? Q('pe', k.pe.toFixed(1)) : NA}</b></div>
+    <div><span>P/B</span><b>${isNum(k.pb) ? Q('pb', k.pb.toFixed(2)) : NA}</b></div>
+    <div><span>EPS (TTM)${k.epsDerived ? '*' : ''}</span><b>${isNum(k.eps) ? Q('eps', fmtP(k.eps, c)) : fmtP(k.eps, c)}</b></div>
+    <div><span>Dividend yield</span><b>${isNum(k.dy) ? Q('dy', fmtPct(k.dy, 2)) : NA}</b></div>
+    <div><span>52-wk high / low</span><b>${isNum(k.hi52) ? Q('hist', fmtP(k.hi52, c) + ' / ' + fmtP(k.lo52, c)) : NA}</b></div>
+    <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roe) ? Q('roe', fmtPct(k.roe)) : fmtPct(k.roe)}</b></div>
+    <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roce) ? Q('roce', fmtPct(k.roce)) : fmtPct(k.roce)}</b></div>
+    <div><span>Debt / equity</span><b>${k.negEquity ? 'negative equity' : isNum(k.de) ? Q('de', k.de.toFixed(2)) : NA}</b></div>
+    <div><span>50 / 200 DMA</span><b>${isNum(k.dma50) || isNum(k.dma200) ? Q('hist', `${isNum(k.dma50) ? fmtP(k.dma50, c) : NA} / ${isNum(k.dma200) ? fmtP(k.dma200, c) : NA}`) : `${NA} / ${NA}`}</b></div>
     <div><span>RSI (14)</span><b>${isNum(k.rsi) ? k.rsi.toFixed(0) : NA}</b></div>
-    <div><span>1-yr return</span><b>${isNum(k.ret1y) ? sgnPct(k.ret1y) : NA}</b></div>
+    <div><span>1-yr return</span><b>${isNum(k.ret1y) ? Q('ret1y', sgnPct(k.ret1y)) : NA}</b></div>
    </div></div>`;
   const QUARTCARD = d.etf ? '' : `  <div class="card"><h2>Quarterly results <span class="mut">(${c === 'INR' ? '₹ Crore' : cur(c) + ' million'}; EPS in ${cur(c)})</span></h2>
    ${q.length ? `<div class="tw"><table><tr><th>Quarter</th><th>Revenue</th><th>QoQ</th><th>YoY</th><th>Net profit</th><th>QoQ</th><th>YoY</th><th>EPS</th><th>EPS YoY</th></tr>
@@ -374,16 +376,17 @@ function render() {
   v.innerHTML = `
   <div class="card"><a href="#" id="back" class="mut">← Back</a>
    <div style="margin-top:6px"><b style="font-size:20px">${esc(d.name)}</b><span class="tag">${esc(base)}</span>${typeof capBadge === 'function' ? capBadge(d.cap || capOf(d.symbol)) : ''}${d.penny ? `<span class="tag capb" style="background:#a16207;color:#fff">Penny</span>${d.penny.surv ? survTag(d.penny.surv) : ''}` : ''} <span class="mut">${esc(d.exchange || '')}${d.sector ? ' · ' + esc(d.sector) : ''}</span></div>
-   <div style="margin-top:4px"><span class="px">${fmtP(d.price, c)}</span><span class="chg ${k.chg >= 0 ? 'up' : 'dn'}">${isNum(k.chg) ? (k.chg >= 0 ? '▲ +' : '▼ ') + k.chg.toFixed(2) + ' (' + (k.chgPct * 100).toFixed(2) + '%)' : ''}</span></div>
+   <div style="margin-top:4px"><span class="px">${Q('price', fmtP(d.price, c))}</span><span class="chg ${k.chg >= 0 ? 'up' : 'dn'}">${isNum(k.chg) ? (k.chg >= 0 ? '▲ +' : '▼ ') + k.chg.toFixed(2) + ' (' + (k.chgPct * 100).toFixed(2) + '%)' : ''}</span></div>
    <div class="mut">${d.liveNote ? d.liveNote : `Last price ${d.priceTime ? 'as of ' + new Date(d.priceTime * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ' IST' : ''} · fundamentals ${ageH < 1 ? 'under 1 h' : Math.round(ageH) + ' h'} old · price may be delayed ~5–15 min`}</div>
    ${d.penny ? PENNYWARN.replace('(shown as a red tag)', d.penny.surv ? `— <b>this stock is currently flagged: ${esc(d.penny.surv)}</b> (NSE list)` : d.penny.src === 'BSE' ? '— ASM/GSM status for BSE-only stocks is not available here; check bseindia.com' : '— not on NSE\'s current ASM/GSM lists') : ''}
    ${typeof srcLine === 'function' ? srcLine(d) : ''}
+   ${typeof doubtBanner === 'function' ? doubtBanner() : ''}
    ${d.symbol.match(/\.(NS|BO)$/) ? `<div class="fullan"><h3 class="nogq">🔎 Full analysis <span class="mut">— open this stock on trusted sites (new tab)</span></h3><div class="links" id="falinks">${extLinks(d)}</div></div>` : `<div class="links">${extLinks(d)}</div>`}
    <button class="btn sec" id="alBtn" style="margin-top:8px">🔔 Set alert</button>${(AL().alerts || []).some(a => a.s === d.symbol) ? ` <a href="#alerts" class="mut">${AL().alerts.filter(a => a.s === d.symbol).length} alert(s) — manage</a>` : ''}
    ${LS.get('avkey', '') ? '<button class="btn sec" id="liveBtn" style="margin-top:8px">↻ Live price</button>' : ''}
   </div>
   <div class="grid two">
-   <div class="card"><h2>Price chart</h2><div class="tabs" id="rng">${['1D', '1W', '1M', '6M', '1Y', '5Y'].map(r => `<button class="${r === RANGE ? 'on' : ''}">${r}</button>`).join('')}<button id="dmaT" class="${SHOW_DMA ? 'on' : ''}">DMA</button></div>
+   <div class="card"><h2>${Q('hist', 'Price chart')}</h2><div class="tabs" id="rng">${['1D', '1W', '1M', '6M', '1Y', '5Y'].map(r => `<button class="${r === RANGE ? 'on' : ''}">${r}</button>`).join('')}<button id="dmaT" class="${SHOW_DMA ? 'on' : ''}">DMA</button></div>
     <div class="mut" id="tip">&nbsp;</div><svg id="chart"></svg><div class="mut" id="rchg"></div></div>
    ${d.etf ? etfKeyCard(d, k) : KEYCARD}
   </div>

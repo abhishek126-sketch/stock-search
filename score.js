@@ -53,6 +53,9 @@ const SCPRESETS = [
   ['🌱 Growth', { g: 70 }, ['g', -1]],
   ['⚖️ GARP', { l: 65 }, ['l', -1]],
   ['🚀 Momentum', { m: 80, c: 55 }, ['m', -1]]];
+// which scores rest on which doubtful field (for red marking in the table)
+const SC_USES = { pe: ['v', 'l', 'ov'], pb: ['v', 'ov'], r1y: ['m', 'c', 'ov'], roe: ['q', 'ov'], p: ['v', 'l', 'm', 'ov'] };
+function scDoubt(W) { const o = {}; for (const [f, why] of Object.entries(W)) for (const k of SC_USES[f] || []) (o[k] = o[k] || []).push(why); return o; }
 const scCol = s => !isNum(s) ? '#94a3b8' : s >= 65 ? '#15803d' : s >= 45 ? '#a16207' : '#b91c1c';
 const scCell = s => isNum(s) ? `<b style="color:${scCol(s)}">${Math.round(s)}</b>` : '<span class="mut">–</span>';
 function scSave() { LS.set('scf', SCF); }
@@ -83,7 +86,10 @@ async function renderScores(box) {
   <div class="scg">${SCORES.map(slider).join('')}</div>
   ${SCF.cap === 'Penny' && typeof PENNYWARN !== 'undefined' ? PENNYWARN : ''}
   <p><b>${rows.length.toLocaleString()}</b> of ${inMk.length.toLocaleString()} stocks match${act.length ? ` (${act.length} score filter${act.length > 1 ? 's' : ''})` : ''}.</p>
-  <div class="tw"><table class="pt" id="sct"><tr>${th('n', 'Stock')}${SCORES.map(([k, l]) => th(k, l)).join('')}${th('pe', 'P/E')}</tr>${shown.map(r => `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 30))}${r.sv ? ' ' + survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.sec ? ' · ' + esc(r.sec) : ''}</small></td>${SCORES.map(([k]) => `<td>${scCell(r[k])}</td>`).join('')}<td>${fx(r.pe)}</td></tr>`).join('')}</table></div>
+  <div class="tw"><table class="pt" id="sct"><tr>${th('n', 'Stock')}${SCORES.map(([k, l]) => th(k, l)).join('')}${th('pe', 'P/E')}</tr>${shown.map(r => { const W = typeof rowDoubts === 'function' ? rowDoubts(r) : {}, bad = scDoubt(W);
+    const cell = k => isNum(r[k]) && bad[k] ? `<span class="doubt" title="${esc('Built on doubtful data: ' + bad[k].join('; '))}">${Math.round(r[k])} ⚠</span>` : scCell(r[k]);
+    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 30))}${typeof rowDoubtTag === 'function' ? rowDoubtTag(W) : ''}${r.sv ? ' ' + survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.sec ? ' · ' + esc(r.sec) : ''}</small></td>${SCORES.map(([k]) => `<td>${cell(k)}</td>`).join('')}<td>${W.pe ? `<span class="doubt" title="${esc(W.pe)}">${fx(r.pe)} ⚠</span>` : fx(r.pe)}</td></tr>`; }).join('')}</table></div>
+  <p class="mut" style="font-size:12px"><span class="doubt">Red with ⚠</span> = built on data that looks inconsistent (unusual P/E or P/B, extreme 1-year return, ROE beyond ±100%, or Yahoo vs exchange price gap). Hover, or open the stock, to see why.</p>
   ${rows.length > shown.length ? `<p style="text-align:center"><button class="btn sec" id="scMore">Show ${Math.min(rows.length - shown.length, 200)} more</button></p>` : ''}
   <details class="how"><summary>How the scores work</summary><div class="mut">${SCORES.map(([, l, why]) => `<p><b>${l}:</b> ${why}</p>`).join('')}<p>Each criterion earns 0 → full points on a straight line between the "poor" and "good" values shown (poor → good). A score is only given when data covers at least 40% of its weight; missing data is left out, never guessed. A stock with no score for a filter you've set is excluded.</p><p>These <b>quick scores</b> use the one-line summary kept for every stock. The full report on a stock's page also uses cash flow, dividends, margin history, technicals and more, so its Buffett / Graham / Fisher / Lynch / composite numbers can differ.</p></div></details>
   <p class="src">Data snapshot ${sumAsOf()}. Colours: <b style="color:#15803d">≥ 65 strong</b> · <b style="color:#a16207">45–64 mixed</b> · <b style="color:#b91c1c">&lt; 45 weak</b>. Educational screen built from fixed rules, not a buy or sell recommendation.</p>`;

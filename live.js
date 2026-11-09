@@ -48,7 +48,9 @@ function srcLine(d) {
     : `<div class="mut">Price is ${what} (${fmtP(c.p, ccy)}). Yahoo Finance's latest price is older${d.yTime ? ' (' + dPlain(istDay(d.yTime)) + ')' : ''}, so ${c.src}'s is shown.</div>`;
   if (!c || !c.st) return `<div class="mut">Price from Yahoo Finance. ${us ? (CHECK && CHECK.fh && CHECK.fh.mode === 'no-key' ? 'Not double-checked (US price check is off until a Finnhub key is added).' : 'Not double-checked yet — US stocks are checked a few at a time.') : 'Not double-checked yet.'}</div>`;
   if (c.st === 'ok') return `<div class="mut">Price from Yahoo Finance · <span class="up">✔ matches</span> ${what} (${fmtP(c.p, ccy)}).</div>`;
-  return `<div class="mut" style="color:var(--warn)">⚠ Yahoo shows ${fmtP(isEx(d.priceSrc) ? d.yPrice : d.price, ccy)} but ${what} is ${fmtP(c.p, ccy)} (${(c.d * 100).toFixed(1)}% apart). ${isEx(d.priceSrc) ? `Showing ${d.priceSrc}'s price.` : "Showing Yahoo's newer price."}</div>`;
+  const yq = QUOTES && QUOTES.q && QUOTES.q[d.symbol], frozen = yq && isNum(yq[2]) && Date.now() / 1000 - yq[2] > 20 * DAY;
+  if (frozen) return `<div class="mut doubt" style="text-decoration:none">⚠ Yahoo Finance's price is frozen at ${fmtP(yq[0], ccy)} (from ${dPlain(istDay(yq[2]))}); ${what} is ${fmtP(c.p, ccy)}. Showing ${isEx(c.src) ? c.src : 'the exchange'}'s price.</div>`;
+  return `<div class="mut doubt" style="text-decoration:none">⚠ Yahoo shows ${fmtP(isEx(d.priceSrc) ? d.yPrice : d.price, ccy)} but ${what} is ${fmtP(c.p, ccy)} (${(c.d * 100).toFixed(1)}% apart). ${isEx(d.priceSrc) ? `Showing ${d.priceSrc}'s price.` : "Showing Yahoo's newer price."}</div>`;
 }
 function renderCheck() {
   const el = document.getElementById('dcheck'); if (!el) return;
