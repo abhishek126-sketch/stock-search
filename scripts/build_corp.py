@@ -36,9 +36,26 @@ CATS = [('results', r'financial results?|\bresults? (for|of) (the )?(quarter|per
         ('fundraise', r'preferential|rights issue|\bqip\b|qualified institution|fund.?rais|warrants?|allotment of (equity|shares|securities|warrants)|debentures?|\bncds?\b|bonus|split|buy.?back'),
         ('order', r'(?<!in )\borders?\b(?! to\b)(?! of\b)|contract|letter of (award|intent)|\bloa\b|work order|tender|bagg|awarded'),
         ('auditor', r'auditor'), ('pledge', r'pledge|encumbr'), ('mgmt', r'resign|cessation|appointment of (md|ceo|cfo|director|managing)|change in (directors|kmp)'),
-        ('agm', r'annual general|\bagm\b|egm|postal ballot|board meeting')]
+        ('agm', r'annual general|\bagm\b|egm|postal ballot|board meeting'),
+        # growth: expansion / capex / new capacity / acquisitions / JVs / new products or markets
+        ('expansion', r'expan|capex|guidance|invest(ment)? (of|in|worth) (rs|inr|₹|\$|usd)|\bplans? (to|inr|rs|₹)|capital expenditure|new (plant|unit|facility|factory|capacity|product|line)|greenfield|brownfield|capacity (addition|enhancement|augment)|commercial production|commission(ing|ed)? of|acqui(re|sition)|amalgamat|(?<!de)merger|joint venture|\bjv\b|memorandum of understanding|\bmou\b|strategic (partnership|alliance|tie.?up)|foray|launch(es|ed|ing)? (of )?(a |its |new |the )?(new )?(product|brand|service|plant|range|model|vehicle|drug|medicine|platform|facility|variant)|set(ting)? up (a |an |its |new )?(plant|unit|facility|factory|manufactur)|incorporation of (a )?(wholly owned )?subsidiar|diversif'),
+        # orders / projects delivered or completed
+        ('done', r'(complet|execut|deliver|handed over|handover|commission)\w*.{0,40}\b(order|project|contract|work|plant|supply)|(order|project|contract|work)s?.{0,40}\b(complet|execut|deliver|handed over|commissioned)'),
+        # court cases, litigation, regulatory / tax actions
+        ('legal', r'litigation|court|pronouncement of order|order dated|judg(e)?ment|verdict|tribunal|\bnclt\b|\bnclat\b|arbitra|lawsuit|\bsuit\b|petition|writ\b|show.?cause|penalt|\bfine[ds]?\b|action\(?s?\)? initiated|orders? passed|adjudicat|demand (order|notice)|tax demand|\bgst\b.{0,30}(demand|notice|order)|income.?tax.{0,30}(search|survey|demand|notice)|enforcement directorate|\bcbi\b|\bfir\b|insolvency|\bcirp\b|winding.?up|\bsebi\b.{0,40}(order|notice|penalt|settle)|settlement order|regulatory action|search and seizure|raid')]
 def cat(t):
-    t = t.lower(); return [k for k, rx in CATS if re.search(rx, t)]
+    t = t.lower(); g = [k for k, rx in CATS if re.search(rx, t)]
+    if 'legal' in g and 'order' in g and re.search(r'orders? passed|action\(?s?\)? (initiated|taken)|court|tribunal|demand order|penalt|pronouncement of order|order dated|judg(e)?ment', t): g.remove('order')   # "orders passed" by a court/regulator is not a business order
+    return g
+def keep_ann(items):
+    """Filings to store (newest first): up to 15 of each category so orders, expansion, completions and legal matters
+    are not crowded out by results/meeting notices; falls back to the 10 newest when nothing is categorised."""
+    items = sorted(items, key=lambda x: x['d'], reverse=True); pick = []
+    for k, _ in CATS:
+        if k == 'agm': continue
+        for x in [y for y in items if k in y['g']][:15]:
+            if x not in pick: pick.append(x)
+    return sorted(pick, key=lambda x: x['d'], reverse=True)[:80] or items[:10]
 def aud_bad(t): t = t.lower(); return 'auditor' in t and bool(re.search(r'resign|cessation|ceas|removal|casual vacancy', t))
 def aud_chg(t): t = t.lower(); return 'auditor' in t and bool(re.search(r'resign|cessation|ceas|appoint|change|removal|casual vacancy', t)) and not re.search(r'internal auditor|secretarial auditor|cost auditor|scrutini', t)
 def main():
@@ -140,7 +157,7 @@ def main():
                 items.append({'d': dt(a.get('an_dt') or a.get('sort_date') or ''), 't': t[:300], 'u': a.get('attchmntFile') or '', 'g': cat(t)})
             items.sort(key=lambda x: x['d'], reverse=True)
             aud = [x for x in items if aud_chg(x['t'])]
-            d['ann'] = [x for x in items if x['g'] and x['g'] != ['agm']][:25] or items[:10]
+            d['ann'] = keep_ann(items)
             d['annN'] = len(items); d['aud'] = aud[:3]; d['audBad'] = any(aud_bad(x['t']) for x in aud)
         if sh is not None:
             pts = {}
@@ -167,7 +184,7 @@ def main():
         if s.endswith('.BO'):
             c, isin = bse.get(s, ('', ''))
             d['code'] = c; d['src'] = 'BSE'
-            if c in bst: d['ann'] = [{'d': a, 't': t, 'u': u, 'g': cat(t)} for a, t, u in bst[c]][:25]; aud = [x for x in d['ann'] if aud_chg(x['t'])]; d['aud'] = aud[:3]; d['audBad'] = any(aud_bad(x['t']) for x in aud)
+            if c in bst: d['ann'] = keep_ann([{'d': a, 't': t, 'u': u, 'g': cat(t)} for a, t, u in bst[c]]); aud = [x for x in d['ann'] if aud_chg(x['t'])]; d['aud'] = aud[:3]; d['audBad'] = any(aud_bad(x['t']) for x in aud)
             d['bseSince'] = min((min(x[0] for x in v) for v in bst.values() if v), default=asof)
             d['surv'] = SURV.get(isin) if isin else None
         else: d['src'] = 'NSE'; d['surv'] = SURV.get(s)

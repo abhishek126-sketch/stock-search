@@ -74,5 +74,40 @@ function corpHTML(d, k, R, x) {
      <p class="mut" style="margin-top:6px">${R.parts.map(p => `${p[0]} ${isNum(p[1]) ? Math.round(p[1]) : 'n/a'} (weight ${p[2]})`).join(' · ')}</p>
      <p class="src"><b>This is an estimate from fixed rules, not expert opinion and not a recommendation.</b> It is the weighted composite of the 25-point research report below (fundamentals, Buffett, Graham, Fisher, Lynch, CANSLIM, technicals), using only the free data shown on this page; missing data is left out. The exchange red-flags check above is not part of the score — read both. <a href="#" data-jump="r-exec">See the full report ↓</a></p></div>`; }
   else qs = `<div class="card"><h2>🧮 Quality score <span class="mut">(rule-based estimate)</span></h2><p class="mut">Not enough data to compute the score from the 25-point report for this stock.</p></div>`;
-  return `<div class="grid two">${flags}${qs}</div>${filings}${deals}`;
+  return `<div class="grid two">${flags}${qs}</div>${growthHTML(d, x)}${filings}${deals}`;
+}
+// ===== Growth plans, orders received / completed, court cases & legal matters (Indian stocks) =====
+// Same keyword rules as scripts/build_corp.py, re-applied here so older stored filings are tagged too.
+const GRX = {
+  expansion: /expan|capex|guidance|invest(ment)? (of|in|worth) (rs|inr|₹|\$|usd)|\bplans? (to|inr|rs|₹)|capital expenditure|new (plant|unit|facility|factory|capacity|product|line)|greenfield|brownfield|capacity (addition|enhancement|augment)|commercial production|commission(ing|ed)? of|acqui(re|sition)|amalgamat|(?<!de)merger|joint venture|\bjv\b|memorandum of understanding|\bmou\b|strategic (partnership|alliance|tie.?up)|foray|launch(es|ed|ing)? (of )?(a |its |new |the )?(new )?(product|brand|service|plant|range|model|vehicle|drug|medicine|platform|facility|variant)|set(ting)? up (a |an |its |new )?(plant|unit|facility|factory|manufactur)|incorporation of (a )?(wholly owned )?subsidiar|diversif/,
+  done: /(complet|execut|deliver|handed over|handover|commission)\w*.{0,40}\b(order|project|contract|work|plant|supply)|(order|project|contract|work)s?.{0,40}\b(complet|execut|deliver|handed over|commissioned)/,
+  legal: /litigation|court|pronouncement of order|order dated|judg(e)?ment|verdict|tribunal|\bnclt\b|\bnclat\b|arbitra|lawsuit|\bsuit\b|petition|writ\b|show.?cause|penalt|\bfine[ds]?\b|action\(?s?\)? initiated|orders? passed|adjudicat|demand (order|notice)|tax demand|\bgst\b.{0,30}(demand|notice|order)|income.?tax.{0,30}(search|survey|demand|notice)|enforcement directorate|\bcbi\b|\bfir\b|insolvency|\bcirp\b|winding.?up|\bsebi\b.{0,40}(order|notice|penalt|settle)|settlement order|regulatory action|search and seizure|raid/,
+  order: /(?<!in )\borders?\b(?! to\b)(?! of\b)|contract|letter of (award|intent)|\bloa\b|work order|tender|bagg|awarded/ };
+function growthCats(t, g0) {
+  const s = String(t || '').toLowerCase(), g = new Set(g0 || []);
+  for (const k of ['expansion', 'done', 'legal']) if (GRX[k].test(s)) g.add(k);
+  if (g.has('legal') && g.has('order') && /orders? passed|action\(?s?\)? (initiated|taken)|court|tribunal|demand order|penalt|pronouncement of order|order dated|judg(e)?ment/.test(s)) g.delete('order');
+  return g;
+}
+function growthHTML(d, x) {
+  const bse = d.symbol.endsWith('.BO'), ex = bse ? 'BSE' : 'NSE', base = d.symbol.replace(/\.(NS|BO)$/, '');
+  const fd = s => s ? new Date(typeof s === 'number' ? s * 1000 : s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+  const F = (x.ann || []).map(a => ({ src: 'filing', d: a.d, ts: Date.parse(a.d + 'T00:00:00') / 1000, t: a.t, u: a.u, g: growthCats(a.t, a.g) }));
+  // headlines: only this card's own rules (the broader news tags also catch outlooks, appointments etc.)
+  const N = ((d.news && d.news.items) || []).map(n => { const s = String(n.t || '').toLowerCase(), g = growthCats(n.t, GRX.order.test(s) && !/acqui|stake|merger|order dated|court/.test(s) ? ['order'] : []);
+    return { src: 'news', d: n.d, ts: n.d, t: n.t, u: n.u, s: n.s, g }; });
+  const pick = k => [...F.filter(i => i.g.has(k)), ...N.filter(i => i.g.has(k))].sort((a, b) => (a.src === b.src ? 0 : a.src === 'filing' ? -1 : 1) || b.ts - a.ts);
+  const item = i => `<li>${i.src === 'filing' ? `<span class="tag" style="background:#dcfce7;color:#166534;margin-left:0">${ex} filing</span>` : `<span class="tag" style="background:#f1f5f9;color:#475569;margin-left:0" title="Headline matched by keywords — not verified">News</span>`} <small class="mut">${fd(i.d)}</small><br>${i.u ? `<a href="${esc(i.u)}" target="_blank" rel="noopener">${esc(i.t)}</a>` : esc(i.t)}${i.s ? ` <small class="mut">— ${esc(i.s)}</small>` : ''}</li>`;
+  const block = (k, title, none, red) => { const L = pick(k), nf = L.filter(i => i.src === 'filing').length;
+    return `<details class="gsec" ${L.length ? 'open' : ''}><summary><b${red && L.length ? ' style="color:#b91c1c"' : ''}>${title}</b> <span class="mut">(${nf} filing${nf === 1 ? '' : 's'}${L.length - nf ? ' · ' + (L.length - nf) + ' news' : ''})</span></summary>
+      ${L.length ? `<ul class="news">${L.slice(0, 8).map(item).join('')}</ul>${L.length > 8 ? `<details><summary class="mut">Show ${L.length - 8} more</summary><ul class="news">${L.slice(8).map(item).join('')}</ul></details>` : ''}` : `<p class="mut">${none}</p>`}</details>`; };
+  const nfAll = F.length, period = bse ? `BSE filings collected since ${fd(x.bseSince) || 'recently'}` : 'NSE filings of the last 12 months';
+  return `<div class="card nogq" id="growth"><h2>🏗️ Growth plans, orders &amp; legal matters</h2>
+   <style>.gsec{border-top:1px solid var(--line);padding:6px 0}.gsec>summary{cursor:pointer;list-style:none;padding:4px 0}.gsec>summary::-webkit-details-marker{display:none}.gsec ul.news{margin:4px 0 6px;padding-left:18px}</style>
+   ${!nfAll && !N.length ? `<p class="mut">No filings or news collected yet for this company.</p>` : ''}
+   ${block('expansion', '🚀 Expansion &amp; plans to grow revenue', 'No expansion, capacity, acquisition, JV or new-product filings or headlines found.')}
+   ${block('order', '📥 Orders &amp; contracts received', 'No order or contract wins filed or reported.')}
+   ${block('done', '✅ Orders &amp; projects completed', 'No completion, execution or commissioning of orders/projects filed or reported. (Companies rarely announce completions separately; they usually show up in quarterly results.)')}
+   ${block('legal', '⚖️ Court cases, legal &amp; regulatory matters', 'No litigation, tribunal, penalty, tax-demand or regulatory-action filings or headlines found.', true)}
+   <p class="src"><b>How this is built:</b> ${period}${nfAll ? ` (${nfAll} kept)` : ''} and Google News headlines of the last 90 days, sorted by keywords in the exchange's own subject line or the headline. <b>Filings</b> are the company's official disclosures; <b>News</b> items are unverified. <b>Court cases:</b> only matters the company disclosed to the exchange (SEBI rules require material litigation to be disclosed) or that made the news are shown — this is <b>not a complete list of pending cases</b>. For the full picture see the annual report (contingent liabilities / legal proceedings) and the company's page on <a href="${bse ? `https://www.bseindia.com/stock-share-price/x/${esc(base)}/${esc(x.code || '')}/corp-announcements/` : `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(base)}`}" target="_blank" rel="noopener">${ex} ↗</a>. Educational only.</p></div>`;
 }
