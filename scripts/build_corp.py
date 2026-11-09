@@ -200,7 +200,9 @@ def main():
     try: get('https://www.nseindia.com/', hdr={**H, 'Accept': 'text/html'})
     except Exception as e: print('nse home', e)
     prev = {s: ld(os.path.join(XD, s + '.json'), {}) for s in syms}
-    todo = sorted([s for s in syms if s.endswith('.NS') and time.time() - prev[s].get('t', 0) > STALE], key=lambda s: prev[s].get('t', 0))
+    # due = not refreshed for STALE hours, or never read with the FII/pledge reader yet (no 'inst' key) — new fields fill in at once
+    due = lambda s: time.time() - prev[s].get('t', 0) > STALE or 'inst' not in prev[s]
+    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: ('inst' in prev[s], prev[s].get('t', 0)))
     print('NSE due', len(todo))
     frm, to = time.strftime('%d-%m-%Y', time.gmtime(time.time() - 365 * 86400)), time.strftime('%d-%m-%Y', time.gmtime(time.time() + 19800))
     done = []
