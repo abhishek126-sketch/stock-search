@@ -211,6 +211,8 @@ def universe():
 import re, statistics, email.utils, xml.etree.ElementTree as ET
 NEG = r"\b(fraud|probe[sd]?|sebi (order|notice|penal\w*|bans?|action)|show.?cause|downgrad\w*|default\w*|resign\w*|quits?|pledg\w*|raids?|penalt\w*|fined?|loss(es)?|plunges?|slump\w*|crash\w*|tumbl\w*|lawsuits?|sued|scam|insolven\w*|bankrupt\w*|investigat\w*|cbi|forensic|whistle.?blow\w*|recalls?|warning letter|layoffs?|strikes?|shutdown|delist\w*|qualified opinion|auditor resign\w*|misconduct|violations?|antitrust|bans?|slash\w*|cuts? (target|guidance|rating|forecast))\b"
 ORD = r"\b(orders?|order (win|inflow)s?|bags?|bagged|wins? (contract|order|deal)s?|secures?|secured|contracts?|deal (worth|with)|awarded|letter of (award|intent)|loa|empanel\w*|tenders?|supply agreement|partnership|mou|acquires?|acquisition)\b"
+# court cases / legal & regulatory matters in headlines (kept even when not otherwise tagged — see news())
+LEGAL = r"\b(court|high court|supreme court|tribunal|nclt|nclat|arbitra\w*|litigation|lawsuits?|petitions?|writ|disputes?|demand notice|tax demand|gst (demand|notice)|show.?cause|penalt\w*|sebi (order|notice|probe)|enforcement directorate|cbi|fir|insolven\w*|verdict|judgm?ents?|rulings?|stay order|contempt|quash\w*|summons?|charge.?sheet\w*)\b"
 PLAN = r"\b(expan\w*|capex|new plant|capacity|launch\w*|guidance|outlook|plans? to|to invest|invest\w* (rs|₹|\$|inr|usd)|ipo|demerger|fund.?rais\w*|qip|roadmap|strategy|greenfield|brownfield|foray\w*|ramp.?up|raises? (guidance|outlook|forecast)|new (product|facility|factory|unit)|enters?|entering)\b"
 def clean_name(n):
     n = re.sub(r'\b(limited|ltd\.?|inc\.?|incorporated|corporation|corp\.?|company|co\.|plc|holdings?|\(the\))\s*', ' ', n, flags=re.I)
@@ -227,10 +229,12 @@ def news(sym, name):
         if src and t.endswith(' - ' + src): t = t[: -len(src) - 3]
         try: ts = int(email.utils.parsedate_to_datetime(it.findtext('pubDate')).timestamp())
         except Exception: continue
-        lt = t.lower(); tags = [k for k, rx in (('neg', NEG), ('ord', ORD), ('plan', PLAN)) if re.search(rx, lt)]
+        lt = t.lower(); tags = [k for k, rx in (('neg', NEG), ('ord', ORD), ('plan', PLAN), ('legal', LEGAL)) if re.search(rx, lt)]
         items.append({'t': t, 's': src, 'd': ts, 'u': it.findtext('link'), 'g': tags})
     items.sort(key=lambda x: -x['d'])
-    keep = [x for x in items if x['g']][:20]; gen = [x for x in items if not x['g']][:8]
+    keep = [x for x in items if x['g']][:20]
+    keep += [x for x in items if 'legal' in x['g'] and x not in keep][:8]     # court / legal headlines are never crowded out
+    gen = [x for x in items if not x['g']][:8]
     return {'q': qq, 'items': sorted(keep + gen, key=lambda x: -x['d']), 'asOf': int(time.time()), 'source': 'Google News RSS'}
 
 def series(f, k): return f.get(k) or []
