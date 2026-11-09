@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from build_data import surveillance, SURV, _latest
 OUT = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), '..', 'data'); XD = os.path.join(OUT, 'x'); CD = os.path.join(OUT, 'corp')
 MAXSEC = int(os.environ.get('MAXSEC', '1500')); STALE = 20 * 3600; T0 = time.time()
-RV = 3   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
+RV = 4   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
 H = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
      'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9', 'Referer': 'https://www.nseindia.com/'}
 OP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -60,10 +60,12 @@ IDIAG = {'parsed': 0, 'fail': 0, 'noFii': 0, 'members': [], 'errs': []}
 _CTX = re.compile(r'<(?:\w+:)?context\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</(?:\w+:)?context>', re.S)
 _MEM = re.compile(r'explicitMember[^>]*>\s*([^<\s]+)\s*<')
 _PCT = re.compile(r'<[\w-]+:ShareholdingAsAPercentageOfTotalNumberOfShares\b[^>]*contextRef="([^"]+)"[^>]*>\s*([-0-9.Ee]+)\s*<')
-FII_TOTAL = re.compile(r'(InstitutionsForeign|ForeignInstitutions?)Member$', re.I)
-FPI_TOTAL = re.compile(r'ForeignPortfolioInvestors?Member$', re.I)
-FPI_PART = re.compile(r'ForeignPortfolioInvestors?Cat\w*Member$|ForeignInstitutionalInvestors?Member$', re.I)   # "Catergory" typo exists in filings
-DII_TOTAL = re.compile(r'(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
+# exact category names (anchored): "OtherInstitutionsForeignMember" / "OtherInstitutionsDomesticMember" are small sub-rows,
+# not the totals — matching them gave Reliance / TCS a false FII of 0 (checked against Screener, 9 Nov 2026)
+FII_TOTAL = re.compile(r'^(InstitutionsForeign|ForeignInstitutions?)Member$', re.I)
+FPI_TOTAL = re.compile(r'^(Institutions)?ForeignPortfolioInvestors?Member$', re.I)
+FPI_PART = re.compile(r'^(Institutions)?ForeignPortfolioInvestors?Cat\w*Member$|^ForeignInstitutionalInvestors?Member$', re.I)   # "Catergory" typo exists in filings
+DII_TOTAL = re.compile(r'^(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
 DIAG_SYMS = ('RELIANCE.NS', 'LT.NS', 'SUZLON.NS', 'TCS.NS', 'BEL.NS')   # dump their foreign/institution figures for checking
 def shp_inst(url, sym=''):
     """-> (fii %, dii %) from one shareholding-pattern XBRL (None where not found)."""
