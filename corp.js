@@ -14,6 +14,7 @@ async function corpLoad(d, k, R, A) {
   el.innerHTML = corpHTML(d, k, R, x || {});
   const fl = document.getElementById('falinks'); if (fl && x) fl.innerHTML = fullAnalysisLinks(d, { ...(x.links || {}), code: x.code });
   corpBind(el, d, k, R, x); autoGloss(el);
+  if (typeof swotUpdate === 'function') swotUpdate(d, x);
   if (typeof autoUpdate === 'function') autoUpdate(d, k, A, R, x || {});
 }
 function corpBind(el, d, k, R, x) {
