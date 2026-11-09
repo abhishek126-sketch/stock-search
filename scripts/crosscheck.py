@@ -59,6 +59,11 @@ def nse_index(op, ix):
     raise RuntimeError('%s HTTP %s%s' % (ix, st, ' -> ' + info['to'] if 'to' in info else ''))
 
 try:
+    # Off by default: on 9 Nov 2026 NSE's bot protection refused GitHub's servers (home 403, API 404 page, only
+    # anti-bot cookies issued), so every attempt failed. The official end-of-day bhavcopy check below still runs.
+    # Set NSE_LIVE=1 (workflow env) to try the live API again.
+    if os.environ.get('NSE_LIVE', '').strip() != '1':
+        raise RuntimeError('live check off - NSE blocks cloud servers (set NSE_LIVE=1 to retry)')
     op = nse_session()
     n, errs = 0, []
     # each index is tried on its own, so one renamed/blocked index no longer throws away the others
@@ -80,8 +85,8 @@ try:
 except Exception as e:
     nse = {'mode': 'failed', 'liveErr': str(e)[:160]}
     print('NSE live API unavailable:', str(e)[:160], '-> bhavcopy fallback')
-nse['diag'] = DIAG
-print('NSE diag', json.dumps(DIAG))
+if DIAG:
+    nse['diag'] = DIAG; print('NSE diag', json.dumps(DIAG))
 if nse['mode'] != 'live':
     for back in range(0, 8):
         day = dt.datetime.now(IST).date() - dt.timedelta(days=back)
