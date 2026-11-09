@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from build_data import surveillance, SURV, _latest
 OUT = os.environ.get('DATA_DIR') or os.path.join(os.path.dirname(__file__), '..', 'data'); XD = os.path.join(OUT, 'x'); CD = os.path.join(OUT, 'corp')
 MAXSEC = int(os.environ.get('MAXSEC', '1500')); STALE = 20 * 3600; T0 = time.time()
-RV = 4   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
+RV = 5   # reader version: bump when the pledge / FII parsing changes, so every company is re-read on the next run
 H = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
      'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9', 'Referer': 'https://www.nseindia.com/'}
 OP = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -66,6 +66,7 @@ FII_TOTAL = re.compile(r'^(InstitutionsForeign|ForeignInstitutions?)Member$', re
 FPI_TOTAL = re.compile(r'^(Institutions)?ForeignPortfolioInvestors?Member$', re.I)
 FPI_PART = re.compile(r'^(Institutions)?ForeignPortfolioInvestors?Cat\w*Member$|^ForeignInstitutionalInvestors?Member$', re.I)   # "Catergory" typo exists in filings
 DII_TOTAL = re.compile(r'^(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
+DEPOSITORY = re.compile(r'^(Institutions)?OverseasDepositor(y|ies)Member$', re.I)
 DIAG_SYMS = ('RELIANCE.NS', 'LT.NS', 'SUZLON.NS', 'TCS.NS', 'BEL.NS')   # dump their foreign/institution figures for checking
 def shp_inst(url, sym=''):
     """-> (fii %, dii %) from one shareholding-pattern XBRL (None where not found)."""
@@ -105,6 +106,9 @@ def shp_inst(url, sym=''):
                 if re.search(r'foreign|institution|portfolio|fii|fpi', k, re.I) and k not in IDIAG['members']: IDIAG['members'].append(k)
     pick = lambda rx: [v for k, v in vals.items() if rx.search(k)] or [v for k, v in valsM.items() if rx.search(k)]
     f = pick(FII_TOTAL) or pick(FPI_TOTAL) or ([sum(pick(FPI_PART))] if pick(FPI_PART) else [])
+    # ADR/GDR holders ("Overseas Depositories") sit inside the foreign-institutions total; Screener leaves them out
+    # (ICICIBANK Sep 2026: 50.44 total - 15.76 ADR = 34.68 = Screener), so do the same
+    if f and pick(FII_TOTAL): f = [max(0.0, f[0] - sum(pick(DEPOSITORY)))]
     dii = pick(DII_TOTAL)
     # 0% only when the filing has no foreign category at all; otherwise leave it unknown rather than show a false 0
     if not f and dii and not any(re.search(r'foreign|portfolio', k, re.I) for k in list(vals) + list(valsM)): f = [0.0]
