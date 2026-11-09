@@ -2,7 +2,7 @@
 const qs = new URLSearchParams(location.search);
 const DATA = qs.get('data') || 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/data/data/';
 const $ = s => document.querySelector(s);
-const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => localStorage.setItem(k, JSON.stringify(v)) };
+const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn('storage full/blocked', k, e); } } };
 let INDEX = [], CUR = null, RANGE = '1Y', SHOW_DMA = true;
 const NA = '<span class="mut">not available</span>';
 const isNum = v => typeof v === 'number' && isFinite(v);

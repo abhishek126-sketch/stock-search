@@ -2,7 +2,8 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Stock Search – India & US</title>
-<meta name="theme-color" content="#0f766e"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg"><link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#0f766e"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="icon" href="icon-192.png" type="image/png" sizes="192x192"><link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Stock Search"><meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
 :root{--bg:#f1f5f9;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e2e8f0;--pri:#0f766e;--up:#15803d;--dn:#b91c1c;--warn:#b45309}
 *{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
@@ -57,9 +58,15 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 #homeBtn{font-size:18px;padding:4px 10px;margin-right:6px}header{position:sticky;top:0;z-index:50}
 .fullan{margin-top:10px;padding:10px 12px;border:2px solid #2563eb;border-radius:10px;background:#eff6ff}.fullan h3{margin:0 0 6px;font-size:16px}.fullan .links{display:flex;flex-wrap:wrap;gap:8px}.btn.fa{display:inline-flex;flex-direction:column;align-items:flex-start;text-decoration:none;padding:6px 12px;min-width:120px}.btn.fa small{font-weight:400;opacity:.75;font-size:11px}
 #autox h3{font-size:15px;margin:12px 0 4px}#autox p{margin:0 0 6px;line-height:1.5}
+/* phones: respect notch / home-bar safe areas, keep the header on one row, no sideways page scroll */
+header{padding-top:max(10px,env(safe-area-inset-top));padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+main{padding-bottom:max(12px,env(safe-area-inset-bottom))}html,body{overflow-x:hidden}
+#instBtn{display:none}
+@media(max-width:520px){header{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}.hrow{gap:5px}header h1{font-size:16px;overflow:hidden;text-overflow:ellipsis}header button{padding:7px 8px}#homeBtn{margin-right:0}.bl{display:none}.px{font-size:26px}main{padding:10px 8px}.card{padding:12px}#live{padding:0 8px}.scen{gap:5px}.sc{padding:8px 4px}}
+@media(max-width:340px){header h1{font-size:0}header h1::before{content:"📈";font-size:18px}}
 </style></head>
 <body>
-<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts" onclick="showAlerts()">🔔</button><button id="setBtn">⚙ Settings</button></div>
+<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts" onclick="showAlerts()">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
 <div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
 <div id="live"><span class="st">Checking for updates…</span><span><button id="refBtn" class="btn sec">↻ Refresh</button> <button id="updBtn" class="btn">⚡ Update now</button></span></div>
 <main>
@@ -90,5 +97,18 @@ ul.news li{margin:6px 0}h3{font-size:14px;margin:12px 0 4px}
 <p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
 <script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="alerts.js"></script><script src="moat.js"></script><script src="etf.js"></script><script src="glossary2.js"></script><script src="corp.js"></script><script src="auto.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-<script>(()=>{const h=document.querySelector('header'),f=()=>document.documentElement.style.setProperty('--hh',h.getBoundingClientRect().height+'px');f();addEventListener('resize',f);window.ResizeObserver&&new ResizeObserver(f).observe(h);})();</script><script>[homeBtn,logo].forEach(b=>b.onclick=()=>goHome());logo.onkeydown=e=>e.key==="Enter"&&goHome();</script><script>if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');</script>
+<script>(()=>{const h=document.querySelector('header'),f=()=>document.documentElement.style.setProperty('--hh',h.getBoundingClientRect().height+'px');f();addEventListener('resize',f);window.ResizeObserver&&new ResizeObserver(f).observe(h);})();</script><script>[homeBtn,logo].forEach(b=>b.onclick=()=>goHome());logo.onkeydown=e=>e.key==="Enter"&&goHome();</script><script>
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(r=>{
+  // when a new version is deployed, reload once so the fresh code is used (instead of waiting for the next launch)
+  const had=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had&&!window._swReloaded){window._swReloaded=true;location.reload();}});
+  setInterval(()=>r.update().catch(()=>{}),30*60e3);
+}).catch(()=>{});
+// "Install" button: shown when the browser offers app install (Chrome / Edge on PC and Android)
+(()=>{let ev=null;const b=document.getElementById('instBtn');
+  addEventListener('beforeinstallprompt',e=>{e.preventDefault();ev=e;b.style.display='inline-block';});
+  addEventListener('appinstalled',()=>{b.style.display='none';ev=null;});
+  b.onclick=async()=>{if(!ev)return;ev.prompt();try{await ev.userChoice;}catch{}ev=null;b.style.display='none';};
+})();
+</script>
 </body></html>

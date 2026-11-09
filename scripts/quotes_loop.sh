@@ -9,7 +9,8 @@ START=$(date +%s)
 towin() { local dow=$(date -u +%u) m=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
   [ "$dow" -gt 5 ] && { echo 9999; return; }
   if [ $m -lt 225 ]; then echo $((225 - m)); elif [ $m -lt 605 ]; then echo 0; elif [ $m -lt 810 ]; then echo $((810 - m)); elif [ $m -lt 1265 ]; then echo 0; else echo 9999; fi; }
-WAITMAX=${WAITMAX:-150}  # GitHub often starts scheduled runs late or drops them: an early run waits for the open instead of exiting
+WAITMAX=${WAITMAX:-270}  # GitHub often starts scheduled runs late or drops them: an early run waits for the open instead of exiting
+# (was 150: on 9 Nov 2026 the 06:28 IST run was 167 min before the open, exited, and every later cron was dropped -> no quotes all session)
 inwin() { local dow=$(date -u +%u) m=$((10#$(date -u +%H) * 60 + 10#$(date -u +%M)))
   [ "$dow" -le 5 ] && { { [ $m -ge 225 ] && [ $m -lt 605 ]; } || { [ $m -ge 810 ] && [ $m -lt 1265 ]; }; }; }
 once() {

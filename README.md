@@ -8,6 +8,12 @@ with QoQ/YoY growth, and an automated rule-based "Expert analysis" scorecard. Mi
 
 **Educational tool only — not personal investment advice.**
 
+## Install (PC / Android / iPhone)
+* **PC (Edge/Chrome) and Android (Chrome):** open the live URL → tap **⬇ Install** in the header (or browser menu → *Install app*).
+* **iPhone/iPad:** open in Safari → Share → **Add to Home Screen**.
+* PNG icons (192, 512, maskable 512, 180 apple-touch) are included so the home-screen icon looks right on every platform.
+* Settings (watchlist, API keys, token) are stored per browser; re-enter them once on each new device.
+
 ## How data works (no keys, no secrets)
 * Browsers cannot call Yahoo Finance directly (no CORS headers) and free public CORS proxies proved unreliable.
 * So a GitHub Action (`.github/workflows/data.yml`, `scripts/build_data.py`) fetches Yahoo Finance's public chart and

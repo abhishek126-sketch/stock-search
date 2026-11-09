@@ -51,10 +51,20 @@ function renderCheck() {
   ${mm.length ? `<details><summary class="mut">Show the ${mm.length} stocks that differ</summary><div class="tw"><table class="pt"><tr><th>Stock</th><th>Checked against</th><th>Their price</th><th>Gap vs Yahoo</th></tr>${mm.map(row).join('')}</table></div></details>` : ''}`;
   el.querySelectorAll('[data-s]').forEach(r => r.onclick = () => openSym(r.dataset.s));
 }
+// is a market session open right now? India 09:15–15:30 IST, US ≈ 19:00–02:30 IST (Mon–Fri; exchange holidays not known)
+function marketOpen() {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map(x => [x.type, x.value]));
+  const m = +p.hour * 60 + +p.minute, wd = p.weekday, wk = !['Sat', 'Sun'].includes(wd);
+  if (wk && m >= 555 && m <= 930) return 'India';
+  if ((wk && m >= 1140) || (m <= 150 && !['Sun', 'Mon'].includes(wd))) return 'US';
+  return '';
+}
 function setStatus(extra) {
   const el = $('#live'); if (!el) return;
   const ts = META ? Math.max(META.quotes || 0, META.full || 0) : (QUOTES && QUOTES.built);
-  el.querySelector('.st').innerHTML = (ts ? `Updated <b>${tIST(ts)} IST</b>` : 'Update time n/a') + ` · checking every minute${extra ? ' · ' + extra : ''}`;
+  const qt = META ? META.quotes : (QUOTES && QUOTES.built), mk = marketOpen(), age = qt ? Math.round((Date.now() / 1000 - qt) / 60) : 0;
+  const stale = mk && age > 25 ? ` · <span style="color:var(--warn)">⚠ ${mk} market is open but prices are ${age >= 120 ? Math.round(age / 60) + ' h' : age + ' min'} old — tap ⚡ Update now</span>` : '';
+  el.querySelector('.st').innerHTML = (ts ? `Updated <b>${tIST(ts)} IST</b>` : 'Update time n/a') + ` · checking every minute${stale}${extra ? ' · ' + extra : ''}`;
 }
 async function checkMeta(manual) {
   if (LIVE_BUSY) return; LIVE_BUSY = true;

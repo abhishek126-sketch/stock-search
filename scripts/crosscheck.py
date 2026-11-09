@@ -24,14 +24,20 @@ try:
     op.addheaders = [('User-Agent', UA), ('Accept', 'application/json, text/plain, */*'), ('Accept-Language', 'en-US,en;q=0.9'), ('Referer', 'https://www.nseindia.com/market-data/live-equity-market')]
     try: op.open('https://www.nseindia.com/', timeout=12).read()
     except Exception as e: print('nse home', e)
-    n = 0
+    n, errs = 0, []
+    # each index is tried on its own, so one renamed/blocked index no longer throws away the others
     for ix in ('NIFTY 500', 'NIFTY MICROCAP 250'):
-        d = json.loads(op.open('https://www.nseindia.com/api/equity-stockIndices?index=' + urllib.parse.quote(ix), timeout=15).read())
+        try:
+            d = json.loads(op.open('https://www.nseindia.com/api/equity-stockIndices?index=' + urllib.parse.quote(ix), timeout=15).read())
+        except Exception as e:
+            errs.append('%s: %s' % (ix, str(e)[:60])); continue
         for r in d.get('data', []):
             s = (r.get('symbol') or '') + '.NS'; y = Q.get(s)
             if r.get('priority') or not r.get('lastPrice') or not y: continue
             put(s, 'NSE', float(r['lastPrice']), float(r.get('previousClose') or 0) or None, now, 'live', y[0]); n += 1
+    if not n: raise RuntimeError('; '.join(errs) or 'no rows')
     nse = {'mode': 'live', 'n': n}
+    if errs: nse['partialErr'] = '; '.join(errs)[:120]
 except Exception as e:
     nse = {'mode': 'failed', 'liveErr': str(e)[:120]}
     print('NSE live API unavailable:', str(e)[:120], '-> bhavcopy fallback')
