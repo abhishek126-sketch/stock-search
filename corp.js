@@ -25,7 +25,7 @@ function corpHTML(d, k, R, x) {
   const L = [], add = (st, t, why) => L.push({ st, t, why }), ic = { ok: '✅', warn: '⚠️', na: '▫️' };
   // 1 promoter pledge
   const pl = x.pledge;
-  if (pl && !pl.none && isNum(pl.pp)) add(pl.pp > 5 ? 'warn' : 'ok', 'Promoter pledge', `${pl.pp.toFixed(1)}% of promoter shares pledged (${pl.pt.toFixed(2)}% of all shares), as of ${esc(pl.shp || '')} · NSE disclosure. Warning if above 5%; above 25% is serious.`);
+  if (pl && !pl.none && isNum(pl.pp)) add(pl.pp > 5 ? 'warn' : 'ok', 'Promoter pledge', `${pl.pp.toFixed(1)}% of promoter shares pledged (${pl.pt.toFixed(2)}% of all shares), as of ${esc(pl.shp || '')} · ${pl.src === 'shp' ? 'shareholding-pattern filing' : 'NSE disclosure'}. Warning if above 5%; above 25% is serious.`);
   else if (pl && pl.none && pledgeSuspect()) add('na', 'Promoter pledge', '<span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> — NSE returned no pledge data for any company in the latest update, so "no pledge" can\'t be trusted right now. Check NSE\'s pledge disclosures.');
   else if (pl && pl.none) add('ok', 'Promoter pledge', 'no pledge disclosure on NSE (usually means no promoter shares pledged).');
   else if (pl && pl.unk) add('na', 'Promoter pledge', 'NSE\'s pledge data could not be read in the latest update.');
@@ -103,7 +103,7 @@ function promoterHTML(d, x) {
   if (bse) pledge = `<p><b>Pledge${cpq('pledge')}:</b> <span class="mut">not available for BSE-only stocks (BSE's pledge disclosures can't be downloaded automatically) — check BSE.</span></p>`;
   else if (pl && isNum(pl.pp)) { const col = pl.pp > 25 ? '#b91c1c' : pl.pp > 5 ? '#b45309' : '#15803d';
     pledge = `<div class="kv" style="margin-top:8px"><div><span>Promoter shares pledged${cpq('pledge')}</span><b style="font-size:20px;color:${col}">${pl.pp.toFixed(2)}%${pl.pp > 5 ? ' ⚠' : ''}</b></div><div><span>Pledged, % of all shares</span><b>${pl.pt.toFixed(2)}%</b></div><div><span>As of</span><b>${esc(pl.shp || '') || NA}</b></div></div>
-      <p class="mut">${pl.pp > 25 ? '<b class="dn">Above 25% is serious</b> — if the share price falls, lenders can sell pledged shares, which can push the price down further.' : pl.pp > 5 ? 'Above 5% is worth watching.' : 'Low pledge.'} Source: NSE pledge disclosure.</p>`; }
+      <p class="mut">${pl.pp > 25 ? '<b class="dn">Above 25% is serious</b> — if the share price falls, lenders can sell pledged shares, which can push the price down further.' : pl.pp > 5 ? 'Above 5% is worth watching.' : 'Low pledge.'} Source: ${pl.src === 'shp' ? "the company's own shareholding-pattern filing on NSE (it is not in NSE's pledge list)" : 'NSE pledge disclosure'}.</p>`; }
   else if (pl && pl.none) pledge = pledgeSuspect()
     ? `<p><b>Pledge${cpq('pledge')}:</b> <span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> <span class="mut">— NSE returned no pledge data for <i>any</i> company in the latest update, which looks like a data problem, so "no pledge" can't be trusted. Check NSE's pledge disclosures.</span></p>`
     : `<p><b>Pledge${cpq('pledge')}:</b> <span class="up">none disclosed</span> <span class="mut">— no promoter pledge disclosure on NSE.</span></p>`;

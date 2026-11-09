@@ -67,23 +67,32 @@ FPI_TOTAL = re.compile(r'^(Institutions)?ForeignPortfolioInvestors?Member$', re.
 FPI_PART = re.compile(r'^(Institutions)?ForeignPortfolioInvestors?Cat\w*Member$|^ForeignInstitutionalInvestors?Member$', re.I)   # "Catergory" typo exists in filings
 DII_TOTAL = re.compile(r'^(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
 DEPOSITORY = re.compile(r'^(Institutions)?OverseasDepositor(y|ies)Member$', re.I)
-DIAG_SYMS = ('RELIANCE.NS', 'LT.NS', 'SUZLON.NS', 'TCS.NS', 'BEL.NS')   # dump their foreign/institution figures for checking
-def shp_inst(url, sym=''):
-    """-> (fii %, dii %) from one shareholding-pattern XBRL (None where not found)."""
-    x = get(url, tries=2, hdr={**H, 'Accept': '*/*'}).decode('utf-8', 'ignore')
-    if sym in DIAG_SYMS:
-        with LK:
-            dd = IDIAG.setdefault('dump', {}).setdefault(sym, {})
-            if not dd:
-                tags = sorted(set(re.findall(r'<([\w-]+:\w*[Ss]hareholding\w*)\b', x)))[:15]
-                rows = []
-                for cid, body in _CTX.findall(x):
-                    mem = [s.split(':')[-1] for s in _MEM.findall(body)]
-                    if any(re.search(r'foreign|portfolio|institution', m_, re.I) for m_ in mem):
-                        vals_ = re.findall(r'<([\w-]+:\w+)\b[^>]*contextRef="%s"[^>]*>\s*([-0-9.Ee]+)\s*<' % re.escape(cid), x)
-                        pct = [v for t, v in vals_ if 'Percentage' in t]
-                        rows.append('/'.join(mem)[:110] + ('|typed' if 'typedMember' in body else '') + ' = ' + ','.join(pct[:3]))
-                dd.update({'url': url[-60:], 'tags': tags, 'rows': rows[:40]})
+def shp_text(url):
+    return get(url, tries=2, hdr={**H, 'Accept': '*/*'}).decode('utf-8', 'ignore')
+_CNT = r'<[\w-]+:%s\b[^>]*contextRef="([^"]+)"[^>]*>\s*([-0-9.Ee]+)\s*<'
+def shp_pledge(x, q):
+    """Promoter pledge from the shareholding-pattern XBRL itself — fallback for companies missing from NSE's pledge list
+    (SME board, e.g. DIGIKORE Sep 2026: 50.09% of promoter shares). Share counts, so no fraction/percent ambiguity.
+    Checked: ADANIENT Sep 2026 gives 0.79 / 0.57 / 71.97, the same as NSE's pledge list. -> dict like pledge_parse, or None"""
+    ctx = {}
+    for cid, body in _CTX.findall(x):
+        if 'typedMember' in body: continue
+        m = [s.split(':')[-1] for s in _MEM.findall(body)]
+        if len(m) == 1: ctx[cid] = m[0]
+    def cnt(tag, mem):
+        for cid, v in re.findall(_CNT % tag, x):
+            if ctx.get(cid) == mem:
+                try: return float(v)
+                except ValueError: pass
+        return None
+    tot, prom = cnt('NumberOfShares', 'ShareholdingPatternMember'), cnt('NumberOfShares', 'ShareholdingOfPromoterAndPromoterGroupMember')
+    if not tot or prom is None: return None
+    pl = cnt('NumberOfSharesEncumberedUnderPledged', 'ShareholdingOfPromoterAndPromoterGroupMember') or 0.0
+    try: shp = time.strftime('%d-%b-%Y', time.strptime(q, '%Y-%m-%d'))
+    except ValueError: shp = q
+    return {'pp': round(100 * pl / prom, 2) if prom else 0.0, 'pt': round(100 * pl / tot, 2), 'ph': round(100 * prom / tot, 2), 'shp': shp, 'bd': '', 'src': 'shp'}
+def shp_inst(x):
+    """-> (fii %, dii %) from one shareholding-pattern XBRL text (None where not found)."""
     ctx = {}
     for cid, body in _CTX.findall(x):
         if 'typedMember' in body: continue                       # individual shareholder rows
@@ -229,7 +238,7 @@ def main():
     prev = {s: ld(os.path.join(XD, s + '.json'), {}) for s in syms}
     # due = not refreshed for STALE hours, or never read with the FII/pledge reader yet (no 'inst' key) — new fields fill in at once
     due = lambda s: time.time() - prev[s].get('t', 0) > STALE or prev[s].get('rv') != RV
-    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: (s not in DIAG_SYMS, prev[s].get('rv') == RV, prev[s].get('t', 0)))
+    todo = sorted([s for s in syms if s.endswith('.NS') and due(s)], key=lambda s: (prev[s].get('rv') == RV, prev[s].get('t', 0)))
     print('NSE due', len(todo))
     frm, to = time.strftime('%d-%m-%Y', time.gmtime(time.time() - 365 * 86400)), time.strftime('%d-%m-%Y', time.gmtime(time.time() + 19800))
     done = []
@@ -256,7 +265,7 @@ def main():
             d['ann'] = keep_ann(items)
             d['annN'] = len(items); d['aud'] = aud[:3]; d['audBad'] = any(aud_bad(x['t']) for x in aud)
         if sh is not None:
-            pts, xb = {}, {}
+            pts, xb, xlast = {}, {}, None
             for r in sh:
                 try: pts[dt(r['date'])] = float(r['pr_and_prgrp'])
                 except Exception: pass
@@ -269,7 +278,8 @@ def main():
             for q in need:
                 if time.time() - T0 > MAXSEC: break
                 try:
-                    fv, dv = shp_inst(xb[q], s); have[q] = [q, fv, dv]
+                    xt = shp_text(xb[q]); fv, dv = shp_inst(xt); have[q] = [q, fv, dv]
+                    if q == max(xb): xlast = xt
                     with LK: IDIAG['parsed'] += 1; IDIAG['noFii'] += fv is None
                 except Exception as e:
                     with LK:
@@ -280,6 +290,19 @@ def main():
             try: d['pledge'] = pledge_parse(pl)
             except Exception: d['pledge'] = {'unk': 1}
         elif 'pledge' not in d: d['pledge'] = {'unk': 1}
+        # not in NSE's pledge list (or unreadable) -> read the pledge from the latest shareholding-pattern filing,
+        # once per new quarter (kept in 'plx' = [quarter, pledge], so later runs need no extra download)
+        p0 = d.get('pledge') or {}
+        if sh is not None and xb and (p0.get('none') or p0.get('unk') or p0.get('src') == 'shp'):
+            ql = max(xb)
+            if (d.get('plx') or [None])[0] != ql and time.time() - T0 < MAXSEC:
+                try:
+                    pv = shp_pledge(xlast or shp_text(xb[ql]), ql)
+                    if pv: d['plx'] = [ql, pv]
+                    with LK: PDIAG['shp'] = PDIAG.get('shp', 0) + 1; PDIAG['shpPledged'] = PDIAG.get('shpPledged', 0) + bool(pv and pv['pp'] > 0)
+                except Exception as e:
+                    with LK: PDIAG['shpErr'] = PDIAG.get('shpErr', 0) + 1
+            if (d.get('plx') or [None])[0] == ql: d['pledge'] = d['plx'][1]
         prev[s] = d
         with LK: done.append(s)
     with cf.ThreadPoolExecutor(3) as ex: list(ex.map(one, todo))
