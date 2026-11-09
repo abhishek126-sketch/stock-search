@@ -50,6 +50,42 @@ def pledge_parse(pl):
     pt, ph = _num(r.get('percSharesPledged')), _num(r.get('percPromoterHolding'))
     if tp is None and npl is None and pt is None: return {'unk': 1}
     return {'pp': round(100 * npl / tp, 2) if tp and npl is not None else (0.0 if npl == 0 else None), 'pt': pt or 0.0, 'ph': ph or 0.0, 'shp': r.get('shp'), 'bd': dt(r.get('broadcastDt') or '')}
+# ---- FII / DII holding from the quarterly shareholding-pattern XBRL (link in NSE's shareholding list, file on nsearchives)
+IDIAG = {'parsed': 0, 'fail': 0, 'noFii': 0, 'members': [], 'errs': []}
+_CTX = re.compile(r'<(?:\w+:)?context\b[^>]*\bid="([^"]+)"[^>]*>(.*?)</(?:\w+:)?context>', re.S)
+_MEM = re.compile(r'explicitMember[^>]*>\s*([^<\s]+)\s*<')
+_PCT = re.compile(r'<[\w-]+:ShareholdingAsAPercentageOfTotalNumberOfShares\b[^>]*contextRef="([^"]+)"[^>]*>\s*([-0-9.Ee]+)\s*<')
+FII_TOTAL = re.compile(r'(InstitutionsForeign|ForeignInstitutions?)Member$', re.I)
+FPI_TOTAL = re.compile(r'ForeignPortfolioInvestors?Member$', re.I)
+FPI_PART = re.compile(r'ForeignPortfolioInvestors?Category\w*Member$|ForeignInstitutionalInvestors?Member$', re.I)
+DII_TOTAL = re.compile(r'(InstitutionsDomestic|DomesticInstitutions?)Member$', re.I)
+def shp_inst(url):
+    """-> (fii %, dii %) from one shareholding-pattern XBRL (None where not found)."""
+    x = get(url, tries=2, hdr={**H, 'Accept': '*/*'}).decode('utf-8', 'ignore')
+    ctx = {}
+    for cid, body in _CTX.findall(x):
+        if 'typedMember' in body: continue                       # individual shareholder rows
+        m = [s.split(':')[-1] for s in _MEM.findall(body)]
+        if m: ctx[cid] = m
+    vals, valsM = {}, {}                                         # single-category contexts first; multi-member as fallback
+    for cid, v in _PCT.findall(x):
+        if cid not in ctx: continue
+        try: fv = float(v)
+        except ValueError: continue
+        if len(ctx[cid]) == 1: vals.setdefault(ctx[cid][0], fv)
+        else:
+            for m_ in ctx[cid]: valsM.setdefault(m_, fv)
+    if not vals and not valsM: raise ValueError('no shareholding % facts')
+    allv = list(vals.values()) or list(valsM.values())
+    scale = 100.0 if max(allv) <= 1.0001 else 1.0               # filings store either fractions or percentages
+    with LK:
+        if len(IDIAG['members']) < 60:
+            for k in list(vals) + ['(multi) ' + k for k in valsM if k not in vals]:
+                if re.search(r'foreign|institution|portfolio|fii|fpi', k, re.I) and k not in IDIAG['members']: IDIAG['members'].append(k)
+    pick = lambda rx: [v for k, v in vals.items() if rx.search(k)] or [v for k, v in valsM.items() if rx.search(k)]
+    f = pick(FII_TOTAL) or pick(FPI_TOTAL) or ([sum(pick(FPI_PART))] if pick(FPI_PART) else [])
+    dii = pick(DII_TOTAL)
+    return (round(f[0] * scale, 2) if f else None, round(dii[0] * scale, 2) if dii else None)
 def ld(p, dflt):
     try: return json.load(open(p))
     except Exception: return dflt
@@ -188,11 +224,26 @@ def main():
             d['ann'] = keep_ann(items)
             d['annN'] = len(items); d['aud'] = aud[:3]; d['audBad'] = any(aud_bad(x['t']) for x in aud)
         if sh is not None:
-            pts = {}
+            pts, xb = {}, {}
             for r in sh:
                 try: pts[dt(r['date'])] = float(r['pr_and_prgrp'])
                 except Exception: pass
+                u = (r.get('xbrl') or '').strip() if isinstance(r, dict) else ''
+                if u.startswith('http') and dt(r.get('date') or ''): xb[dt(r['date'])] = u
             d['prom'] = sorted(pts.items())[-8:]
+            # FII / DII: newest 5 quarters; at most 2 new XBRL files per stock per run (fills in over a few runs)
+            have = {q[0]: q for q in (d.get('inst') or [])}
+            need = [q for q in sorted(xb)[-5:] if q not in have][-2:]
+            for q in need:
+                if time.time() - T0 > MAXSEC: break
+                try:
+                    fv, dv = shp_inst(xb[q]); have[q] = [q, fv, dv]
+                    with LK: IDIAG['parsed'] += 1; IDIAG['noFii'] += fv is None
+                except Exception as e:
+                    with LK:
+                        IDIAG['fail'] += 1
+                        if len(IDIAG['errs']) < 5: IDIAG['errs'].append(str(e)[:80])
+            d['inst'] = sorted(have.values())[-5:]
         if pl is not None:
             try: d['pledge'] = pledge_parse(pl)
             except Exception: d['pledge'] = {'unk': 1}
@@ -216,6 +267,7 @@ def main():
         d['dealsSince'] = dst['since']; d['links'] = LKS.get(s) or {}
         json.dump(d, open(os.path.join(XD, s + '.json'), 'w'), separators=(',', ':'))
         n['files'] += 1; n['ann'] += bool(d.get('ann')); n['deals'] += bool(d['deals']); n['prom'] += bool(d.get('prom')); n['pledge'] += bool(d.get('pledge') and isinstance(d['pledge'].get('pp'), (int, float)) and d['pledge']['pp'] > 0); n['pledgeNone'] = n.get('pledgeNone', 0) + bool(d.get('pledge') and d['pledge'].get('none')); n['pledgeUnk'] = n.get('pledgeUnk', 0) + bool(d.get('pledge') and d['pledge'].get('unk')); n['surv'] += bool(d['surv'])
-    cov = {'built': int(time.time()), **n, 'nseFresh': sum(1 for s in syms if s.endswith('.NS') and time.time() - prev[s].get('t', 0) < 2 * 86400), 'nse': sum(1 for s in syms if s.endswith('.NS')), 'bse': sum(1 for s in syms if s.endswith('.BO')), 'elapsed': int(time.time() - T0), 'pledgeDiag': PDIAG}
+    cov = {'built': int(time.time()), **n, 'nseFresh': sum(1 for s in syms if s.endswith('.NS') and time.time() - prev[s].get('t', 0) < 2 * 86400), 'nse': sum(1 for s in syms if s.endswith('.NS')), 'bse': sum(1 for s in syms if s.endswith('.BO')), 'elapsed': int(time.time() - T0), 'pledgeDiag': PDIAG, 'instDiag': IDIAG,
+           'fii': sum(1 for s in syms if any(q[1] is not None for q in (prev[s].get('inst') or [])))}
     json.dump(cov, open(os.path.join(CD, 'coverage.json'), 'w')); print('coverage', cov)
 if __name__ == '__main__': main()

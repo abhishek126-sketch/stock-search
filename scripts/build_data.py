@@ -338,6 +338,12 @@ def promoter_fields(s, pr):
     elif pl.get('none'): o['plz'] = 1
     else: o['plu'] = 1
     if 'pro' not in o and isinstance(pr.get('insiders'), (int, float)): o['proY'] = round(pr['insiders'] * 100, 2)
+    # FII / DII from the shareholding-pattern XBRL: fii = latest %, fiiCh = change vs the earliest of up to 5 quarters (~1 year), fiiN = quarters
+    for key, i in (('fii', 1), ('dii', 2)):
+        q = [r for r in (x.get('inst') or []) if len(r) > i and isinstance(r[i], (int, float))]
+        if q:
+            o[key] = round(q[-1][i], 2); o[key + 'Q'] = q[-1][0]
+            if len(q) >= 2: o[key + 'Ch'] = round(q[-1][i] - q[0][i], 2); o[key + 'N'] = len(q)
     return o
 
 def metrics(d):

@@ -107,8 +107,20 @@ function promoterHTML(d, x) {
     ? `<p><b>Pledge:</b> <span class="doubt" title="NSE returned no pledge data for any company in the latest update">uncertain ⚠</span> <span class="mut">— NSE returned no pledge data for <i>any</i> company in the latest update, which looks like a data problem, so "no pledge" can't be trusted. Check NSE's pledge disclosures.</span></p>`
     : `<p><b>Pledge:</b> <span class="up">none disclosed</span> <span class="mut">— no promoter pledge disclosure on NSE.</span></p>`;
   else pledge = `<p><b>Pledge:</b> <span class="mut">${pl && pl.unk ? "NSE's pledge data couldn't be read in the latest update." : 'not fetched yet.'}</span></p>`;
+  // FII (foreign institutions / FPIs) and DII (domestic institutions) from the quarterly shareholding-pattern filings
+  const inst = (x.inst || []).filter(q => isNum(q[1]) || isNum(q[2]));
+  let fii = '';
+  if (inst.length) {
+    const tr = i => { const v = inst.filter(q => isNum(q[i])); if (v.length < 2) return ''; const c = v[v.length - 1][i] - v[0][i];
+      return ` <span class="${c >= 0.5 ? 'up' : c <= -0.5 ? 'dn' : 'mut'}">${c >= 0.5 ? '▲ increasing' : c <= -0.5 ? '▼ decreasing' : 'flat'} (${c >= 0 ? '+' : ''}${c.toFixed(2)} pts since ${qd(v[0][0])})</span>`; };
+    fii = `<h3>🌍 Institutional holding</h3><div class="tw"><table><tr><th>Quarter</th>${inst.map(q => `<th>${qd(q[0])}</th>`).join('')}</tr>
+      <tr><td>FII / FPI %</td>${inst.map(q => `<td>${isNum(q[1]) ? q[1].toFixed(2) : '–'}</td>`).join('')}</tr>
+      <tr><td>DII %</td>${inst.map(q => `<td>${isNum(q[2]) ? q[2].toFixed(2) : '–'}</td>`).join('')}</tr></table></div>
+      <p style="margin:4px 0"><b>FII:</b>${tr(1) || ' <span class="mut">trend needs 2+ quarters (filling in)</span>'} · <b>DII:</b>${tr(2) || ' <span class="mut">—</span>'}</p>`;
+  } else if (!bse) fii = `<p class="mut"><b>FII / DII holding:</b> not read yet — taken from each quarterly shareholding filing, filling in over the next few days.</p>`;
+  else fii = `<p class="mut"><b>FII / DII holding:</b> not available for BSE-only stocks (BSE's shareholding data can't be downloaded automatically).</p>`;
   const link = bse ? `https://www.bseindia.com/stock-share-price/x/${esc(base)}/${esc(x.code || '')}/` : `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(base)}`;
-  return `<div class="card nogq" id="promoter"><h2>👥 Promoter holding &amp; pledge</h2>${hold}${pledge}
+  return `<div class="card nogq" id="promoter"><h2>👥 Promoter holding, pledge &amp; FIIs</h2>${hold}${pledge}${fii}
     <p class="src">${bse ? 'Yahoo Finance holder data (approximate).' : 'NSE shareholding-pattern and pledge disclosures (quarterly); Yahoo Finance "insiders" shown as a cross-check.'} Promoters are the founders / controlling group. A falling stake or a high pledge is a reason to read the filings, not a verdict. <a href="${link}" target="_blank" rel="noopener">Shareholding on ${bse ? 'BSE' : 'NSE'} ↗</a></p></div>`;
 }
 // ===== Growth plans, orders received / completed, court cases & legal matters (Indian stocks) =====
