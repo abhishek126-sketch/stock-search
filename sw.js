@@ -1,4 +1,4 @@
-const CACHE = 'stock-search-v26';
+const CACHE = 'stock-search-v27';
 const ASSETS = ['./', 'index.html', 'app.js', 'ext.js', 'live.js', 'intraday.js', 'glossary.js', 'report.js', 'alerts.js', 'moat.js', 'etf.js', 'glossary2.js', 'corp.js', 'auto.js', 'score.js', 'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))); self.skipWaiting(); });
 // market-data cache keeps one stable name across app versions, so offline data survives updates
