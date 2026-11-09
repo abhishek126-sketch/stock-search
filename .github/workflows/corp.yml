@@ -7,6 +7,9 @@ on:
     - cron: '15 18 * * *'     # 23:45 IST  catches the rest of the day's BSE filings (BSE feed holds only today)
     - cron: '0 2 * * 1-6'     # 07:30 IST  next batch before market open
   workflow_dispatch:
+  push:                       # run right away when the exchange-data script changes
+    branches: [main]
+    paths: ['scripts/build_corp.py', '.github/workflows/corp.yml']
 permissions:
   contents: write
 concurrency: { group: data-corp, cancel-in-progress: false }
