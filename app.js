@@ -188,7 +188,11 @@ function compute(d) {
   const aNI = last(f.annualNetIncome), aEq = f.annualStockholdersEquity || [], aD = last(f.annualTotalDebt), aE = last(f.annualEBIT), aTA = last(f.annualTotalAssets), aCL = last(f.annualCurrentLiabilities);
   const eqL = last(aEq), eqP = aEq.length > 1 ? aEq[aEq.length - 2] : null;
   if (isNum(ov.roe)) k.roe = ov.roe; else if (aNI && eqL && eqL[1] > 0) k.roe = aNI[1] / (eqP && eqP[1] > 0 ? (eqL[1] + eqP[1]) / 2 : eqL[1]);
-  if (aE && aTA && aCL && aTA[0] === aCL[0] && aTA[1] - aCL[1] > 0) k.roce = aE[1] / (aTA[1] - aCL[1]);
+  if (aE && aTA && aCL && aTA[0] === aCL[0] && aTA[1] - aCL[1] > 0) {
+    // ROCE = EBIT / average capital employed (total assets − current liabilities, this and last year) — same as the refresh script
+    const CLm = Object.fromEntries(f.annualCurrentLiabilities || []), pv = (f.annualTotalAssets || []).filter(x => x[0] < aTA[0] && isNum(CLm[x[0]]) && x[1] - CLm[x[0]] > 0).pop();
+    k.roce = aE[1] / (pv ? (aTA[1] - aCL[1] + pv[1] - CLm[pv[0]]) / 2 : aTA[1] - aCL[1]);
+  }
   if (aD && eqL && eqL[1] > 0 && aD[0] === eqL[0]) k.de = aD[1] / eqL[1];
   if (eqL && eqL[1] <= 0) k.negEquity = true;
   k.fy = aNI ? aNI[0] : undefined;
@@ -363,7 +367,7 @@ function render() {
     <div><span>52-wk high / low</span><b>${isNum(k.hi52) ? Q('hist', fmtP(k.hi52, c) + ' / ' + fmtP(k.lo52, c)) : NA}</b></div>
     <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roe) ? Q('roe', fmtPct(k.roe)) : fmtPct(k.roe)}</b></div>
     <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roce) ? Q('roce', fmtPct(k.roce)) : fmtPct(k.roce)}</b></div>
-    <div><span>Debt / equity</span><b>${k.negEquity ? 'negative equity' : isNum(k.de) ? Q('de', k.de.toFixed(2)) : NA}</b></div>
+    <div><span>Debt / equity</span><b>${typeof isFinD === 'function' && isFinD(d) ? '<span class="mut" title="For banks and lenders, deposits and borrowings are their raw material, so debt/equity is not comparable with other companies">n/m (bank / lender)</span>' : k.negEquity ? 'negative equity' : isNum(k.de) ? Q('de', k.de.toFixed(2)) : NA}</b></div>
     <div><span>50 / 200 DMA</span><b>${isNum(k.dma50) || isNum(k.dma200) ? Q('hist', `${isNum(k.dma50) ? fmtP(k.dma50, c) : NA} / ${isNum(k.dma200) ? fmtP(k.dma200, c) : NA}`) : `${NA} / ${NA}`}</b></div>
     <div><span>RSI (14)</span><b>${isNum(k.rsi) ? k.rsi.toFixed(0) : NA}</b></div>
     <div><span>1-yr return</span><b>${isNum(k.ret1y) ? Q('ret1y', sgnPct(k.ret1y)) : NA}</b></div>

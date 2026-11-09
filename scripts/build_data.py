@@ -361,7 +361,13 @@ def metrics(d):
     eqs = series(f, 'annualStockholdersEquity')
     if ni and eq and eq[1] > 0:
         avg = (eq[1] + eqs[-2][1]) / 2 if len(eqs) > 1 and eqs[-2][1] > 0 else eq[1]; k['roe'] = ni[1] / avg
-    if ebit and ta and cl and ta[0] == cl[0] and ta[1] - cl[1] > 0: k['roce'] = ebit[1] / (ta[1] - cl[1])
+    if ebit and ta and cl and ta[0] == cl[0] and ta[1] - cl[1] > 0:
+        # ROCE = EBIT / average capital employed (total assets - current liabilities, this and last year), as Screener does
+        tas, cls = dict(series(f, 'annualTotalAssets')), dict(series(f, 'annualCurrentLiabilities'))
+        prv = sorted(d_ for d_ in tas if d_ < ta[0] and d_ in cls)
+        ce = ta[1] - cl[1]
+        if prv and tas[prv[-1]] - cls[prv[-1]] > 0: ce = (ce + tas[prv[-1]] - cls[prv[-1]]) / 2
+        k['roce'] = ebit[1] / ce
     if debt and eq and eq[1] > 0 and debt[0] == eq[0]: k['de'] = debt[1] / eq[1]
     k['revG'] = cagr(series(f, 'annualTotalRevenue')); k['niG'] = cagr(series(f, 'annualNetIncome'))
     p1 = price_at(hist, now - 365 * 86400)
