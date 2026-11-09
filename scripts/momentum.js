@@ -101,6 +101,21 @@ function setup(k) {
   return o;
 }
 
+// symbols that pass the cheap tests (sector, ROCE, near 52-week high, volume) — results.js reads their profits first,
+// so the scan fills in within one run instead of waiting for the alphabetical pass over ~2,700 companies
+function candidates() {
+  const out = { pass: [], roce: [] };
+  let S; try { S = JSON.parse(fs.readFileSync(path.join(OUT, 'summary.json'), 'utf8')); } catch { return out; }
+  for (const row of S.rows || []) {
+    if (!/\.NS$/.test(row.s) || String(row.cap || '').startsWith('ETF') || EXCL.test(row.sec || '')) continue;
+    if (!(row.roce > RULES.roce / 100)) continue;
+    let d; try { d = JSON.parse(fs.readFileSync(path.join(OUT, 's', row.s + '.json'), 'utf8')); } catch { continue; }
+    const k = chart(d);
+    (k && k.C > RULES.hi * k.hi52 && k.vol21 > RULES.vol ? out.pass : out.roce).push(row.s.slice(0, -3));
+  }
+  return out;
+}
+
 function main() {
   const sp = path.join(OUT, 'summary.json'), S = JSON.parse(fs.readFileSync(sp, 'utf8'));
   const pass = [], unk = [], cnt = { nse: 0, excl: 0, fund: 0, roce: 0, hi: 0, vol: 0, pass: 0, unknown: 0 };
@@ -155,4 +170,4 @@ function main() {
   console.log('momentum:', JSON.stringify(cnt), '| actionable', pass.filter(p => order[p.t] === 0).length);
 }
 if (require.main === module) main();
-module.exports = { setup, chart, fundamentals };
+module.exports = { setup, chart, fundamentals, candidates };

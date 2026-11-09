@@ -25,5 +25,7 @@ jobs:
         env: { MAXSEC: '1500' }
       - name: Quarterly / annual profits from results filings (for the earnings-momentum scan)
         run: node scripts/results.js || echo 'results skipped'
-        env: { RES_MAXSEC: '660' }
+        env: { RES_MAXSEC: '1200' }
+      - name: Earnings-momentum scan again with the profits just read (otherwise it waits for the evening refresh)
+        run: node scripts/momentum.js || echo 'momentum scan skipped'
       - run: bash .github/workflows/publish.sh corp

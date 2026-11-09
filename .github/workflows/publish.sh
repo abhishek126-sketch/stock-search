@@ -22,7 +22,7 @@ if b('../qkeep/quotes.json') > b('data/quotes.json'):
     if os.path.isdir('../qkeep/i'): shutil.rmtree('data/i', ignore_errors=True); shutil.copytree('../qkeep/i', 'data/i')
     m = json.load(open('data/meta.json')); m['quotes'] = b('data/quotes.json'); json.dump(m, open('data/meta.json', 'w')); print('kept newer quotes from the branch')
 PY
-  elif [ "$MODE" = corp ]; then mkdir -p data/x data/corp && rsync -a ../data/x/ data/x/ && rsync -a ../data/corp/ data/corp/
+  elif [ "$MODE" = corp ]; then mkdir -p data/x data/corp && rsync -a ../data/x/ data/x/ && rsync -a ../data/corp/ data/corp/ && { [ -f ../data/momentum.json ] && cp ../data/momentum.json data/momentum.json || true; }
   else mkdir -p data && cp ../data/quotes.json data/quotes.json && { [ -f ../data/check.json ] && cp ../data/check.json data/ || true; } && { [ -d ../data/i ] && mkdir -p data/i && cp ../data/i/* data/i/ || true; }
     python3 - <<'PY'
 import json, os

@@ -31,7 +31,7 @@ async function get(url, json = true, tries = 3) {
   let err;
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(url, { headers: { ...UA, Cookie: cookie, Referer: 'https://www.nseindia.com/' }, signal: AbortSignal.timeout(30000) });
+      const r = await fetch(url, { headers: { ...UA, Cookie: cookie, Referer: 'https://www.nseindia.com/' }, signal: AbortSignal.timeout(20000) });
       if (r.status === 404) throw new Error('404');
       if (r.status === 401 || r.status === 403) { await nseHome(); throw new Error('HTTP ' + r.status); }
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -175,8 +175,14 @@ async function main() {
   const files = fs.readdirSync(XD).filter(f => f.endsWith('.NS.json'));
   const st = files.map(f => { let d = {}; try { d = JSON.parse(fs.readFileSync(path.join(XD, f), 'utf8')); } catch { } return { f, s: f.slice(0, -8), t: (d.pr && d.pr.v === PRV && d.pr.t) || 0 }; })
     .filter(x => !ONLY.length || ONLY.includes(x.s))
-    .filter(x => ONLY.length || Date.now() / 1000 - x.t > RECHECK).sort((a, b) => a.t - b.t);
-  console.log('results: due', st.length, 'of', files.length);
+    .filter(x => ONLY.length || Date.now() / 1000 - x.t > RECHECK);
+  // order: earnings-momentum candidates first (pass sector/ROCE/52-wk-high/volume), then other ROCE > 15% stocks,
+  // then everyone else; never-read before stale within each group
+  let cand = { pass: [], roce: [] }; try { cand = require('./momentum').candidates(); } catch (e) { console.log('candidates', e.message); }
+  const P = new Set(cand.pass), R = new Set(cand.roce), tier = s => P.has(s) ? 0 : R.has(s) ? 1 : 2;
+  st.sort((a, b) => tier(a.s) - tier(b.s) || a.t - b.t);
+  D.first = st.filter(x => P.has(x.s)).length;
+  console.log('results: due', st.length, 'of', files.length, '— momentum candidates first:', D.first);
   await nseHome();
   let i = 0, done = 0;
   async function worker() {
@@ -188,7 +194,7 @@ async function main() {
       if (ONLY.length) console.log(x.s, JSON.stringify(d.pr));
     }
   }
-  await Promise.all([worker(), worker(), worker()]);
+  await Promise.all([worker(), worker(), worker(), worker()]);
   let have = 0;
   for (const f of files) { try { const p = JSON.parse(fs.readFileSync(path.join(XD, f), 'utf8')).pr; if (p && p.q && p.q.length) have++; } catch { } }
   const cov = { built: Math.floor(Date.now() / 1000), done, due: st.length, have, of: files.length, elapsed: Math.round((Date.now() - T0) / 1000), ...D };
