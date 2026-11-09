@@ -4,8 +4,11 @@ on:
     # GitHub delays/drops cron runs, so each slot has backups; a backup skips itself if a full refresh ran < 100 min ago.
     - cron: '20 3 * * 1-5'    # 08:50 IST pre-open
     - cron: '50 3 * * 1-5'    #   backup
-    - cron: '15 10 * * 1-5'   # 15:45 IST after NSE close
-    - cron: '50 10 * * 1-5'   #   backup
+    # Evening: NSE publishes its official closing file (bhavcopy) a few hours after the 15:30 close. This run sets every
+    # NSE stock to NSE's official close and recomputes all metrics and scores. Backups run only until that has happened today.
+    - cron: '30 13 * * 1-5'   # 19:00 IST
+    - cron: '0 15 * * 1-5'    #   backup 20:30 IST
+    - cron: '30 16 * * 1-5'   #   backup 22:00 IST
     - cron: '30 21 * * 1-5'   # 03:00 IST after US close
     - cron: '10 22 * * 1-5'   #   backup
   workflow_dispatch:
@@ -24,9 +27,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check out data branch (depth 1)
         run: git clone -q --depth 1 --branch data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" pub && cp -r pub/data ./data || (mkdir -p pub && cd pub && git init -q && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
-      - name: Skip if a full refresh ran recently (scheduled backups only)
+      - name: Skip if not needed (scheduled runs only)
         if: github.event_name == 'schedule'
-        run: python3 -c "import json,time,sys; m=json.load(open('pub/data/meta.json')); sys.exit(0 if time.time()-m.get('full',0)>6000 else 1)" || { echo 'recent full refresh exists - skipping'; echo SKIP=1 >> $GITHUB_ENV; }
+        # evening slots (after 18:00 IST): skip once NSE's official close for today has been applied;
+        # other slots: skip if a full refresh ran in the last 100 min
+        run: |
+          python3 - <<'EOF' || { echo 'not needed - skipping'; echo SKIP=1 >> $GITHUB_ENV; }
+          import json, time, sys, datetime as dt
+          m = json.load(open('pub/data/meta.json'))
+          now = dt.datetime.now(dt.timezone(dt.timedelta(hours=5, minutes=30)))
+          if now.hour >= 18: sys.exit(0 if m.get('nseDay') != now.date().isoformat() else 1)
+          sys.exit(0 if time.time() - m.get('full', 0) > 6000 else 1)
+          EOF
       - if: env.SKIP != '1'
         run: python3 scripts/build_data.py
       - if: env.SKIP != '1'

@@ -259,6 +259,47 @@ def fix_stale_price(d):
     if len(h) >= 2: d['prevClose'] = h[-2][1]
     return 1
 
+def nse_bhavcopy():
+    """Latest official NSE end-of-day file (sec_bhavdata_full, published in the evening after the 15:30 close).
+    Returns (date, {SYMBOL: (close, prev_close)}) or (None, {}). Tries today, then up to 7 earlier days."""
+    import datetime as dt
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30)); today = dt.datetime.now(ist).date()
+    for back in range(8):
+        day = today - dt.timedelta(days=back)
+        try: raw = get('https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_%s.csv' % day.strftime('%d%m%Y'), tries=2).decode()
+        except Exception: continue
+        rows = {}
+        for r in csv.DictReader(io.StringIO(raw), skipinitialspace=True):
+            r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
+            if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST'): continue
+            try: rows[r['SYMBOL']] = (float(r['CLOSE_PRICE']), float(r['PREV_CLOSE']))
+            except (KeyError, ValueError): pass
+        if len(rows) > 500: return day, rows
+    return None, {}
+
+def apply_nse_close(docs):
+    """After the close, every NSE stock gets NSE's official closing price before metrics and scores are computed.
+    Only applied when the NSE file is for the same session as (or a later session than) Yahoo's latest daily bar,
+    so a morning run never overwrites a newer Yahoo session with an older NSE file. BSE-only (.BO) stocks keep Yahoo."""
+    import datetime as dt
+    ist = dt.timezone(dt.timedelta(hours=5, minutes=30))
+    day, B = nse_bhavcopy()
+    if not day: print('NSE closing file not available - prices stay Yahoo'); return None, 0
+    t_close = int(dt.datetime.combine(day, dt.time(15, 30), ist).timestamp()); t_bar = int(dt.datetime.combine(day, dt.time(9, 15), ist).timestamp())
+    n = moved = 0
+    for s, d in docs.items():
+        if not s.endswith('.NS') or d.get('etf') or s[:-3] not in B: continue
+        close, pcl = B[s[:-3]]; h = d.get('hist') or []
+        lastday = dt.datetime.fromtimestamp(h[-1][0], ist).date() if h else None
+        if lastday and lastday > day: continue                      # Yahoo already has a newer session
+        if h and lastday == day: h[-1] = [h[-1][0], round(close, 2)]
+        else: h.append([t_bar, round(close, 2)])
+        if isinstance(d.get('price'), (int, float)) and d['price'] and abs(d['price'] / close - 1) > 0.01: moved += 1
+        d['price'], d['prevClose'], d['priceTime'] = close, pcl, t_close
+        d['nseClose'] = day.isoformat(); n += 1
+    print('NSE official close applied to', n, 'stocks for', day, '-', moved, 'of them differed from Yahoo by > 1%')
+    return day.isoformat(), n
+
 def metrics(d):
     f, price, hist = d['fund'], d['price'], d['hist']; now = hist[-1][0] if hist else time.time(); k = {}
     eps = series(f, 'quarterlyDilutedEPS')[-4:]
@@ -479,6 +520,8 @@ def main():
         except Exception as e: fails.append(x[0]); print('fail', x[0], e)
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
     nfix = sum(fix_stale_price(d) for d in docs.values()); print('stale Yahoo prices replaced by latest daily close:', nfix)
+    try: nse_day, nse_n = apply_nse_close(docs)
+    except Exception as e: nse_day, nse_n = None, 0; print('NSE close step failed (prices stay Yahoo):', e)
     K = {s: metrics(d) for s, d in docs.items()}
     # relative strength rank (O'Neil-style weighting) within each market
     rsr = {}
@@ -516,7 +559,7 @@ def main():
     json.dump({'built': built, 'rows': rows}, open(os.path.join(OUT, 'summary.json'), 'w'), separators=(',', ':'))
     json.dump({'built': built, **mkt}, open(os.path.join(OUT, 'market.json'), 'w'), separators=(',', ':'))
     mp = os.path.join(OUT, 'meta.json'); meta = json.load(open(mp)) if os.path.exists(mp) else {}
-    meta.update({'full': built, 'quotes': built}); json.dump(meta, open(mp, 'w'))
+    meta.update({'full': built, 'quotes': built, 'nseDay': nse_day, 'nseN': nse_n}); json.dump(meta, open(mp, 'w'))
     print('ok', len(index), 'fail', len(fails), 'news', sum(1 for d in docs.values() if d.get('news')), 'profile', len(PROFILE))
     if len(index) < 0.5 * len(u): sys.exit(1)
 if __name__ == '__main__': main()

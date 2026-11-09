@@ -27,7 +27,8 @@ const istDay = t => t ? new Date(t * 1000).toLocaleDateString('en-CA', { timeZon
 function prefQuote(sym, p, pc, t) {
   const c = CHECK && CHECK.s && CHECK.s[sym];
   // NSE's official close is also used whenever it is from a later session than Yahoo's price (Yahoo stale / missing a session)
-  if (c && c.src === 'NSE' && isNum(c.p) && ((c.st === 'mm' && (c.mode === 'live' || istDay(c.t) === istDay(t))) || (c.t || 0) > (t || 0) + 12 * 3600)) return [c.p, isNum(c.pc) ? c.pc : pc, c.mode === 'live' || (c.t || 0) > (t || 0) ? c.t : t, 'NSE', c];
+  // After the close: NSE's official closing price for the same session always wins (even when it agrees within 1%)
+  if (c && c.src === 'NSE' && isNum(c.p) && ((c.mode === 'eod' && istDay(c.t) === istDay(t)) || (c.st === 'mm' && c.mode === 'live') || (c.t || 0) > (t || 0) + 12 * 3600)) return [c.p, isNum(c.pc) ? c.pc : pc, c.mode === 'live' || (c.t || 0) > (t || 0) ? c.t : t, 'NSE', c];
   return [p, pc, t, 'Yahoo', c];
 }
 function applyCheck(d) {
@@ -40,7 +41,9 @@ const dPlain = iso => iso ? new Date(iso + (iso.length === 10 ? 'T12:00:00Z' : '
 function srcLine(d) {
   const c = d.check, ccy = d.currency, us = !/\.(NS|BO)$/.test(d.symbol);
   const what = c ? (c.src === 'NSE' ? (c.mode === 'live' ? "NSE's live price" : "NSE's official closing price for " + dPlain(istDay(c.t))) : "Finnhub's price") : '';
-  if (d.priceSrc === 'NSE' && c && c.st !== 'mm') return `<div class="mut">Price is ${what} (${fmtP(c.p, ccy)}). Yahoo Finance's latest price is older${d.yTime ? ' (' + dPlain(istDay(d.yTime)) + ')' : ''}, so NSE's is shown.</div>`;
+  if (d.priceSrc === 'NSE' && c && c.st !== 'mm') return d.yTime && istDay(d.yTime) === istDay(c.t)
+    ? `<div class="mut"><span class="up">✔</span> Price is ${what} (market closed)${c.st === 'ok' ? ` · Yahoo Finance agreed within 1% (${fmtP(d.yPrice, ccy)})` : ''}.</div>`
+    : `<div class="mut">Price is ${what} (${fmtP(c.p, ccy)}). Yahoo Finance's latest price is older${d.yTime ? ' (' + dPlain(istDay(d.yTime)) + ')' : ''}, so NSE's is shown.</div>`;
   if (!c || !c.st) return `<div class="mut">Price from Yahoo Finance. ${us ? (CHECK && CHECK.fh && CHECK.fh.mode === 'no-key' ? 'Not double-checked (US price check is off until a Finnhub key is added).' : 'Not double-checked yet — US stocks are checked a few at a time.') : 'Not double-checked yet.'}</div>`;
   if (c.st === 'ok') return `<div class="mut">Price from Yahoo Finance · <span class="up">✔ matches</span> ${what} (${fmtP(c.p, ccy)}).</div>`;
   return `<div class="mut" style="color:var(--warn)">⚠ Yahoo shows ${fmtP(d.priceSrc === 'NSE' ? d.yPrice : d.price, ccy)} but ${what} is ${fmtP(c.p, ccy)} (${(c.d * 100).toFixed(1)}% apart). ${d.priceSrc === 'NSE' ? "Showing NSE's price." : "Showing Yahoo's newer price."}</div>`;
