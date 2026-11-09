@@ -45,6 +45,9 @@ function setup(d, row, x) {
   if (C < 50 || row.pn) o.warn.push('penny stock (< ₹50) — prone to manipulation and wide spreads');
   const sv = (x && x.surv) || row.sv; if (sv) o.warn.push(`under exchange surveillance (${sv})`);
   const ed = ((d.profile && d.profile.earnDates) || []).find(t => t > now - DAY && t < now + 7 * DAY); if (ed) o.warn.push(`results due ${istDate(ed)} — gap risk`);
+  // NSE corporate actions (scripts/nsedaily.js): an ex-date within a week moves the price that morning
+  const cx = (row.caN && row.caN[0] <= istDate(now + 7 * DAY)) ? row.caN : null; if (cx) o.warn.push(`ex-date ${cx[0]}: ${cx[1]} — price adjusts that day${/Bonus|Split|Rights|Demerger/.test(cx[1]) ? '; re-set stop and targets' : ''}`);
+  if (isFinite(row.dp) && isFinite(row.dpA)) o.deliv = [row.dp, row.dpA];
   if (now - last[0] > 5 * DAY) o.warn.push(`last price is from ${istDate(last[0])} — not trading recently`);
   if (d.staleFixed) o.warn.push('price feed had a frozen value (see data checks)');
   // trend

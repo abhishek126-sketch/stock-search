@@ -2,6 +2,9 @@
 // ===== Glossary, part 3: plain-language terms for swing setups, FII/DII, Score filter, legal matters, data warnings =====
 // Format: key: [term, meaning in easy words, example, what good / bad looks like]
 Object.assign(GL, {
+  // NSE daily extras
+  deliv: ['Delivery %', 'Of all the shares traded in a day, the part that buyers actually took into their demat accounts. The rest was bought and sold again the same day (intraday trading).', '10 lakh shares traded, 6 lakh delivered → delivery 60%.', 'Delivery well above the stock\'s usual level on a rising day suggests genuine buying; a big volume day with low delivery is mostly traders.'],
+  corpact: ['Corporate action', 'A company decision that affects its shares: dividend, bonus issue, stock split, rights issue, buyback, demerger. The ex-date is the first day the stock trades without that benefit, so the price adjusts that morning.', 'Bonus 1:1 with ex-date 14 Aug → from that day you hold twice the shares at about half the price.', 'Dividends move the price only a little; a bonus, split or demerger changes it a lot — move your stop-loss and targets with it.'],
   // institutional holding
   fii: ['FII / FPI (foreign investors)', 'Big investors from outside India — foreign mutual funds, banks, pension funds — who buy Indian shares. FPI (foreign portfolio investor) is the official name today.', 'FII holding 20% = foreign funds own 1 out of every 5 shares.', 'Rising FII holding usually means foreign money is coming in; a steady fall means they are selling.'],
   dii: ['DII (domestic institutions)', 'Big Indian investors: mutual funds, insurance companies such as LIC, banks and pension funds.', 'DII holding 25% = Indian institutions own a quarter of the company.', 'Rising DII holding often supports the price when foreign investors sell.'],

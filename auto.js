@@ -102,5 +102,5 @@ function autoHTML(d, k, A, R, x) {
   const um = d.etf ? [] : uniq(miss);
   return `<h2 class="nogq">🤖 Auto analysis <span class="mut">(generated automatically from this page's data)</span></h2>${sum}${body}
    ${um.length ? `<p class="mut"><b>Data missing:</b> ${um.join(', ')} — skipped above.</p>` : ''}
-   <p class="src">⚠️ Educational only — not investment advice and not a buy/sell recommendation. Written by fixed rules from free data (Yahoo Finance statements, NSE/BSE exchange files, this app's sector snapshot); it can be incomplete or out of date. Always read the company's filings and consult a SEBI-registered adviser before investing.</p>`;
+   <p class="src">⚠️ Educational only — not investment advice and not a buy/sell recommendation. Written by fixed rules from free data (company results filed on NSE, Yahoo Finance statements, NSE/BSE exchange files, this app's sector snapshot); it can be incomplete or out of date. Always read the company's filings and consult a SEBI-registered adviser before investing.</p>`;
 }

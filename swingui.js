@@ -67,7 +67,7 @@ async function renderMomentum(box) {
   const R = m.rules || {}, cov = m.coverage;
   const tr = r => { const q = r.e ? swQty(r.e, r.sl) : null;
     return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small></td>
-      <td style="white-space:normal"><span title="${esc(MOT[r.t][1])}">${MOT[r.t][0]}</span><br><small class="mut">${esc((r.why || [])[0] || '')}</small>${(r.warn || []).map(w => `<br><small class="dn">⚠ ${esc(w)}</small>`).join('')}</td>
+      <td style="white-space:normal"><span title="${esc(MOT[r.t][1])}">${MOT[r.t][0]}</span><br><small class="mut">${esc((r.why || [])[0] || '')}</small>${isNum(r.dp) ? `<br><small class="${isNum(r.dpA) && r.dp >= 1.3 * r.dpA ? 'up' : 'mut'}">Delivery ${r.dp}%${isNum(r.dpA) ? ` (avg ${r.dpA}%)` : ''}</small>` : ''}${(r.warn || []).map(w => `<br><small class="dn">⚠ ${esc(w)}</small>`).join('')}</td>
       <td>${r.e ? `<b>₹${r.e}</b><br><small class="mut">${r.t === 'pullback' ? 'close above' : 'close above, vol ≥ ' + (r.volNeed / 1e5).toFixed(1) + ' L'}</small>` : `<small class="mut">${esc(r.wait || '–')}</small>`}</td>
       <td>${r.sl ? `₹${r.sl}<br><small class="dn">−${r.rp}%</small>` : '–'}</td><td>${q === null ? '–' : q.toLocaleString('en-IN')}</td>
       <td><small>Qtr ${moPct(r.qg)}<br>5 yr ${moPct(r.g5)}<br>ROCE ${r.roce}%</small></td><td>${r.sc}</td></tr>`; };
@@ -87,6 +87,28 @@ async function renderMomentum(box) {
    <li><b>Rank:</b> setup quality, how tight the stop is, volume drying up, closeness to the 52-week high, relative strength and earnings growth; promoter pledge over 20%, surveillance or results within a week lower it.</li></ul></div></details>${SW_DISC}</div>`;
   swModeWire(box);
   box.querySelectorAll('[data-mof]').forEach(b => b.onclick = () => { SWF.mof = b.dataset.mof; swSave(); renderMomentum(box); });
+}
+
+// ===== Delivery % and corporate actions (scripts/nsedaily.js, official NSE files) — stock page card =====
+function nseDailyCard(d) {
+  const dv = d.deliv || [], ca = d.ca || []; if (!dv.length && !ca.length) return '';
+  const today = new Date(Date.now() + 19800e3).toISOString().slice(0, 10);
+  let h = '';
+  if (dv.length) {
+    const l = dv[dv.length - 1], prev = dv.slice(-21, -1), avg = prev.length ? prev.reduce((s, r) => s + r[1], 0) / prev.length : null;
+    const hi = avg && l[1] >= avg * 1.3, lo = avg && l[1] <= avg * 0.7, mx = Math.max(...dv.map(r => r[1]), 1);
+    h += `<p style="margin:0 0 6px"><b>Delivery${swq('deliv')}</b> on ${swDate(l[0])}: <b>${l[1].toFixed(1)}%</b> of ${l[2].toLocaleString('en-IN')} shares traded${avg ? ` · 20-session average <b>${avg.toFixed(1)}%</b>` : ''}${hi ? ' <span class="up">· well above normal — more buyers taking delivery</span>' : lo ? ' <span class="mut">· well below normal — mostly same-day trading</span>' : ''}.</p>
+      <div style="display:flex;align-items:flex-end;gap:2px;height:44px;margin:4px 0 2px" title="Delivery % per session (last ${dv.length})">${dv.map(r => `<div title="${r[0]}: ${r[1]}%" style="flex:1;background:${r === l ? 'var(--acc,#2563eb)' : '#94a3b8'};height:${Math.max(2, 44 * r[1] / mx)}px;border-radius:2px 2px 0 0"></div>`).join('')}</div>
+      <p class="mut" style="font-size:12px;margin:0 0 8px">Delivery % = share of the day's traded quantity actually taken into demat accounts (the rest was bought and sold the same day). Source: NSE end-of-day file.</p>`;
+  }
+  if (ca.length) {
+    const up = ca.filter(r => r[0] >= today).sort((a, b) => a[0] < b[0] ? -1 : 1), past = ca.filter(r => r[0] < today).slice(0, 8);
+    h += `<p style="margin:6px 0 4px"><b>Corporate actions${swq('corpact')}</b> <span class="mut">(NSE; ex-date = first day the stock trades without the benefit)</span></p>
+      ${up.length ? `<ul style="margin:0 0 4px">${up.map(r => `<li><b>${swDate(r[0])}</b> · ${esc(r[1])} <span class="tag" style="margin-left:4px">upcoming</span></li>`).join('')}</ul>` : ''}
+      ${past.length ? `<ul class="mut" style="margin:0;font-size:13px">${past.map(r => `<li>${swDate(r[0])} · ${esc(r[1])}</li>`).join('')}</ul>` : ''}
+      ${up.some(r => /bonus|split|sub-?division|rights|demerger/i.test(r[1])) ? '<p class="dn" style="font-size:13px">⚠ A bonus / split / rights / demerger changes the share price on the ex-date — adjust any stop-loss and targets.</p>' : ''}`;
+  }
+  return `<div class="card nogq" id="nsedaily"><h2>📦 Delivery & corporate actions</h2>${h}</div>`;
 }
 
 // stock page card

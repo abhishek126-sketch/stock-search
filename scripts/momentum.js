@@ -130,6 +130,10 @@ function main() {
     if (base.pledge > 20) o.warn.push(`${base.pledge}% of promoter shares pledged`);
     if (base.surv) o.warn.push(`under exchange surveillance (${base.surv})`);
     const ed = ((d.profile && d.profile.earnDates) || []).find(t => t > now - DAY && t < now + 7 * DAY); if (ed) o.warn.push(`results due ${istDate(ed)} — gap risk`);
+    const cx = row.caN && row.caN[0] <= istDate(now + 7 * DAY) ? row.caN : null; if (cx) o.warn.push(`ex-date ${cx[0]}: ${cx[1]}${/Bonus|Split|Rights|Demerger/.test(cx[1]) ? ' — price adjusts; re-set stop and targets' : ''}`);
+    // delivery % (NSE): today's well above the 20-session average on a setup = genuine buying
+    const dHi = isFinite(row.dp) && isFinite(row.dpA) && row.dpA > 0 && row.dp >= 1.3 * row.dpA;
+    if (isFinite(row.dp) && isFinite(row.dpA)) o.why.push(`delivery ${row.dp}% (20-session average ${row.dpA}%)${dHi ? ' — buyers taking delivery' : ''}`);
     // rank score
     let sc = { vcp: 40, tight: 32, pullback: 26, extended: 8, none: 0 }[o.t];
     if (o.rp) sc += Math.max(0, 20 - Math.max(0, o.rp - 3) * 4);
@@ -138,9 +142,10 @@ function main() {
     sc += isFinite(row.rs) ? row.rs * 0.1 : 5;
     sc += Math.min(10, ((isFinite(f.qg) ? Math.min(f.qg, 150) : 100) + (isFinite(f.g5) ? Math.min(f.g5, 80) * 2 : 120)) / 30);
     if (base.pledge > 20) sc -= 10; if (base.surv) sc -= 20; if (ed) sc -= 10;
+    if (dHi) sc += 5;
     pass.push({ ...base, qg: f.qg === Infinity ? 'turn' : r1(f.qg), g5: f.g5 === Infinity ? 'turn' : r1(f.g5), qe: f.qe, fy: f.fy, b: f.b,
       t: o.t, e: o.e, sl: o.sl, rp: o.rp, volNeed: o.volNeed, trig: o.trig, wait: o.wait, why: o.why, warn: o.warn, sc: Math.round(Math.max(0, sc)),
-      e20: r2(k.e20), s50: r2(k.s50), rsi: Math.round(k.R), hi52: r2(k.hi52), dep: [k.d1, k.d2, k.d3].map(v => v == null ? null : r1(v)) });
+      dp: row.dp, dpA: row.dpA, caN: row.caN, e20: r2(k.e20), s50: r2(k.s50), rsi: Math.round(k.R), hi52: r2(k.hi52), dep: [k.d1, k.d2, k.d3].map(v => v == null ? null : r1(v)) });
   }
   const order = { vcp: 0, tight: 0, pullback: 0, extended: 1, none: 2 };
   pass.sort((a, b) => order[a.t] - order[b.t] || b.sc - a.sc);

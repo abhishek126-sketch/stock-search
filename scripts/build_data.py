@@ -328,6 +328,26 @@ def apply_exchange_close(docs, ex):
     print(ex, 'official close applied to', n, 'stocks for', day, '-', moved, 'of them differed from Yahoo by > 1%')
     return day.isoformat(), n
 
+def nse_fin(d, s):
+    """Official results for NSE stocks: replace Yahoo's quarterly / annual sales, net profit and EPS with the figures
+    read from the company's own NSE results filings (scripts/results.js -> data/x/<SYM>.json 'pr'), so the quarterly
+    table, EPS, P/E, growth, ROE and CANSLIM use them. Profit = attributable to shareholders, consolidated where filed;
+    EPS restated for bonus issues / splits. Yahoo stays where NSE has fewer than 2 periods. Matched Screener on 18 test
+    stocks (latest-quarter sales 16/18 within 1%, TTM EPS 17/18 within 5%; 10 Nov 2026)."""
+    f = d.get('fund')
+    if not s.endswith('.NS') or not isinstance(f, dict): return
+    try: pr = (json.load(open(os.path.join(OUT, 'x', s + '.json'))).get('pr') or {})
+    except Exception: return
+    q = [r for r in (pr.get('q') or []) if isinstance(r, list) and len(r) >= 4]
+    a = [r for r in (pr.get('fy') or []) if isinstance(r, list) and len(r) >= 4][-4:]   # last 4 years, as Yahoo gives (growth = 3-year rate)
+    used = []
+    for key, rows, i in (('quarterlyNetIncome', q, 1), ('quarterlyTotalRevenue', q, 2), ('quarterlyDilutedEPS', q, 3),
+                         ('annualNetIncome', a, 1), ('annualTotalRevenue', a, 2), ('annualDilutedEPS', a, 3)):
+        v = sorted([r[0], r[i]] for r in rows if isinstance(r[i], (int, float)))
+        if len(v) >= 2: f[key] = v; used.append(key)
+    if used: d['fundNSE'] = {'b': pr.get('b'), 'qe': pr.get('qe'), 'keys': used}
+    else: d.pop('fundNSE', None)
+
 def promoter_fields(s, pr):
     """Promoter holding & pledge for the summary row (Score filter), from data/x/<SYM>.json written by build_corp.py.
     pro = latest promoter % (NSE shareholding pattern), proCh = change vs ~1 year earlier (pts), proQ = quarter end;
@@ -593,6 +613,11 @@ def main():
     except Exception as e: nse_day, nse_n = None, 0; print('NSE close step failed (prices stay Yahoo):', e)
     try: bse_day, bse_n = apply_exchange_close(docs, 'BSE')
     except Exception as e: bse_day, bse_n = None, 0; print('BSE close step failed (prices stay Yahoo):', e)
+    nfin = 0
+    for s, d in docs.items():
+        try: nse_fin(d, s); nfin += 'fundNSE' in d
+        except Exception as e: print('nse_fin', s, e)
+    print('financials from NSE results filings:', nfin)
     K = {s: metrics(d) for s, d in docs.items()}
     # relative strength rank (O'Neil-style weighting) within each market
     rsr = {}
