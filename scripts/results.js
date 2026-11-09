@@ -4,7 +4,7 @@
 // (XBRL). Run by corp.yml after build_corp.py. Feeds the earnings-momentum scan (scripts/momentum.js) and replaces
 // Yahoo's quarterly/annual sales, profit and EPS in the evening refresh (build_data.py nse_fin), Yahoo as fallback.
 //
-//   Recent results (from 2025): NSE "integrated filing" feed — one XBRL per quarter, current-period figures only
+//   Recent results (from 2025): NSE "integrated filing" feed â€” one XBRL per quarter, current-period figures only
 //   Older results              : NSE "corporates-financial-results" feed (stopped at Dec 2024), Quarterly and Annual
 // Basis: consolidated when the company files consolidated results for its latest quarter, else standalone; one basis
 // throughout so growth is compared like for like. Net profit = ProfitLossForPeriod (incl. minority interest), the
@@ -17,7 +17,7 @@
 // plus 1 XBRL when it has published a new quarter.
 const fs = require('fs'), path = require('path');
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data'), XD = path.join(OUT, 'x'), CD = path.join(OUT, 'corp');
-const PRV = 2;   // reader version: bump when the parsing changes, so every company is re-read
+const PRV = 3;   // reader version: bump when the parsing changes, so every company is re-read
 const MAXSEC = +(process.env.RES_MAXSEC || 1200), T0 = Date.now(), RECHECK = 3 * 86400;   // re-check each company's filing list every 3 days
 const ONLY = (process.env.RES_SYMS || '').split(',').filter(Boolean);                      // testing: limit to these symbols
 const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'en-US,en;q=0.9' };
@@ -51,8 +51,8 @@ function profits(x) {
     const sd = (/startDate>\s*([\d-]+)/.exec(m[2]) || [])[1], ed = (/endDate>\s*([\d-]+)/.exec(m[2]) || [])[1];
     if (sd && ed) ctx[m[1]] = sd + '..' + ed;
   }
-  // older filings (to 2024) often leave the period contexts undefined ("OneD", "FourD") — or define them with the wrong
-  // dates (Titan Dec-2023: "FourD" = Oct–Dec though it holds Apr–Dec) — and state the real dates as facts: those win
+  // older filings (to 2024) often leave the period contexts undefined ("OneD", "FourD") â€” or define them with the wrong
+  // dates (Titan Dec-2023: "FourD" = Octâ€“Dec though it holds Aprâ€“Dec) â€” and state the real dates as facts: those win
   const fact = tag => { const o = {}; for (const m of x.matchAll(new RegExp(`<[\\w-]+:${tag}\\b[^>]*contextRef="([^"]+)"[^>]*>\\s*([\\d-]{10})\\s*<`, 'g'))) o[m[1]] = m[2]; return o; };
   const fs_ = fact('DateOfStartOfReportingPeriod'), fe_ = fact('DateOfEndOfReportingPeriod');
   for (const id in fs_) if (fe_[id]) ctx[id] = fs_[id] + '..' + fe_[id];
@@ -62,8 +62,20 @@ function profits(x) {
   const own = val('ProfitOrLossAttributableToOwnersOfParent');
   let tot = val('ProfitLossForPeriod'); if (!Object.keys(tot).length) tot = val('NetProfitLossForThePeriod');
   const rev = val('RevenueFromOperations');
+  // sales net of excise duty, as Screener shows them (ITC, refiners): excise is filed as an "other expenses" line
+  // described "Excise Duty" in a dimension context â€” same context id carries the amount
+  const per = {};
+  for (const m of x.matchAll(/<(?:[\w-]+:)?context\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?context>/g)) {
+    const sd = (/startDate>\s*([\d-]+)/.exec(m[2]) || [])[1], ed = (/endDate>\s*([\d-]+)/.exec(m[2]) || [])[1]; if (sd && ed) per[m[1]] = sd + '..' + ed;
+  }
+  for (const m of x.matchAll(/<[\w-]+:DescriptionOfOtherExpenses\b[^>]*contextRef="([^"]+)"[^>]*>\s*([^<]*)</g)) {
+    if (!/excise/i.test(m[2]) || /refund|incentive|recover/i.test(m[2])) continue;
+    // "OneExpenses1D" belongs to period "OneD", "FourExpenses1D" to "FourD" (older filings mis-date these sub-contexts)
+    const id = m[1], bp = /^(One|Two|Three|Four|Five|Six)\w+D$/.exec(id), a = new RegExp(`<[\\w-]+:OtherExpenses\\b[^>]*contextRef="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>\\s*([-0-9.Ee]+)\\s*<`).exec(x), p = (bp && ctx[bp[1] + 'D']) || ctx[id] || per[id];
+    if (a && p && rev[p] !== undefined && +a[1] > 0 && +a[1] < rev[p]) rev[p] -= +a[1];
+  }
   let eps = val('BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations'); if (!Object.keys(eps).length) eps = val('BasicEarningsLossPerShareFromContinuingOperations');
-  // { 'start..end': { np, rev, eps } }  np = profit attributable to shareholders (else profit for the period), rupees; eps in ₹
+  // { 'start..end': { np, rev, eps } }  np = profit attributable to shareholders (else profit for the period), rupees; eps in â‚¹
   const out = {};
   for (const k of new Set([...Object.keys(tot), ...Object.keys(own)])) (out[k] = out[k] || {}).np = own[k] ? own[k] : tot[k] ?? own[k];
   for (const k in rev) (out[k] = out[k] || {}).rev = rev[k];
@@ -99,7 +111,7 @@ async function one(sym, prev) {
   const latest = fl.filter(f => f.src !== 'ann').map(f => f.qe).sort().pop();
   const b = fl.some(f => f.qe === latest && f.b === 'C' && f.src !== 'ann') ? 'C' : 'S';
   const pr = prev && prev.b === b && prev.v === PRV ? { ...prev } : { b, q: [], fy: [] };
-  // rows: [periodEnd, np, rev, eps] — keep what was read before, fetch only what's missing
+  // rows: [periodEnd, np, rev, eps] â€” keep what was read before, fetch only what's missing
   const Q = new Map((pr.q || []).map(r => [r[0], r])), FY = new Map((pr.fy || []).map(r => [r[0], r]));
   const cache = new Map();                                  // xbrl url -> parsed facts (each file read at most once)
   const read = async f => {
@@ -128,7 +140,7 @@ async function one(sym, prev) {
     const sub = k => a[k] !== undefined && z[k] !== undefined ? a[k] - z[k] : undefined;
     return { np: sub('np'), rev: sub('rev'), eps: sub('eps') !== undefined ? Math.round(sub('eps') * 100) / 100 : undefined };
   };
-  // full year: the March-quarter filing usually carries it; some (2023–24) only have Jan–Mar → Apr–Dec (December filing) + Jan–Mar
+  // full year: the March-quarter filing usually carries it; some (2023â€“24) only have Janâ€“Mar â†’ Aprâ€“Dec (December filing) + Janâ€“Mar
   const year = async (basis, d) => {
     const y = await period(basis, fyStart(d), d, ['ann', 'int', 'old']); if (y) return y;
     const dec = (+d.slice(0, 4) - 1) + '-12-31', a = await period(basis, fyStart(dec), dec, ['int', 'old']), z = await quarter(basis, d);    if (!a || !z) return undefined;
@@ -152,7 +164,7 @@ async function one(sym, prev) {
   }
   const qs = [...Q.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-8), fys = [...FY.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-6);
   // EPS as filed jumps at a bonus issue or split; restate earlier EPS to today's share count (as Yahoo / Screener do):
-  // shares = profit ÷ EPS; when a period's share count differs from the latest by more than 25%, EPS = profit ÷ latest shares
+  // shares = profit Ã· EPS; when a period's share count differs from the latest by more than 25%, EPS = profit Ã· latest shares
   const sh = r => r[1] && r[3] && Math.abs(r[3]) >= 0.05 ? r[1] / r[3] : null;
   const ref = [...qs].reverse().map(sh).find(v => v > 0) || [...fys].reverse().map(sh).find(v => v > 0);
   let adj = 0;
