@@ -25,6 +25,43 @@ const SW_DISC = `<div class="disc" style="margin-top:8px"><b>Educational tool, n
 const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'trend') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const swModeWire = box => box.querySelectorAll('[data-swmode]').forEach(b => b.onclick = () => { SWF.mode = b.dataset.swmode; swSave(); renderSwing(box); });
 
+// ===== Sector grouping: stocks from one sector tend to move together, so several setups in it are really one bet =====
+const SWG = [['grp', 'Group by sector'], ['one', 'Best one per sector'], ['list', 'Plain list']];
+let SECMAP = null;
+// Yahoo's sectors are too broad to mean "moves together" (Consumer Cyclical = auto parts + online retail + hotels + textiles),
+// so group by business theme built from the industry; the sector is the fallback
+const SWTHEME = [['Pharma & biotech', /Drug Manufacturers|Biotechnology|Pharmaceutical/], ['Hospitals & health services', /Medical|Health Information|Diagnostics|Healthcare Plans/],
+  ['Auto & auto parts', /^Auto|Recreational Vehicles/], ['Textiles & apparel', /Textile|Apparel Manufacturing|Footwear/], ['Retail & e-commerce', /Retail|Department Stores/], ['Jewellery & luxury', /Luxury/],
+  ['Hotels, travel & leisure', /Lodging|Resorts|Travel|Leisure|Restaurants|Gambling/], ['Media & entertainment', /Entertainment|Broadcasting|Publishing|Advertising|Electronic Gaming/],
+  ['Metals & mining', /Steel|Copper|Aluminum|Industrial Metals|Gold|Silver|Precious Metals|Coal|Mining/], ['Chemicals & fertilisers', /Chemical|Agricultural Inputs/],
+  ['Cement & building materials', /Building Materials|Building Products/], ['Paper & packaging', /Paper|Packaging|Lumber/], ['Oil, gas & fuels', /Oil & Gas/], ['Power & utilities', /^Utilities/],
+  ['Banks', /^Banks/], ['NBFCs & lenders', /Credit Services|Mortgage Finance|Financial Conglomerates/], ['Brokers, AMCs & exchanges', /Capital Markets|Asset Management|Financial Data/], ['Insurance', /Insurance/],
+  ['IT services & software', /Information Technology|Software/], ['Electronics & semiconductors', /Semiconductor|Electronic|Computer Hardware|Scientific & Technical|Communication Equipment/], ['Telecom', /Telecom/],
+  ['Defence & aerospace', /Aerospace|Defense/], ['Capital goods & engineering', /Electrical Equipment|Industrial Machinery|Metal Fabrication|Farm & Heavy|Industrial Distribution|Tools|Pollution/],
+  ['Construction & infrastructure', /Engineering & Construction|Infrastructure Operations|Construction/],
+  ['Logistics & shipping', /Marine Shipping|Trucking|Freight|Railroads|Airlines|Airports|Logistics/], ['Real estate', /Real Estate|REIT/],
+  ['FMCG & food', /Packaged Foods|Household|Personal Products|Beverages|Tobacco|Confectioners|Farm Products|Food Distribution|Grocery/]];
+const swSec = r => { if (!SECMAP && SUMMARY && SUMMARY.rows && SUMMARY.rows.length) SECMAP = Object.fromEntries(SUMMARY.rows.map(x => [x.s, [x.sec || '', x.ind || '']]));
+  const m = SECMAP && SECMAP[r.s], sec0 = r.sec || (m && m[0]) || '', ind = (m && m[1]) || r.ind || '', th = SWTHEME.find(t => t[1].test(ind));
+  return { sec: th ? th[0] : sec0, ind }; };
+const swGrpSel = id => `<select id="${id}" aria-label="Sector grouping">${SWG.map(([k, l]) => `<option value="${k}" ${(SWF.grp || 'grp') === k ? 'selected' : ''}>${l}</option>`).join('')}</select>${swq('sectorrisk')}`;
+// rows already sorted best-first; trFn(row, extra) -> '<tr…>'; ncol = table columns. -> { body, note }
+function swGroup(rows, trFn, ncol) {
+  const mode = SWF.grp || 'grp', G = new Map();
+  for (const r of rows) { const { sec, ind } = swSec(r), k = sec || 'Sector not known'; if (!G.has(k)) G.set(k, []); G.get(k).push({ r, ind }); }
+  const crowded = [...G].filter(([k, a]) => a.length > 1 && k !== 'Sector not known').sort((a, b) => b[1].length - a[1].length);
+  const note = rows.length > 1 ? `<p class="mut" style="font-size:13px;margin:0 0 6px">${G.size} sector group${G.size === 1 ? '' : 's'}${swq('sectorrisk')}${crowded.length ? ` · <b class="dn">more than one setup in ${crowded.slice(0, 4).map(([k, a]) => `${esc(k)} (${a.length})`).join(', ')}${crowded.length > 4 ? '…' : ''}</b> — stocks in one sector usually rise and fall together, so buying several of them is one bigger bet, not several separate ones. Pick the best one or two, or split one trade's risk between them.` : ' · no overlap'}</p>` : '';
+  if (mode === 'list') return { body: rows.map(r => { const c = G.get(swSec(r).sec || 'Sector not known'); return trFn(r, c && c.length > 1 && c[0].r !== r && swSec(r).sec ? `<br><small class="dn">↳ overlaps ${esc(c[0].r.s.replace(/\.(NS|BO)$/, ''))} (${esc(swSec(r).sec)})</small>` : ''); }).join(''), note };
+  const groups = [...G].sort((a, b) => (a[0] === 'Sector not known') - (b[0] === 'Sector not known'));   // keeps best-first order otherwise
+  const body = groups.map(([k, a]) => {
+    const inds = [...new Set(a.map(x => x.ind).filter(Boolean))], n = a.length;
+    const head = `<tr class="swg"><td colspan="${ncol}" style="background:var(--soft,#f1f5f9);text-align:left;white-space:normal"><b>${esc(k)}</b> <small class="mut">· ${n} setup${n === 1 ? '' : 's'}${inds.length ? ' · ' + esc(inds.slice(0, 3).join(', ')) + (inds.length > 3 ? '…' : '') : ''}</small>${n > 1 && k !== 'Sector not known' ? ` <small class="dn">· overlapping — ${mode === 'one' ? `showing the best; ${n - 1} more hidden` : 'the first is the strongest'}</small>` : ''}</td></tr>`;
+    const list = mode === 'one' && k !== 'Sector not known' ? a.slice(0, 1) : a;
+    return head + list.map((x, i) => trFn(x.r, (x.ind ? `<br><small class="mut">${esc(x.ind)}</small>` : '') + (i > 0 && k !== 'Sector not known' ? `<br><small class="dn" title="Same sector as ${esc((a[0].r.n || a[0].r.s).slice(0, 28))} — moves with it">↳ overlaps ${esc(a[0].r.s.replace(/\.(NS|BO)$/, ''))}</small>` : ''))).join('');
+  }).join('');
+  return { body, note };
+}
+
 async function renderSwing(box) {
   if (SWF.mode === 'mom') return renderMomentum(box);
   if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `${swMode()}<p>${NA} — summary data could not be loaded.</p>`; swModeWire(box); return; }
@@ -40,9 +77,11 @@ async function renderSwing(box) {
    <select id="swt-cap">${caps.map(c => `<option value="${c}" ${SWF.cap === c ? 'selected' : ''}>${c === 'All' ? 'All sizes' : c === 'Other' ? 'Other listed' : c + ' cap'}</option>`).join('')}</select>
    <label class="mut" style="font-size:13px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="swt-cf" ${SWF.cf ? 'checked' : ''}> Volume-confirmed only</label>${swq('volconf')}</div>
   <div class="swbar"><label class="mut" style="font-size:13px">Capital ₹ <input type="number" id="swt-cash" min="0" step="1000" value="${SWF.cash}"></label><label class="mut" style="font-size:13px">Risk per trade %${swq('riskpct')} <input type="number" id="swt-risk" min="0.1" max="5" step="0.1" value="${SWF.riskPct}" style="width:70px"></label><span class="mut" style="font-size:12px">→ quantity so a stop-out loses ≈ ₹${Math.round(SWF.cash * SWF.riskPct / 100).toLocaleString('en-IN')}</span></div>
+  <div class="swbar">${swGrpSel('swt-grp')}</div>
   <p><b>${rows.length}</b> setup${rows.length === 1 ? '' : 's'}${SWF.st !== 'all' ? ' · ' + SWS[SWF.st][0] : ''}.</p>
-  ${rows.length ? `<div class="tw"><table class="pt" id="swt"><tr><th>Stock</th><th>Setup${swq('breakout')}</th><th>Buy above${swq('trigger')}</th><th>Stop-loss${swq('stoploss')}</th><th>Target 1 / 2${swq('rmult')}</th><th>Qty${swq('possize')}</th><th>Score${swq('swsc')}</th></tr>${rows.slice(0, 150).map(r => { const w = r.sw, q = swQty(w.e, w.sl);
-    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))} ${swBadge(w.st)}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small></td><td style="white-space:normal">${SWT[w.t] || '–'}${w.t === 'breakout' ? `<br><small class="${w.cf ? 'up' : 'mut'}">${w.cf ? 'volume ✔' : 'needs volume'}</small>` : ''}</td><td><b>₹${w.e}</b></td><td>₹${w.sl}<br><small class="dn">−${w.rp}%</small></td><td>₹${w.t1}<br><small class="mut">₹${w.t2}</small></td><td>${q === null ? '–' : q.toLocaleString('en-IN')}${q ? `<br><small class="mut">₹${Math.round(q * w.e).toLocaleString('en-IN')}</small>` : ''}</td><td>${w.sc ?? '–'}</td></tr>`; }).join('')}</table></div>`
+  ${rows.length ? (() => { const g = swGroup(rows.slice(0, 150), (r, extra) => { const w = r.sw, q = swQty(w.e, w.sl);
+    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))} ${swBadge(w.st)}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small>${extra}</td><td style="white-space:normal">${SWT[w.t] || '–'}${w.t === 'breakout' ? `<br><small class="${w.cf ? 'up' : 'mut'}">${w.cf ? 'volume ✔' : 'needs volume'}</small>` : ''}</td><td><b>₹${w.e}</b></td><td>₹${w.sl}<br><small class="dn">−${w.rp}%</small></td><td>₹${w.t1}<br><small class="mut">₹${w.t2}</small></td><td>${q === null ? '–' : q.toLocaleString('en-IN')}${q ? `<br><small class="mut">₹${Math.round(q * w.e).toLocaleString('en-IN')}</small>` : ''}</td><td>${w.sc ?? '–'}</td></tr>`; }, 7);
+    return `${g.note}<div class="tw"><table class="pt" id="swt"><tr><th>Stock</th><th>Setup${swq('breakout')}</th><th>Buy above${swq('trigger')}</th><th>Stop-loss${swq('stoploss')}</th><th>Target 1 / 2${swq('rmult')}</th><th>Qty${swq('possize')}</th><th>Score${swq('swsc')}</th></tr>${g.body}</table></div>`; })()
     : `<p class="mut">No ${SWF.st === 'all' ? '' : SWS[SWF.st][0].toLowerCase() + ' '}setups match these filters.</p>`}
   <details class="how"><summary>How the setups are found</summary><div class="mut">${SW_RULES()}<p>Score (0–100) ranks setups by trend strength, relative strength vs the market, volume or RSI confirmation, how tight the stop is, room to the 52-week high and the CANSLIM backdrop. Tap a stock for its full setup and reasons.</p></div></details>${SW_DISC}</div>`;
   const re = () => { swSave(); const y = window.scrollY; renderSwing(box).then(() => window.scrollTo(0, y)); };
@@ -51,6 +90,7 @@ async function renderSwing(box) {
   box.querySelector('#swt-t').onchange = e => { SWF.t = e.target.value; re(); };
   box.querySelector('#swt-cap').onchange = e => { SWF.cap = e.target.value; re(); };
   box.querySelector('#swt-cf').onchange = e => { SWF.cf = e.target.checked; re(); };
+  box.querySelector('#swt-grp').onchange = e => { SWF.grp = e.target.value; re(); };
   box.querySelector('#swt-cash').onchange = e => { SWF.cash = Math.max(0, +e.target.value || 0); re(); };
   box.querySelector('#swt-risk').onchange = e => { SWF.riskPct = Math.min(5, Math.max(0.1, +e.target.value || 1)); re(); };
 }
@@ -61,22 +101,24 @@ let MOM = null;
 const moPct = v => v === 'turn' ? 'loss → profit' : v == null ? '?' : v + '%';
 async function renderMomentum(box) {
   if (!MOM) { box.innerHTML = `${swMode()}<p class="mut">Loading…</p>`; swModeWire(box); try { MOM = await getJSON(DATA + 'momentum.json'); } catch (e) { MOM = { err: e.message }; } }
+  if (typeof ensureSummary === 'function') await ensureSummary();          // sectors for grouping
   const m = MOM, f = SWF.mof || 'act';
   if (!m || m.err || !m.list) { box.innerHTML = `${swMode()}<p>${NA} — the earnings-momentum scan hasn't run yet; it appears after the next evening refresh.</p>`; swModeWire(box); return; }
   const act = m.list.filter(r => ['vcp', 'tight', 'pullback'].includes(r.t)), rows = f === 'act' ? act : f === 'all' ? m.list : null;
   const R = m.rules || {}, cov = m.coverage;
-  const tr = r => { const q = r.e ? swQty(r.e, r.sl) : null;
-    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small></td>
+  const tr = (r, extra = '') => { const q = r.e ? swQty(r.e, r.sl) : null;
+    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small>${extra}</td>
       <td style="white-space:normal"><span title="${esc(MOT[r.t][1])}">${MOT[r.t][0]}</span><br><small class="mut">${esc((r.why || [])[0] || '')}</small>${isNum(r.dp) ? `<br><small class="${isNum(r.dpA) && r.dp >= 1.3 * r.dpA ? 'up' : 'mut'}">Delivery ${r.dp}%${isNum(r.dpA) ? ` (avg ${r.dpA}%)` : ''}</small>` : ''}${(r.warn || []).map(w => `<br><small class="dn">⚠ ${esc(w)}</small>`).join('')}</td>
       <td>${r.e ? `<b>₹${r.e}</b><br><small class="mut">${r.t === 'pullback' ? 'close above' : 'close above, vol ≥ ' + (r.volNeed / 1e5).toFixed(1) + ' L'}</small>` : `<small class="mut">${esc(r.wait || '–')}</small>`}</td>
       <td>${r.sl ? `₹${r.sl}<br><small class="dn">−${r.rp}%</small>` : '–'}</td><td>${q === null ? '–' : q.toLocaleString('en-IN')}</td>
       <td><small>Qtr ${moPct(r.qg)}<br>5 yr ${moPct(r.g5)}<br>ROCE ${r.roce}%</small></td><td>${r.sc}</td></tr>`; };
-  box.innerHTML = `${swMode()}<div class="nogq"><style>#mot td:not(:first-child):not(:nth-child(2)),#mot th:not(:first-child):not(:nth-child(2)){text-align:right}</style>
+  box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar select{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff}#mot td:not(:first-child):not(:nth-child(2)),#mot th:not(:first-child):not(:nth-child(2)){text-align:right}</style>
   <p style="margin:0 0 6px">Stocks passing your earnings-momentum screen${m.asOf ? `, with chart setups from the close of <b>${swDate(m.asOf)}</b> — for <b>${swDate(swNext(m.asOf))}</b>` : ''}.</p>
   ${m.cnt && m.cnt.pending ? `<p class="doubt" style="text-decoration:none;font-size:13px">⚠ Profit figures are still being read from NSE filings (${cov ? `${cov.have} of ${cov.of} companies so far` : 'first pass'}); ${m.cnt.pending} stocks that pass the price, volume and ROCE tests are not checked yet. The list fills in over the next few runs.</p>` : ''}
   <p class="mut" style="font-size:13px;margin:0 0 6px">Screen: quarterly profit growth &gt; ${R.qg}% · 5-year profit growth &gt; ${R.g5}% a year · ROCE${swq('roce')} &gt; ${R.roce}% · price &gt; ${Math.round(R.hi * 100)}% of the 52-week high · 1-month average volume &gt; ${(R.vol / 1e5).toFixed(0)} lakh shares · no banks, finance or real estate.</p>
   <div class="tabs">${[['act', 'Actionable', act.length], ['all', 'All passing', m.list.length], ['unk', "Couldn't check", (m.unchecked || []).length]].map(([k, l, n]) => `<button data-mof="${k}" class="${f === k ? 'on' : ''}">${l} <small>${n}</small></button>`).join('')}</div>
-  ${rows ? (rows.length ? `<div class="tw"><table class="pt" id="mot"><tr><th>Stock</th><th>Setup</th><th>Entry trigger${swq('trigger')}</th><th>Stop-loss${swq('stoploss')}</th><th>Qty${swq('possize')}</th><th>Growth</th><th>Rank score</th></tr>${rows.map(tr).join('')}</table></div>` : '<p class="mut">No stock has a clean setup today.</p>')
+  ${rows ? `<div class="swbar">${swGrpSel('mo-grp')}</div>` : ''}
+  ${rows ? (rows.length ? (() => { const g = swGroup(rows, tr, 7); return `${g.note}<div class="tw"><table class="pt" id="mot"><tr><th>Stock</th><th>Setup</th><th>Entry trigger${swq('trigger')}</th><th>Stop-loss${swq('stoploss')}</th><th>Qty${swq('possize')}</th><th>Growth</th><th>Rank score</th></tr>${g.body}</table></div>`; })() : '<p class="mut">No stock has a clean setup today.</p>')
     : `<p class="mut" style="font-size:13px">These pass the price, volume and ROCE tests, but NSE doesn't hold the profit figures needed for the growth tests — usually a company listed in the last few years (its earlier results are in the IPO prospectus, not NSE filings) or one that changed its name. Check them on Screener before trading.</p>
        <div class="tw"><table class="pt"><tr><th>Stock</th><th>Qtr growth</th><th>5-yr growth</th><th>What's missing</th></tr>${(m.unchecked || []).map(r => `<tr data-s="${esc(r.s)}"><td class="nogq">${esc((r.n || r.s).slice(0, 28))}<br><small class="mut">${esc(r.s.replace(/\.NS$/, ''))}</small></td><td>${moPct(r.qg)}</td><td>${moPct(r.g5)}</td><td style="white-space:normal"><small class="mut">${esc(r.why)}</small></td></tr>`).join('')}</table></div>`}
   <details class="how"><summary>How this scan works</summary><div class="mut"><ul style="margin:4px 0;padding-left:18px">
@@ -87,6 +129,7 @@ async function renderMomentum(box) {
    <li><b>Rank:</b> setup quality, how tight the stop is, volume drying up, closeness to the 52-week high, relative strength and earnings growth; promoter pledge over 20%, surveillance or results within a week lower it.</li></ul></div></details>${SW_DISC}</div>`;
   swModeWire(box);
   box.querySelectorAll('[data-mof]').forEach(b => b.onclick = () => { SWF.mof = b.dataset.mof; swSave(); renderMomentum(box); });
+  const mg = box.querySelector('#mo-grp'); if (mg) mg.onchange = e => { SWF.grp = e.target.value; swSave(); renderMomentum(box); };
 }
 
 // ===== Delivery % and corporate actions (scripts/nsedaily.js, official NSE files) — stock page card =====
