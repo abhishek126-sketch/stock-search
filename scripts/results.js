@@ -163,13 +163,72 @@ async function one(sym, prev) {
     }
   }
   const qs = [...Q.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-8), fys = [...FY.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-6);
-  // EPS as filed jumps at a bonus issue or split; restate earlier EPS to today's share count (as Yahoo / Screener do):
-  // shares = profit Ã· EPS; when a period's share count differs from the latest by more than 25%, EPS = profit Ã· latest shares
-  const sh = r => r[1] && r[3] && Math.abs(r[3]) >= 0.05 ? r[1] / r[3] : null;
-  const ref = [...qs].reverse().map(sh).find(v => v > 0) || [...fys].reverse().map(sh).find(v => v > 0);
-  let adj = 0;
-  if (ref) for (const r of [...qs, ...fys]) { const s = sh(r); if (s > 0 && (s / ref > 1.25 || s / ref < 0.8)) { r.push(r[3]); r[3] = Math.round(r[1] / ref * 100) / 100; adj++; } }
+  const adj = restate(qs, fys, caOf(sym));
   return { b, q: qs, fy: fys, g5, qe: latest, t: Math.floor(Date.now() / 1000), v: PRV, ...(adj ? { epsAdj: adj } : {}) };
+}
+// EPS on today's share count, and misread filings. Rows [end, np, rev, eps(, epsAsFiled)].
+// 1. Bonus / split: EPS of periods before the ex-date is divided by the ratio (as Yahoo / Screener restate it). Ex-dates
+//    and ratios come from NSE's corporate actions (nsedaily.js -> data/s/<SYM>.json 'ca', ~2 years back).
+// 2. A share issue (QIP, merger, IPO, warrants) is a lasting step up in profit / EPS: earlier EPS stays as filed.
+// 3. A misread figure shows as 1-2 periods whose share count (profit / EPS) is out of line with the periods on both sides.
+//    Which of the two figures is wrong is told by the profit margin: whichever is out of line with the company's other
+//    periods. Bad EPS -> profit / that period's share count; bad profit -> the EPS stays as filed.
+// Before this (until 10 Nov 2026) any > 25% change counted as a split: 231 of 306 restated stocks had no bonus or split,
+// and a misread profit pulled the right EPS down (Groww + Screener check: COFORGE TTM EPS 44.2 vs Screener 50.7, GODREJCP
+// 20.7 vs 19.3, TECHM Dec-25 profit read as Rs 199 Cr). Periods older than the action list covers keep the old test.
+function caFactor(subj) {
+  let m = /bonus\D*(\d+)\s*:\s*(\d+)/i.exec(subj); if (m && +m[2] > 0) return (+m[1] + +m[2]) / +m[2];
+  m = /(split|sub-?division|consolidat)/i.test(subj) && /from\s*r[se]\.?\s*([\d.]+).*?to\s*r[se]\.?\s*([\d.]+)/i.exec(subj);
+  return m && +m[1] > 0 && +m[2] > 0 ? +m[1] / +m[2] : null;
+}
+function caOf(sym) {
+  try { const d = JSON.parse(fs.readFileSync(path.join(OUT, 's', sym + '.NS.json'), 'utf8')); return Array.isArray(d.ca) ? d.ca : null; } catch { return null; }
+}
+const shOf = r => r[1] > 0 && r[3] >= 0.05 ? r[1] / r[3] : null;                 // implied share count = profit / EPS
+function restate(qs, fys, ca) {
+  const rows = [...qs, ...fys];
+  for (const r of rows) if (r.length > 4) { r[3] = r[4]; r.length = 4; }          // undo an earlier restatement
+  const ev = (ca || []).map(c => [c[0], caFactor(c[1] || '')]).filter(e => e[1] && Math.abs(e[1] - 1) > 0.01);
+  // the action list covers ~730 days back (an empty list = no actions); a split before that leaves F = 1 anyway
+  const covered = d => ca && (ev.length || Date.parse(d) > Date.now() - 720 * 864e5);
+  let adj = 0; const set = (r, e) => { if (r.length === 4) r.push(r[3]); r[3] = Math.round(e * 100) / 100; adj++; };
+  for (const list of [qs, fys]) {
+    const ref = [...list].reverse().map(shOf).find(v => v > 0);
+    // 1. bonus / split (skipped when the filing already counts today's shares: filed after the ex-date and restated)
+    for (const r of list) {
+      if (r[3] == null || !covered(r[0])) continue;
+      const F = ev.filter(e => e[0] > r[0]).reduce((p, e) => p * e[1], 1); if (F === 1) continue;
+      const s = shOf(r); if (s > 0 && ref && Math.abs(Math.log(s * F / ref)) >= Math.abs(Math.log(s / ref))) continue;
+      set(r, r[3] / F);
+    }
+    // 3. misread profit or EPS: a run of 1-2 periods whose share count is > 25% off the periods on both sides, which
+    //    agree (the first period: off the next two, which agree). The latest period is left to build_data.py's check against today's shares.
+    const S = list.map(shOf), off = (x, y) => x > 0 && y > 0 && (x > 1.25 * y || x < 0.8 * y);
+    const nb = (i, d) => { for (let j = i + d; j >= 0 && j < S.length; j += d) if (S[j] > 0) return j; return -1; };
+    const bad = S.map((v, i) => {
+      if (!(v > 0) || !covered(list[i][0]) || i === S.length - 1) return false;
+      const p = nb(i, -1);
+      if (p < 0) { const n = nb(i, 1), n2 = n >= 0 ? nb(n, 1) : -1; return n2 >= 0 && off(v, S[n]) && !off(S[n], S[n2]); }
+      if (!off(v, S[p])) return false;
+      // a run of 1-2 periods off the period before it, followed by one back in line with that period
+      for (let j = nb(i, 1), k = 0; j >= 0 && k < 2; j = nb(j, 1), k++) { if (!off(S[j], S[p])) return true; if (off(S[j], v)) return false; }
+      return false;
+    });
+    const margins = list.filter((r, i) => !bad[i] && S[i] > 0 && r[2] > 0).map(r => r[1] / r[2]).sort((x, y) => x - y);
+    const med = margins.length ? margins[margins.length >> 1] : null;
+    list.forEach((r, i) => {
+      if (!bad[i]) return;
+      const near = S.slice(i + 1).find((v, j) => v > 0 && !bad[i + 1 + j]) || null;
+      if (!near) return;
+      const lg = x => x > 0 && med > 0 ? Math.abs(Math.log(x / med)) : Infinity;
+      // profit out of line and EPS x shares in line -> the profit is the misread figure: keep the filed EPS
+      if (r[2] > 0 && lg(r[1] / r[2]) > lg(r[3] * near / r[2])) return;
+      set(r, r[1] / near);
+    });
+    // 4. periods older than the action list: the old test against the latest share count
+    if (ref) for (const r of list) { if (covered(r[0]) || r.length > 4) continue; const s = shOf(r); if (s > 0 && (s / ref > 1.25 || s / ref < 0.8)) set(r, r[1] / ref); }
+  }
+  return adj;
 }
 async function main() {
   const files = fs.readdirSync(XD).filter(f => f.endsWith('.NS.json'));
@@ -195,11 +254,19 @@ async function main() {
     }
   }
   await Promise.all([worker(), worker(), worker(), worker()]);
-  let have = 0;
+  let have = 0, re = 0;
+  for (const f of files) {
+    const fp = path.join(XD, f); let d; try { d = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { continue; }
+    const p = d.pr; if (!p || !p.q || !p.q.length) continue;
+    const before = JSON.stringify([p.q, p.fy]), adj = restate(p.q, p.fy || [], caOf(f.slice(0, -8)));
+    if (adj) p.epsAdj = adj; else delete p.epsAdj;
+    if (JSON.stringify([p.q, p.fy]) !== before) { fs.writeFileSync(fp, JSON.stringify(d)); re++; }
+  }
+  D.restated = re;
   for (const f of files) { try { const p = JSON.parse(fs.readFileSync(path.join(XD, f), 'utf8')).pr; if (p && p.q && p.q.length) have++; } catch { } }
   const cov = { built: Math.floor(Date.now() / 1000), done, due: st.length, have, of: files.length, elapsed: Math.round((Date.now() - T0) / 1000), ...D };
   try { fs.mkdirSync(CD, { recursive: true }); fs.writeFileSync(path.join(CD, 'results.json'), JSON.stringify(cov)); } catch { }
   console.log('results', JSON.stringify(cov));
 }
 if (require.main === module) main();
-module.exports = { profits };
+module.exports = { profits, restate, caFactor };
