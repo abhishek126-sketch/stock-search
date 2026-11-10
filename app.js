@@ -359,10 +359,10 @@ function analystCard(d) {
 function drawChart() {
   const svg = $('#chart'); if (!svg || !CUR) return; const W = svg.clientWidth || 600, H = 260, pad = { l: 8, r: 54, t: 10, b: 22 };
   const span = { '1M': 31, '6M': 183, '1Y': 366, '5Y': 1830 }[RANGE], h = CUR.hist, end = last(h)[0];
-  const closes = h.map(x => x[1]), d50 = smaSeries(closes, 50), d200 = smaSeries(closes, 200);
+  const closes = h.map(x => x[1]), d20 = smaSeries(closes, 20), d50 = smaSeries(closes, 50), d200 = smaSeries(closes, 200);
   const idx = h.map((x, i) => i).filter(i => h[i][0] >= end - span * DAY); if (idx.length < 2) { svg.innerHTML = ''; return; }
   const pts = idx.map(i => h[i]); const vals = pts.map(x => x[1]);
-  const dm = SHOW_DMA && RANGE !== '1M' && !(CUR.source || '').startsWith('Alpha') ? idx.flatMap(i => [d50[i], d200[i]]).filter(isNum) : [];
+  const dm = SHOW_DMA && RANGE !== '1M' && !(CUR.source || '').startsWith('Alpha') ? idx.flatMap(i => [d20[i], d50[i], d200[i]]).filter(isNum) : [];
   let lo = Math.min(...vals, ...dm), hi = Math.max(...vals, ...dm); const pd = (hi - lo) * 0.06 || 1; lo -= pd; hi += pd;
   const t0 = pts[0][0], t1 = last(pts)[0], X = t => pad.l + (W - pad.l - pad.r) * (t - t0) / (t1 - t0 || 1), Y = v => pad.t + (H - pad.t - pad.b) * (1 - (v - lo) / (hi - lo));
   const path = a => a.map((p, i) => (i ? 'L' : 'M') + X(p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join('');
@@ -370,12 +370,13 @@ function drawChart() {
   let g = ''; for (let i = 0; i <= 4; i++) { const v = lo + (hi - lo) * i / 4, y = Y(v); g += `<line x1="${pad.l}" x2="${W - pad.r}" y1="${y}" y2="${y}" stroke="#e2e8f0"/><text x="${W - pad.r + 4}" y="${y + 4}" font-size="10" fill="#64748b">${v >= 1000 ? Math.round(v).toLocaleString('en-IN') : v.toFixed(v < 10 ? 2 : 1)}</text>`; }
   for (let i = 0; i <= 3; i++) { const t = t0 + (t1 - t0) * i / 3; g += `<text x="${Math.min(X(t), W - pad.r - 30)}" y="${H - 6}" font-size="10" fill="#64748b" text-anchor="${i === 0 ? 'start' : 'middle'}">${new Date(t * 1000).toLocaleDateString('en-GB', RANGE === '5Y' ? { month: 'short', year: 'numeric' } : { day: 'numeric', month: 'short' })}</text>`; }
   let ov = '';
-  if (dm.length) { const s50 = idx.filter(i => isNum(d50[i])).map(i => [h[i][0], d50[i]]), s200 = idx.filter(i => isNum(d200[i])).map(i => [h[i][0], d200[i]]);
+  if (dm.length) { const s20 = idx.filter(i => isNum(d20[i])).map(i => [h[i][0], d20[i]]), s50 = idx.filter(i => isNum(d50[i])).map(i => [h[i][0], d50[i]]), s200 = idx.filter(i => isNum(d200[i])).map(i => [h[i][0], d200[i]]);
+    if (s20.length > 1) ov += `<path d="${path(s20)}" fill="none" stroke="#0891b2" stroke-width="1.2"/>`;
     if (s50.length > 1) ov += `<path d="${path(s50)}" fill="none" stroke="#f59e0b" stroke-width="1.3"/>`; if (s200.length > 1) ov += `<path d="${path(s200)}" fill="none" stroke="#6366f1" stroke-width="1.3"/>`; }
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = `${g}<path d="${path(pts)}L${X(t1)} ${H - pad.b}L${X(t0)} ${H - pad.b}Z" fill="${col}" opacity=".08"/><path d="${path(pts)}" fill="none" stroke="${col}" stroke-width="1.8"/>${ov}<g id="cx" style="display:none"><line id="cxl" y1="${pad.t}" y2="${H - pad.b}" stroke="#94a3b8" stroke-dasharray="3 3"/><circle id="cxc" r="4" fill="${col}"/></g>`;
   const rch = ((last(vals) / vals[0]) - 1);
-  $('#rchg').innerHTML = `${RANGE} change: ${sgnPct(rch)}` + (dm.length ? ' &nbsp;<span style="color:#f59e0b">— 50-DMA</span> <span style="color:#6366f1">— 200-DMA</span>' : '');
+  $('#rchg').innerHTML = `${RANGE} change: ${sgnPct(rch)}` + (dm.length ? ' &nbsp;<span style="color:#0891b2">— 20-DMA</span> <span style="color:#f59e0b">— 50-DMA</span> <span style="color:#6366f1">— 200-DMA</span>' : '');
   const tip = $('#tip');
   const move = e => { const r = svg.getBoundingClientRect(), x = ((e.touches ? e.touches[0].clientX : e.clientX) - r.left) * W / r.width;
     let best = 0, bd = Infinity; pts.forEach((p, i) => { const dd = Math.abs(X(p[0]) - x); if (dd < bd) { bd = dd; best = i; } });
@@ -405,7 +406,7 @@ function render() {
     <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roe) ? Q('roe', fmtPct(k.roe)) : fmtPct(k.roe)}</b></div>
     <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roce) ? Q('roce', fmtPct(k.roce)) : fmtPct(k.roce)}</b></div>
     <div><span>Debt / equity</span><b>${typeof isFinD === 'function' && isFinD(d) ? '<span class="mut" title="For banks and lenders, deposits and borrowings are their raw material, so debt/equity is not comparable with other companies">n/m (bank / lender)</span>' : k.negEquity ? 'negative equity' : isNum(k.de) ? Q('de', k.de.toFixed(2)) : NA}</b></div>
-    <div><span>20 / 50 / 200 DMA</span><b>${[k.dma20, k.dma50, k.dma200].some(isNum) ? Q('hist', [k.dma20, k.dma50, k.dma200].map(v => isNum(v) ? `<span style="white-space:nowrap">${fmtP(v, c)}</span>` : NA).join(' / ')) : `${NA} / ${NA} / ${NA}`}</b></div>
+    <div><span>20 / 50 / 200 DMA</span><b>${[k.dma20, k.dma50, k.dma200].some(isNum) ? Q('hist', [k.dma20, k.dma50, k.dma200].map(v => isNum(v) ? `<span class="nw">${fmtP(v, c)}</span>` : NA).join(' / ')) : `${NA} / ${NA} / ${NA}`}</b></div>
     <div><span>RSI (14)</span><b>${isNum(k.rsi) ? k.rsi.toFixed(0) : NA}</b></div>
     <div><span>1-yr return</span><b>${isNum(k.ret1y) ? Q('ret1y', sgnPct(k.ret1y)) : NA}</b></div>
    </div></div>`;
