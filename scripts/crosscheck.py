@@ -96,6 +96,9 @@ if nse['mode'] != 'live':
         n = 0
         for r in csv.DictReader(io.StringIO(raw), skipinitialspace=True):
             r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
+            if n == 0 and r.get('DATE1'):          # session date inside the file (a holiday's file holds the previous session)
+                try: day = dt.datetime.strptime(r['DATE1'], '%d-%b-%Y').date()
+                except ValueError: pass
             if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST'): continue
             s = r['SYMBOL'] + '.NS'; y = Q.get(s)
             if not y: continue
@@ -119,6 +122,9 @@ if any(s.endswith('.BO') for s in Q):
         except Exception: continue
         n = 0
         for r in csv.DictReader(io.StringIO(raw)):
+            if n == 0 and (r.get('TradDt') or '').strip():
+                try: day = dt.datetime.strptime(r['TradDt'].strip(), '%Y-%m-%d').date()
+                except ValueError: pass
             if (r.get('FinInstrmTp') or '').strip() != 'STK': continue
             s = (r.get('TckrSymb') or '').strip() + '.BO'; y = Q.get(s)
             if not y: continue

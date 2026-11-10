@@ -29,7 +29,12 @@ async function delivery() {
     let csv; try { csv = await get(`https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${ddmmyyyy(d)}.csv`); } catch (e) { console.log('deliv', d, e.message); continue; }
     if (!csv || !/DELIV_PER/.test(csv.slice(0, 300))) continue;                  // holiday or not published yet
     const lines = csv.trim().split(/\r?\n/), h = lines[0].split(',').map(s => s.trim()), ix = k => h.indexOf(k);
-    const iS = ix('SYMBOL'), iR = ix('SERIES'), iQ = ix('TTL_TRD_QNTY'), iD = ix('DELIV_PER');
+    const iS = ix('SYMBOL'), iR = ix('SERIES'), iQ = ix('TTL_TRD_QNTY'), iD = ix('DELIV_PER'), iT = ix('DATE1');
+    // the session date inside the file: on a holiday NSE publishes a file named for that day holding the previous
+    // session (sec_bhavdata_full_10112026.csv = 09-Nov-2026 on Diwali Balipratipada) — never file it under the holiday
+    const td = iT >= 0 && lines[1] ? iso(lines[1].split(',')[iT]) : d;
+    if (!td) continue;
+    if (td !== d || have.has(td)) { have.add(d); continue; }
     for (const l of lines.slice(1)) {
       const c = l.split(',').map(s => s.trim()); if (!['EQ', 'BE', 'BZ', 'SM', 'ST'].includes(c[iR])) continue;
       const p = parseFloat(c[iD]); if (!isFinite(p)) continue;
@@ -37,6 +42,11 @@ async function delivery() {
     }
     st.days.push(d); have.add(d); got++;
   }
+  // clean-up for days filed before the date check: a "session" whose traded quantities equal the previous session's
+  // for the most-traded stocks is the previous session's file under a holiday's name — drop it
+  const sig = d => ['RELIANCE', 'HDFCBANK', 'INFY', 'TCS', 'ITC'].map(s => ((st.sym[s] || []).find(r => r[0] === d) || [])[2]).join('|');
+  const ds = [...new Set(st.days)].sort();
+  for (let k = 1; k < ds.length; k++) { const a = sig(ds[k]); if (a.replace(/\|/g, '') && a === sig(ds[k - 1])) { console.log('delivery: dropped', ds[k], '(copy of', ds[k - 1] + ')'); st.days = st.days.filter(x => x !== ds[k]); } }
   st.days = [...new Set(st.days)].sort().slice(-KEEP);
   const keep = new Set(st.days);
   for (const s in st.sym) { const a = st.sym[s].filter(r => keep.has(r[0])).sort((x, y) => x[0] < y[0] ? -1 : 1); const u = []; for (const r of a) if (!u.length || u[u.length - 1][0] !== r[0]) u.push(r); if (u.length) st.sym[s] = u; else delete st.sym[s]; }

@@ -272,14 +272,23 @@ def nse_bhavcopy():
         day = today - dt.timedelta(days=back)
         try: raw = get('https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_%s.csv' % day.strftime('%d%m%Y'), tries=2).decode()
         except Exception: continue
-        rows = {}
+        rows, td = {}, None
         for r in csv.DictReader(io.StringIO(raw), skipinitialspace=True):
             r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
+            if td is None: td = trade_date(r.get('DATE1'), '%d-%b-%Y')
             if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST'): continue
             try: rows[r['SYMBOL']] = (float(r['CLOSE_PRICE']), float(r['PREV_CLOSE']))
             except (KeyError, ValueError): pass
-        if len(rows) > 500: return day, rows
+        if len(rows) > 500: return td or day, rows
     return None, {}
+
+def trade_date(v, fmt):
+    """The session date written inside an exchange end-of-day file. On a holiday NSE still publishes a file named for
+    that day holding the previous session (sec_bhavdata_full_10112026.csv had DATE1 09-Nov-2026 on the Diwali
+    Balipratipada holiday), so the file name must not be taken as the trading day."""
+    import datetime as dt
+    try: return dt.datetime.strptime((v or '').strip(), fmt).date()
+    except ValueError: return None
 
 def bse_bhavcopy():
     """Latest official BSE end-of-day file (UDiFF BhavCopy_BSE_CM, published in the evening).
@@ -290,12 +299,13 @@ def bse_bhavcopy():
         day = today - dt.timedelta(days=back)
         try: raw = get('https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_%s_F_0000.CSV' % day.strftime('%Y%m%d'), tries=2).decode('utf-8', 'ignore')
         except Exception: continue
-        rows = {}
+        rows, td = {}, None
         for r in csv.DictReader(io.StringIO(raw)):
+            if td is None: td = trade_date(r.get('TradDt'), '%Y-%m-%d')
             if (r.get('FinInstrmTp') or '').strip() != 'STK': continue
             try: rows[(r.get('TckrSymb') or '').strip()] = (float(r['ClsPric']), float(r.get('PrvsClsgPric') or 0) or None)
             except (KeyError, ValueError, TypeError): pass
-        if len(rows) > 500: return day, rows
+        if len(rows) > 500: return td or day, rows
     return None, {}
 
 def apply_exchange_close(docs, ex):
