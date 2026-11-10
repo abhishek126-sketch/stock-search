@@ -1,0 +1,28 @@
+name: Code checks
+# Runs on every push to main. A red mark (and GitHub's e-mail) means something would break the app or the data jobs:
+#  - a Python or JavaScript syntax error (the evening refresh / exchange-data job would fail), or
+#  - app files changed without a new cache version in sw.js (installed apps on phones / PCs would keep the old code).
+on:
+  push: { branches: [main] }
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 30 }
+      - name: Python scripts compile
+        run: python3 -m py_compile scripts/*.py
+      - name: JavaScript syntax (app and scripts)
+        run: for f in *.js scripts/*.js; do node --check "$f" || exit 1; done
+      - name: App files changed -> service-worker cache version bumped
+        env: { BEFORE: '${{ github.event.before }}' }
+        run: |
+          base="$BEFORE"; git cat-file -e "$base^{commit}" 2>/dev/null || base=HEAD~1
+          ch=$(git diff --name-only "$base" HEAD -- '*.js' '*.html' '*.css' manifest.webmanifest 'vendor/*' ':!scripts/*' | grep -v '^sw.js$' || true)
+          if [ -n "$ch" ] && ! git diff "$base" HEAD -- sw.js | grep -q '^+const CACHE'; then
+            echo "::error::App files changed but the CACHE version in sw.js was not bumped - installed apps would keep the old code: $ch"; exit 1
+          fi
+          echo "ok"

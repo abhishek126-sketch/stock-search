@@ -305,7 +305,8 @@ async function main() {
   for (const f of files) {
     const fp = path.join(XD, f); let d; try { d = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { continue; }
     const p = d.pr; if (!p || !p.q || !p.q.length) continue;
-    const before = JSON.stringify([p.q, p.fy]), adj = restate(p.q, p.fy || [], caOf(f.slice(0, -8)), p.alt);
+    const before = JSON.stringify([p.q, p.fy]); let adj;
+    try { adj = restate(p.q, p.fy || [], caOf(f.slice(0, -8)), p.alt); } catch (e) { if (D.errs.length < 8) D.errs.push(f + ' restate ' + String(e.message).slice(0, 60)); continue; }
     if (adj) p.epsAdj = adj; else delete p.epsAdj;
     const nf = [...p.q, ...(p.fy || [])].filter(r => r.length > 5 && r[5] != null).length; if (nf) p.npFix = nf; else delete p.npFix; D.npFix = (D.npFix || 0) + nf;
     if (JSON.stringify([p.q, p.fy]) !== before) { fs.writeFileSync(fp, JSON.stringify(d)); re++; }

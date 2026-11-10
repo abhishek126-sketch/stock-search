@@ -689,7 +689,12 @@ def main():
         try: nse_fin(d, s); nfin += 'fundNSE' in d
         except Exception as e: print('nse_fin', s, e)
     print('financials from NSE results filings:', nfin)
-    K = {s: metrics(d) for s, d in docs.items()}
+    # one stock's odd data must never stop the whole refresh: its metrics are left empty and the error is logged
+    K, mfail = {}, []
+    for s, d in docs.items():
+        try: K[s] = metrics(d)
+        except Exception as e: K[s] = {}; mfail.append(s); print('metrics', s, repr(e)[:160])
+    if mfail: print('metrics failed for', len(mfail), 'stocks:', ' '.join(mfail[:20]))
     # relative strength rank (O'Neil-style weighting) within each market
     rsr = {}
     for mk in ('IN', 'US'):
