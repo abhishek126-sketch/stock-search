@@ -28,7 +28,18 @@ async function akTopic(k = AK()) { return 'ss-' + Array.from(await akSha('ntfy-t
 const akKey = async k => crypto.subtle.importKey('raw', await akSha('alerts-enc|' + k), 'AES-GCM', false, ['encrypt', 'decrypt']);
 async function akEnc(obj, k = AK()) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await akKey(k), new TextEncoder().encode(JSON.stringify(obj)))); return { v: 2, iv: ub64(iv), ct: ub64(ct) }; }
 async function akDec(bx, k = AK()) { const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u(bx.iv) }, await akKey(k), b64u(bx.ct)); return JSON.parse(new TextDecoder().decode(pt)); }
-async function alertsTopic() { return AK_ON() ? akTopic() : AL().topic; }
+// null = the repo copy is encrypted but this device has no (working) key yet: its old local topic is no longer used
+async function alertsTopic() { return AK_ON() ? akTopic() : AL_SRVENC ? null : AL().topic; }
+// phone set-up link: <app>#ak=<key>. The part after # never leaves the device (browsers don't send it to servers);
+// opening it stores the key, removes it from the address bar and history, and shows the Alerts page.
+const akLink = () => location.origin + location.pathname + '#ak=' + AK();
+function akFromHash() {
+  const m = /^#ak=(ssk1_[A-Za-z0-9_-]{20,})$/.exec(location.hash); if (!m) return false;
+  if (m[1] !== AK()) { LS.set('alertsKey', m[1]); LS.set('alertsKeyOk', false); }
+  history.replaceState(null, '', location.pathname + location.search + '#alerts'); return true;
+}
+akFromHash();   // runs before app.js routes the hash (that waits for the stock list), so it lands on #alerts
+addEventListener('hashchange', e => { if (akFromHash()) { e.stopImmediatePropagation(); showAlerts(); } }, true);
 let AL_SYNC = '', AL_SRVENC = false;
 async function alertsPull() {
   try {
@@ -93,7 +104,7 @@ function alertDialog(sym, id) {
 async function showAlerts() {
   const v = $('#view'); $('#home').hidden = true; v.hidden = false; CUR = null; updFav(); navTo('#alerts');
   v.innerHTML = '<div class="card"><p class="mut">Loading alerts…</p></div>'; await alertsPull(); if (!QUOTES) await loadQuotes(false);
-  const A = AL(), topic = await alertsTopic(), url = 'https://ntfy.sh/' + topic;
+  const A = AL(), topic = await alertsTopic(), url = topic ? 'https://ntfy.sh/' + topic : '';
   const row = a => { const ccy = a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD', [p] = curPrice(a.s);
     return `<tr><td><a href="#" data-s="${esc(a.s)}">${esc(a.s.replace(/\.(NS|BO)$/, ''))}</a>${a.note ? `<br><small class="mut">${esc(a.note)}</small>` : ''}</td><td>${alDesc(a)}</td><td>${isNum(p) ? fmtP(p, ccy) : '–'}</td>
     <td>${a.trig ? `<span style="color:var(--warn)">🔔 Triggered ${new Date(a.trig * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}${a.trigP ? ' @ ' + fmtP(a.trigP, ccy) : ''}</span><br><button class="btn sec" data-rearm="${a.id}" style="padding:3px 8px;font-size:12px">Re-arm</button>` : '<span class="up">● Armed</span>'}</td>
@@ -103,16 +114,19 @@ async function showAlerts() {
   <p class="mut" id="alStat">${esc(AL_SYNC)}</p>
   <p class="src">Checked by the server every ~5 min in market hours (every 3 h otherwise) against the latest quotes; each alert fires once until you re-arm it. While the app is open you also get an in-app notification.</p></div>
   ${privCard()}
-  <div class="card"><h2>📲 Push notifications (ntfy)</h2><p>Your private topic: <code style="word-break:break-all">${esc(topic)}</code></p>
-  <div class="links"><a class="btn" href="${url}" target="_blank" rel="noopener">Open in ntfy</a><a class="btn sec" href="https://ntfy.sh/app" target="_blank" rel="noopener">Get the ntfy app</a><button class="btn sec" id="alTest">Send test push</button></div>
-  <p class="mut">Install the free <b>ntfy</b> app (Android: Play Store / F-Droid; iPhone: App Store), tap <b>+</b>, and subscribe to the topic above (server ntfy.sh). Anyone who knows the topic name could read these alerts, so don't share it.${AK_ON() ? ' <b>If you subscribed to an older topic</b> (starting <code>stocksearch-</code>), remove it in the ntfy app — it is no longer used.' : ''}</p>
+  <div class="card"><h2>📲 Push notifications (ntfy)</h2>
+  ${topic ? `<p>Your private topic: <code style="word-break:break-all" id="alTopic">${esc(topic)}</code> <button class="btn sec" id="alCopyT" style="padding:3px 8px;font-size:12px">Copy topic</button></p>
+  <div class="links"><a class="btn" href="ntfy://ntfy.sh/${esc(topic)}">Open in ntfy app</a><a class="btn sec" href="${url}" target="_blank" rel="noopener">Open in browser</a><a class="btn sec" href="https://ntfy.sh/app" target="_blank" rel="noopener">Get the ntfy app</a><button class="btn sec" id="alTest">Send test push</button></div>
+  <p class="mut"><b>On your phone:</b> install the free <b>ntfy</b> app (Android: Play Store / F-Droid; iPhone: App Store) → open it → tap <b>+</b> → <b>Topic name:</b> paste the topic above (leave “Use another server” off, so it uses ntfy.sh) → <b>Subscribe</b>. Then tap <b>Send test push</b> here. On Android, <b>Open in ntfy app</b> fills it in for you. Anyone who knows the topic could read these alerts, so don't share it.${AK_ON() ? ' <b>If you subscribed to an older topic</b> (starting <code>stocksearch-</code>), remove it in the ntfy app — it is no longer used.' : ''}</p>`
+  : '<p class="doubt" style="text-decoration:none">🔒 Your alerts are private: this device needs your alerts key before it can show your push topic — open the phone set-up link from your other device, or paste the key in the card above.</p>'}
   ${'Notification' in window && Notification.permission !== 'granted' ? '<button class="btn sec" id="alPerm">Allow in-app notifications</button>' : ''}</div>`;
   $('#aback').onclick = e => { e.preventDefault(); goHome(); };
   const save = async () => { $('#alStat').textContent = 'Saving…'; const m = await alertsPush(); showAlerts().then(() => $('#alStat').textContent = m); };
   v.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { if (!confirm('Delete this alert?')) return; const X = AL(); X.alerts = X.alerts.filter(a => a.id !== b.dataset.del); LS.set('alerts', X); save(); });
   v.querySelectorAll('[data-rearm]').forEach(b => b.onclick = () => { const X = AL(), a = X.alerts.find(a => a.id === b.dataset.rearm); a.trig = a.trigP = null; a.ver = Math.floor(Date.now() / 1000); LS.set('alerts', X); save(); });
   v.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => alertDialog(null, b.dataset.edit));
-  $('#alTest').onclick = async () => { try { await fetch(url, { method: 'POST', body: 'Test from Stock Search — push notifications are working.' }); $('#alStat').textContent = '✔ Test push sent to your topic.'; } catch (e) { $('#alStat').textContent = 'Test failed: ' + e.message; } };
+  const ct = $('#alCopyT'); if (ct) ct.onclick = async () => { try { await navigator.clipboard.writeText(topic); ct.textContent = 'Copied'; } catch { ct.textContent = 'Select it by hand'; } };
+  if ($('#alTest')) $('#alTest').onclick = async () => { try { await fetch(url, { method: 'POST', body: 'Test from Stock Search — push notifications are working.' }); $('#alStat').textContent = '✔ Test push sent to your topic.'; } catch (e) { $('#alStat').textContent = 'Test failed: ' + e.message; } };
   const pb = $('#alPerm'); if (pb) pb.onclick = () => Notification.requestPermission().then(() => showAlerts());
   privWire();
   window.scrollTo(0, 0);
@@ -122,7 +136,12 @@ const SECRET_URL = 'https://github.com/abhishek126-sketch/stock-search/settings/
 function privCard() {
   const k = AK();
   if (AK_ON()) return `<div class="card"><h2>🔒 Private alerts: on</h2><p class="mut">${AL_SRVENC ? 'The copy on GitHub is encrypted with your key' : 'Switched on — the encrypted copy appears on GitHub after the next save (if it never does, check the <b>ALERTS_KEY</b> secret)'}; the push topic is made from the key and is never stored online.</p>
-    <details><summary class="mut">Use alerts on another device</summary><p class="mut">Open <b>🔔 Alerts</b> on the other device and paste this key there (keep it private, like a password):</p><p><code style="word-break:break-all" id="akShow">••••••••</code> <button class="btn sec" id="akReveal" style="padding:3px 8px;font-size:12px">Show</button> <button class="btn sec" id="akCopy" style="padding:3px 8px;font-size:12px">Copy</button></p></details></div>`;
+    <p><b>📱 Set up your phone:</b> <button class="btn sec" id="akLinkBtn" style="padding:4px 10px">Copy phone set-up link</button></p>
+    <p class="mut">Send that link to your own phone privately (e.g. e-mail it to yourself) and open it there in the browser you use for this app (on iPhone: copy it, open the installed app → 🔔 Alerts → paste the key instead). Your phone then shows your topic and alert list. The link contains your key — treat it like a password and delete the message afterwards.</p>
+    <details><summary class="mut">Or copy just the key</summary><p><code style="word-break:break-all" id="akShow">••••••••</code> <button class="btn sec" id="akReveal" style="padding:3px 8px;font-size:12px">Show</button> <button class="btn sec" id="akCopy" style="padding:3px 8px;font-size:12px">Copy</button></p></details></div>`;
+  if (AL_SRVENC && !AK_ON()) return `<div class="card" style="border:2px solid var(--warn)"><h2>🔒 Add your alerts key to this device</h2>
+    <p>${k ? '<b>The key on this device does not match your alerts.</b> ' : ''}Your alerts are private and locked with a key made on your other device. Open the <b>phone set-up link</b> from that device (🔔 Alerts → Copy phone set-up link), or paste the key here:</p>
+    <p><input type="text" id="akPaste" placeholder="ssk1_…" style="width:100%"></p><button class="btn" id="akUse">Use this key</button><p class="mut" id="akMsg"></p></div>`;
   return `<div class="card" style="border:2px solid var(--warn)"><h2>🔒 Make your alerts private (recommended)</h2>
     <p>Right now your alert list and your push topic are stored in plain text in the app's public GitHub repo — anyone could read them or send fake alerts to your phone. This locks them with a key that only this app and your GitHub repo know.</p>
     <ol style="padding-left:18px">
@@ -137,6 +156,7 @@ function privWire() {
   const m = t => { const e = $('#akMsg'); if (e) e.textContent = t; };
   const mk = $('#akMake'); if (mk) mk.onclick = () => { LS.set('alertsKey', newAlertsKey()); showAlerts(); };
   const cp = $('#akCopy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(AK()); cp.textContent = 'Copied'; } catch { cp.textContent = 'Copy failed — select it by hand'; } };
+  const lk = $('#akLinkBtn'); if (lk) lk.onclick = async () => { try { await navigator.clipboard.writeText(akLink()); lk.textContent = 'Link copied'; } catch { lk.textContent = 'Copy failed'; } };
   const rv = $('#akReveal'); if (rv) rv.onclick = () => { $('#akShow').textContent = AK(); rv.remove(); };
   const on = $('#akOn'); if (on) on.onclick = async () => {
     if (!LS.get('ghpat', '')) { m('Add your GitHub token in ⚙ Settings first — it is needed to save alerts to the repo.'); return; }
