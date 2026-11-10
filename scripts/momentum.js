@@ -43,10 +43,17 @@ const EXCL = /^(Financial Services|Real Estate)$/i;
 
 // growth % from a to b; a loss turning into a profit counts as growth ('turn')
 const growth = (now_, then_) => now_ == null || then_ == null ? null : then_ > 0 ? 100 * (now_ / then_ - 1) : now_ > 0 ? Infinity : null;
+// drops misread quarters: sales > 8x the median quarter, or (median ≥ ₹20 Cr) under 1/8 of it — same rule as
+// build_data.py good_quarters (e.g. HATSUN Jun-2025 ₹46,599 Cr vs ~₹2,500 Cr)
+function goodQuarters(q) {
+  const rv = q.map(r => r[2]).filter(v => typeof v === 'number' && v > 0).sort((a, b) => a - b);
+  if (rv.length < 4) return q; const m = rv[rv.length >> 1];
+  return q.filter(r => !(typeof r[2] === 'number' && r[2] > 0 && (r[2] > 8 * m || (m >= 2e8 && r[2] < m / 8))));
+}
 function fundamentals(pr) {
   if (!pr) return { pending: true };                                     // not read by results.js yet
   if (!pr.q || !pr.qe) return { known: false, why: 'no results filings on NSE' };
-  const Q = new Map(pr.q), le = pr.qe, ya = (+le.slice(0, 4) - 1) + le.slice(4);
+  const Q = new Map(goodQuarters(pr.q)), le = pr.qe, ya = (+le.slice(0, 4) - 1) + le.slice(4);
   const qg = growth(Q.get(le), Q.get(ya));
   const G = pr.g5; let g5 = null;
   if (G && G.a && G.z) g5 = G.z[1] > 0 && G.a[1] > 0 ? 100 * (Math.pow(G.a[1] / G.z[1], 1 / 5) - 1) : G.a[1] > 0 && G.z[1] <= 0 ? Infinity : null;

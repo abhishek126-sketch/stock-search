@@ -338,15 +338,41 @@ def nse_fin(d, s):
     if not s.endswith('.NS') or not isinstance(f, dict): return
     try: pr = (json.load(open(os.path.join(OUT, 'x', s + '.json'))).get('pr') or {})
     except Exception: return
-    q = [r for r in (pr.get('q') or []) if isinstance(r, list) and len(r) >= 4]
-    a = [r for r in (pr.get('fy') or []) if isinstance(r, list) and len(r) >= 4][-4:]   # last 4 years, as Yahoo gives (growth = 3-year rate)
+    q = good_quarters([list(r) for r in (pr.get('q') or []) if isinstance(r, list) and len(r) >= 4])
+    a = [list(r) for r in (pr.get('fy') or []) if isinstance(r, list) and len(r) >= 4][-4:]   # last 4 years, as Yahoo gives (growth = 3-year rate)
+    # EPS on today's share count: a filing's EPS can be off from profit ÷ shares (bonus / split / new shares not yet in it,
+    # or a unit slip — e.g. JNKINDIA ×2, CEATLTD ×4, JSWDULUX ×10 on 10 Nov 2026), which made the P/E far too low.
+    # Shares now = Yahoo market cap ÷ the price on that date. When a period's filed EPS implies a share count more than
+    # 25% away from it, EPS = profit ÷ shares now (P/E then equals market cap ÷ TTM profit, as Screener shows it).
+    sh, mc = None, last(series(f, 'trailingMarketCap'))
+    if mc and mc[1] and d.get('hist'):
+        pa = price_at(d['hist'], time.mktime(time.strptime(mc[0], '%Y-%m-%d')) + 86400)
+        if pa: sh = mc[1] / pa
+    # Only when the latest quarter itself is off: older periods were already put on the latest filing's share count by
+    # results.js, so a genuine share issue years ago is left as filed.
+    nadj, off = 0, lambda r: isinstance(r[1], (int, float)) and r[1] != 0 and isinstance(r[3], (int, float)) and not (abs(r[3]) >= 0.05 and 0.8 <= (r[1] / r[3]) / sh <= 1.25)
+    if sh and sh > 0 and q and off(q[-1]):
+        for r in q + a:
+            np_, e = r[1], r[3]
+            if isinstance(np_, (int, float)) and isinstance(e, (int, float)) and np_ != 0:
+                k = (np_ / e) / sh if abs(e) >= 0.05 else 0
+                if not 0.8 <= k <= 1.25: r[3] = round(np_ / sh, 2); nadj += 1
     used = []
     for key, rows, i in (('quarterlyNetIncome', q, 1), ('quarterlyTotalRevenue', q, 2), ('quarterlyDilutedEPS', q, 3),
                          ('annualNetIncome', a, 1), ('annualTotalRevenue', a, 2), ('annualDilutedEPS', a, 3)):
         v = sorted([r[0], r[i]] for r in rows if isinstance(r[i], (int, float)))
         if len(v) >= 2: f[key] = v; used.append(key)
-    if used: d['fundNSE'] = {'b': pr.get('b'), 'qe': pr.get('qe'), 'keys': used}
+    if used: d['fundNSE'] = {'b': pr.get('b'), 'qe': pr.get('qe'), 'keys': used, **({'epsSh': nadj} if nadj else {})}
     else: d.pop('fundNSE', None)
+
+def good_quarters(q):
+    """Drops quarters whose sales are far out of line with the company's other quarters — a misread filing (HATSUN
+    Jun-2025 ₹46,599 Cr vs ~₹2,500 Cr; COROMANDEL Mar-2026 ₹60 Cr vs ~₹8,000 Cr). Rule: sales > 8x the median quarter,
+    or (median ≥ ₹20 Cr) under 1/8 of it. Negative sales (investment companies) are left alone. Same rule in momentum.js."""
+    rv = sorted(r[2] for r in q if isinstance(r[2], (int, float)) and r[2] > 0)
+    if len(rv) < 4: return q
+    m = rv[len(rv) // 2]
+    return [r for r in q if not (isinstance(r[2], (int, float)) and r[2] > 0 and (r[2] > 8 * m or (m >= 2e8 and r[2] < m / 8)))]
 
 def promoter_fields(s, pr):
     """Promoter holding & pledge for the summary row (Score filter), from data/x/<SYM>.json written by build_corp.py.
