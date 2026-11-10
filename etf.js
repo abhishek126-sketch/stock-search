@@ -1,12 +1,12 @@
 'use strict';
 // ===== ETF pages: fund facts, holdings, returns and a short rule-based ETF summary (stock-only sections hidden) =====
 Object.assign(GL, {
-  etf: ['ETF (exchange-traded fund)', 'A fund that holds a basket of assets (an index, gold, bonds…) and trades on the exchange like a share.', 'Buying 1 unit of NIFTYBEES gives you a slice of all 50 Nifty companies.'],
-  aum: ['AUM / total assets', 'Total money managed by the fund. Bigger funds are usually more liquid and less likely to close.', 'AUM $500B = very large; under $50M = small.'],
-  er: ['Expense ratio', 'Yearly fee the fund deducts from its assets, as a % of your investment. Lower is better for index funds.', '0.10% on ₹1,00,000 = ₹100 a year.'],
-  nav: ['NAV (net asset value)', 'Value of everything the fund holds, per unit, calculated by the fund house (in India published daily on AMFI).', 'Holdings worth ₹267 per unit → NAV ₹267.'],
-  prem: ['Premium / discount to NAV', 'How far the market price is above (premium) or below (discount) the NAV. Large gaps mean you may overpay or get less when selling.', 'Price ₹270, NAV ₹267 → 1.1% premium.'],
-  ytd: ['YTD (year to date)', 'Return since 1 January of this year.', 'Up 8% YTD = 8% higher than on 1 Jan.'],
+  etf: ['ETF (exchange-traded fund)', 'A fund that holds a basket of assets (an index, gold, bonds…) and trades on the exchange like a share.', 'Buying 1 unit of NIFTYBEES gives you a slice of all 50 Nifty companies.', 'A cheap, simple way to own a whole index; check expense ratio, volume and tracking.'],
+  aum: ['AUM / total assets', 'Total money managed by the fund. Bigger funds are usually more liquid and less likely to close.', 'AUM $500B = very large; under $50M = small.', 'Above ₹1,000 Cr is comfortable; very small funds can trade thinly or close.'],
+  er: ['Expense ratio', 'Yearly fee the fund deducts from its assets, as a % of your investment. Lower is better for index funds.', '0.10% on ₹1,00,000 = ₹100 a year.', 'Below 0.2% is excellent for index ETFs; above 0.5% is costly.'],
+  nav: ['NAV (net asset value)', 'Value of everything the fund holds, per unit, calculated by the fund house (in India published daily on AMFI).', 'Holdings worth ₹267 per unit → NAV ₹267.', 'The ETF\'s market price should stay very close to its NAV.'],
+  prem: ['Premium / discount to NAV', 'How far the market price is above (premium) or below (discount) the NAV. Large gaps mean you may overpay or get less when selling.', 'Price ₹270, NAV ₹267 → 1.1% premium.', 'Within ±0.5% is normal; above 1–2% premium means you are overpaying — wait or use another ETF.'],
+  ytd: ['YTD (year to date)', 'Return since 1 January of this year.', 'Up 8% YTD = 8% higher than on 1 Jan.', 'Good for a quick check; judge a fund over 3–5 years, not one year.'],
 });
 const etfMkt = d => d.symbol.match(/\.(NS|BO)$/) ? 'IN' : 'US';
 function etfKeyCard(d, k) {
