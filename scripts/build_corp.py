@@ -91,6 +91,20 @@ def shp_pledge(x, q):
     try: shp = time.strftime('%d-%b-%Y', time.strptime(q, '%Y-%m-%d'))
     except ValueError: shp = q
     return {'pp': round(100 * pl / prom, 2) if prom else 0.0, 'pt': round(100 * pl / tot, 2), 'ph': round(100 * prom / tot, 2), 'shp': shp, 'bd': '', 'src': 'shp'}
+def shp_total(x):
+    """Total number of shares in the shareholding-pattern XBRL (ShareholdingPatternMember row) — the official share
+    count for market cap. Yahoo's count lags share issues: VRLLOG / GABRIEL / TIMETECHNO market cap was 4-8% off
+    INDmoney and Screener on 10 Nov 2026."""
+    ctx = {}
+    for cid, body in _CTX.findall(x):
+        if 'typedMember' in body: continue
+        m = [s.split(':')[-1] for s in _MEM.findall(body)]
+        if len(m) == 1: ctx[cid] = m[0]
+    for cid, v in re.findall(_CNT % 'NumberOfShares', x):
+        if ctx.get(cid) == 'ShareholdingPatternMember':
+            try: return float(v) or None
+            except ValueError: pass
+    return None
 def shp_inst(x):
     """-> (fii %, dii %) from one shareholding-pattern XBRL text (None where not found)."""
     ctx = {}
@@ -276,10 +290,12 @@ def main():
             # FII / DII: newest 5 quarters; at most 2 new XBRL files per stock per run (fills in over a few runs)
             have = {q[0]: q for q in (d.get('inst') or [])}
             need = [q for q in sorted(xb)[-5:] if q not in have][-2:]
+            # rows read before the share count was stored: re-read the latest quarter once to add it ([q, fii, dii, shares])
+            if xb and max(xb) in have and len(have[max(xb)]) < 4 and max(xb) not in need: need.append(max(xb))
             for q in need:
                 if time.time() - T0 > MAXSEC: break
                 try:
-                    xt = shp_text(xb[q]); fv, dv = shp_inst(xt); have[q] = [q, fv, dv]
+                    xt = shp_text(xb[q]); fv, dv = shp_inst(xt); have[q] = [q, fv, dv, shp_total(xt)]
                     if q == max(xb): xlast = xt
                     with LK: IDIAG['parsed'] += 1; IDIAG['noFii'] += fv is None
                 except Exception as e:

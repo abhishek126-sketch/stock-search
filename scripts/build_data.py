@@ -346,16 +346,21 @@ def nse_fin(d, s):
     stocks (latest-quarter sales 16/18 within 1%, TTM EPS 17/18 within 5%; 10 Nov 2026)."""
     f = d.get('fund')
     if not s.endswith('.NS') or not isinstance(f, dict): return
-    try: pr = (json.load(open(os.path.join(OUT, 'x', s + '.json'))).get('pr') or {})
+    try: xd = json.load(open(os.path.join(OUT, 'x', s + '.json'))); pr = xd.get('pr') or {}
     except Exception: return
+    # official share count from the latest shareholding-pattern filing (build_corp.py inst rows [q, fii, dii, shares]),
+    # used for market cap in metrics() and for the EPS share check below; only when the filing is under ~7 months old
+    shs = [r for r in (xd.get('inst') or []) if isinstance(r, list) and len(r) > 3 and isinstance(r[3], (int, float)) and r[3] > 0]
+    if shs and time.time() - time.mktime(time.strptime(shs[-1][0], '%Y-%m-%d')) < 210 * 86400: d['sharesNSE'] = [shs[-1][0], shs[-1][3]]
+    else: d.pop('sharesNSE', None)
     q = good_quarters([list(r) for r in (pr.get('q') or []) if isinstance(r, list) and len(r) >= 4])
     a = [list(r) for r in (pr.get('fy') or []) if isinstance(r, list) and len(r) >= 4][-4:]   # last 4 years, as Yahoo gives (growth = 3-year rate)
     # EPS on today's share count: a filing's EPS can be off from profit ÷ shares (bonus / split / new shares not yet in it,
     # or a unit slip — e.g. JNKINDIA ×2, CEATLTD ×4, JSWDULUX ×10 on 10 Nov 2026), which made the P/E far too low.
     # Shares now = Yahoo market cap ÷ the price on that date. When a period's filed EPS implies a share count more than
     # 25% away from it, EPS = profit ÷ shares now (P/E then equals market cap ÷ TTM profit, as Screener shows it).
-    sh, mc = None, last(series(f, 'trailingMarketCap'))
-    if mc and mc[1] and d.get('hist'):
+    sh, mc = (d['sharesNSE'][1] if d.get('sharesNSE') else None), last(series(f, 'trailingMarketCap'))
+    if not sh and mc and mc[1] and d.get('hist'):
         pa = price_at(d['hist'], time.mktime(time.strptime(mc[0], '%Y-%m-%d')) + 86400)
         if pa: sh = mc[1] / pa
     # Only when the latest quarter itself is off: older periods were already put on the latest filing's share count by
@@ -421,6 +426,11 @@ def metrics(d):
         if x:
             pa = price_at(hist, time.mktime(time.strptime(x[0], '%Y-%m-%d')) + 86400)
             k[key] = x[1] * price / pa if pa and price else x[1]
+    # official share count (NSE shareholding filing); a bonus / split after that quarter-end would make it stale, so it
+    # is used only within 1.5x of Yahoo's figure (Yahoo kept otherwise)
+    if d.get('sharesNSE') and price:
+        m2 = price * d['sharesNSE'][1]
+        if not k.get('mcap') or 0.67 < m2 / k['mcap'] < 1.5: k['mcap'] = m2
     ni, eq, debt, ebit, ta, cl = (last(series(f, t)) for t in ('annualNetIncome', 'annualStockholdersEquity', 'annualTotalDebt', 'annualEBIT', 'annualTotalAssets', 'annualCurrentLiabilities'))
     eqs = series(f, 'annualStockholdersEquity')
     if ni and eq and eq[1] > 0:
