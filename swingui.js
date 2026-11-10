@@ -22,7 +22,7 @@ const SW_RULES = () => `<ul style="margin:4px 0;padding-left:18px">
   <li><b>Position size${swq('possize')}:</b> quantity = (capital × risk %) ÷ (entry − stop), so a stop-out costs about your chosen risk %${swq('riskpct')}.</li></ul>`;
 const SW_DISC = `<div class="disc" style="margin-top:8px"><b>Educational tool, not a recommendation.</b> These levels come from fixed technical rules applied to official closing prices; they don't know news, order flow or your situation. Gaps at the open can skip past a stop. Check the chart yourself, use a stop-loss, risk only a small part of your capital per trade, and consult a SEBI-registered adviser before trading.</div>`;
 
-const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'trend') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum'], ['dma', '📊 DMA setups']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'trend') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const swModeWire = box => box.querySelectorAll('[data-swmode]').forEach(b => b.onclick = () => { SWF.mode = b.dataset.swmode; swSave(); renderSwing(box); });
 
 // ===== Sector grouping: stocks from one sector tend to move together, so several setups in it are really one bet =====
@@ -64,6 +64,7 @@ function swGroup(rows, trFn, ncol) {
 
 async function renderSwing(box) {
   if (SWF.mode === 'mom') return renderMomentum(box);
+  if (SWF.mode === 'dma') return renderDma(box);
   if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `${swMode()}<p>${NA} — summary data could not be loaded.</p>`; swModeWire(box); return; }
   const asOf = SUMMARY.swingAsOf || '', all = SUMMARY.rows.filter(r => r.sw && r.sw.t && /\.(NS|BO)$/.test(r.s));
   const caps = ['All', 'Large', 'Mid', 'Small', 'Micro', 'Other'], cnt = st => all.filter(r => r.sw.st === st).length;
@@ -131,6 +132,66 @@ async function renderMomentum(box) {
   swModeWire(box);
   box.querySelectorAll('[data-mof]').forEach(b => b.onclick = () => { SWF.mof = b.dataset.mof; swSave(); renderMomentum(box); });
   const mg = box.querySelector('#mo-grp'); if (mg) mg.onchange = e => { SWF.grp = e.target.value; swSave(); renderMomentum(box); };
+}
+
+// ===== DMA setups (scripts/dmascan.js → dma.json; rules in dmasetup.js) =====
+let DMA = null;
+const DMST = { strongest: ['Strongest', '#15803d', '#dcfce7'], best: ['Best', '#1d4ed8', '#dbeafe'] };
+const dmBadge = st => { const s = DMST[st]; return s ? `<span class="tag" style="background:${s[2]};color:${s[1]};margin-left:0;font-weight:700">${s[0]}</span>` : ''; };
+const dmCr = v => isNum(v) ? (v >= 1e7 ? '₹' + (v / 1e7).toFixed(v >= 1e9 ? 0 : 1) + ' Cr' : '₹' + (v / 1e5).toFixed(1) + ' L') : '–';
+const DM_RULES = `<ul style="margin:4px 0;padding-left:18px">
+  <li><b>Best:</b> price above the 50-DMA${swq('dma')}, 50-DMA above the 200-DMA, and the session's volume more than <b>1.5×</b> its average of the previous 50 sessions${swq('avgvol')}.</li>
+  <li><b>Strongest:</b> all of that, plus price above the 20-DMA, 20-DMA above the 50-DMA, and a <b>golden cross</b>${swq('cross')} — the 50-DMA crossed above the 200-DMA within the last 60 sessions (about 3 months) and has stayed above. Every Strongest stock is also Best.</li>
+  <li>DMAs are simple averages of daily closing prices (official NSE / BSE close). Volume is Yahoo's daily volume, or NSE's official traded quantity when Yahoo's isn't in yet.</li>
+  <li><b>Liquid</b> = average turnover${swq('turnover')} of at least ₹1 Cr a day. A volume spike in a stock that hardly trades says little, so these are hidden unless you choose "Any turnover".</li>
+  <li>Stocks with under 200 sessions of history (recent listings) or no trading for over a week are not screened.</li></ul>`;
+async function renderDma(box) {
+  if (!DMA) { box.innerHTML = `${swMode()}<p class="mut">Loading…</p>`; swModeWire(box); try { DMA = await getJSON(DATA + 'dma.json'); } catch (e) { DMA = { err: e.message }; } }
+  if (typeof ensureSummary === 'function') await ensureSummary();
+  const m = DMA;
+  if (!m || m.err || !m.list) { box.innerHTML = `${swMode()}<p>${NA} — the DMA setups scan hasn't run yet; it appears after the next evening refresh.</p>`; swModeWire(box); return; }
+  const st = SWF.dst || 'all', liqOnly = SWF.dliq !== false, cap = SWF.dcap || 'All', caps = ['All', 'Large', 'Mid', 'Small', 'Micro', 'Other', 'Penny'];
+  const base = m.list.filter(r => (!liqOnly || r.liq) && (cap === 'All' || r.cap === cap));
+  const rows = base.filter(r => st === 'all' || r.st === st), nS = base.filter(r => r.st === 'strongest').length;
+  const stale = m.asOf && (Date.now() - Date.parse(m.asOf + 'T15:30:00+05:30')) / 864e5 > 4;
+  const tr = (r, extra = '') => `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 28))} ${dmBadge(r.st)}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.cap ? ' · ' + esc(r.cap) : ''}</small>${extra}</td>
+    <td><b>₹${r2s(r.p)}</b><br><small class="up">+${((r.p / r.d50 - 1) * 100).toFixed(1)}% vs 50-DMA</small></td>
+    <td><small>20: ₹${r2s(r.d20)}<br>50: ₹${r2s(r.d50)}<br>200: ₹${r2s(r.d200)}</small></td>
+    <td><b>${r.vr}×</b></td><td>${r.gc ? `${swDate(r.gc)}<br><small class="mut">${r.gcAgo} session${r.gcAgo === 1 ? '' : 's'} ago</small>` : '<small class="mut">earlier</small>'}</td><td>${dmCr(r.tov)}</td></tr>`;
+  box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar select{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff}#dmt td:not(:first-child),#dmt th:not(:first-child){text-align:right}</style>
+  <p style="margin:0 0 6px">Moving-average trend setups${swq('dmaset')} from the close of <b>${swDate(m.asOf)}</b>. <span class="mut">Recomputed every evening after the official closing prices.</span>${stale ? ' <span class="doubt" style="text-decoration:none">⚠ more than 4 days old</span>' : ''}</p>
+  <div class="tabs">${[['all', 'All', base.length], ['strongest', 'Strongest', nS], ['best', 'Best only', base.length - nS]].map(([k, l, n]) => `<button data-dst="${k}" class="${st === k ? 'on' : ''}">${l} <small>${n}</small></button>`).join('')}</div>
+  <div class="swbar"><select id="dm-cap">${caps.map(c => `<option value="${c}" ${cap === c ? 'selected' : ''}>${c === 'All' ? 'All sizes' : c === 'Other' ? 'Other listed' : c === 'Penny' ? 'Penny' : c + ' cap'}</option>`).join('')}</select>
+   <select id="dm-liq"><option value="1" ${liqOnly ? 'selected' : ''}>Liquid only (≥ ₹1 Cr/day)</option><option value="0" ${liqOnly ? '' : 'selected'}>Any turnover</option></select>${swq('turnover')} ${swGrpSel('dm-grp')}</div>
+  ${rows.length ? (() => { const g = swGroup(rows, tr, 6); return `${g.note}<div class="tw"><table class="pt" id="dmt"><tr><th>Stock</th><th>Price</th><th>DMA${swq('dma')}</th><th>Volume vs avg${swq('avgvol')}</th><th>Golden cross${swq('cross')}</th><th>Turnover / day${swq('turnover')}</th></tr>${g.body}</table></div>`; })()
+    : `<p class="mut">No stock meets ${st === 'strongest' ? 'the Strongest setup' : 'these setups'} with these filters today${liqOnly ? ' — try "Any turnover"' : ''}.</p>`}
+  <p class="mut" style="font-size:12.5px">All Indian stocks screened: ${m.cnt.screened} · Best ${m.cnt.best} (liquid ${m.cnt.liquidBest}) · Strongest ${m.cnt.strongest} (liquid ${m.cnt.liquidStrongest}) · too new for a 200-DMA ${m.cnt.short}.</p>
+  <details class="how"><summary>How the setups are found</summary><div class="mut">${DM_RULES}</div></details>${SW_DISC.replace('These levels come from fixed technical rules', 'These setups come from fixed moving-average rules')}</div>`;
+  const re = () => { swSave(); const y = window.scrollY; renderDma(box).then(() => window.scrollTo(0, y)); };
+  swModeWire(box);
+  box.querySelectorAll('[data-dst]').forEach(b => b.onclick = () => { SWF.dst = b.dataset.dst; re(); });
+  box.querySelector('#dm-cap').onchange = e => { SWF.dcap = e.target.value; re(); };
+  box.querySelector('#dm-liq').onchange = e => { SWF.dliq = e.target.value === '1'; re(); };
+  box.querySelector('#dm-grp').onchange = e => { SWF.grp = e.target.value; re(); };
+}
+// stock page: does this stock meet a DMA setup today? (same code as the scan, on this page's data)
+function dmaCard(d) {
+  if (!d || d.etf || typeof DmaSetup === 'undefined' || !/\.(NS|BO)$/.test(d.symbol || '')) return '';
+  const r = DmaSetup.screenDmaSetups(DmaSetup.rowsFromAppDoc(d), { symbol: d.symbol });
+  const head = `<h2>📊 DMA setup${swq('dmaset')} <span class="mut">(close of ${r.ok ? swDate(r.asOf) : '–'})</span></h2>`;
+  if (!r.ok) return `<div class="card nogq" id="dmaset">${head}<p class="mut">${esc(r.message)}</p></div>`;
+  const on = r.setups.strongest ? 'strongest' : r.setups.best ? 'best' : null, c = r.conditions;
+  const ck = (ok, t) => `<li class="${ok ? 'ok' : 'flag'}">${ok ? '✔' : '✘'} ${t}</li>`;
+  const thin = isNum(r.volume.avgTurnover) && r.volume.avgTurnover < 1e7;
+  return `<div class="card nogq" id="dmaset">${head}
+    <p style="margin:0 0 6px">${on ? dmBadge(on) + ` <b>meets the ${DMST[on][0]} setup</b>` : '<b>No DMA setup today</b>'}${on && !r.setups.strongest ? ' <span class="mut">(not Strongest)</span>' : ''}</p>
+    <ul style="margin:4px 0;padding-left:18px">${ck(c.priceAbove50 && c.sma50Above200, `Price ₹${r2s(r.price)} &gt; 50-DMA ₹${r2s(r.dma.d50)} &gt; 200-DMA ₹${r2s(r.dma.d200)}`)}
+      ${ck(c.volumeAboveMultiple, r.volume.ratio === null ? 'Volume ratio not available' : `Volume ${r.volume.ratio}× its 50-day average (needs more than 1.5×)`)}
+      ${ck(c.priceAbove20 && c.sma20Above50, `Price above the 20-DMA ₹${r2s(r.dma.d20)}, 20-DMA above the 50-DMA`)}
+      ${ck(c.goldenCross, r.goldenCross.present ? `Golden cross on ${swDate(r.goldenCross.date)} (${r.goldenCross.sessionsAgo} sessions ago)` : (r.goldenCross.lastCrossInWindow && r.goldenCross.lastCrossInWindow.type === 'death' ? `Death cross on ${swDate(r.goldenCross.lastCrossInWindow.date)}` : 'No golden cross in the last 60 sessions'))}</ul>
+    ${thin ? `<p class="dn" style="font-size:13px">⚠ Thinly traded: about ${dmCr(r.volume.avgTurnover)} a day — a volume spike here means little.</p>` : ''}
+    ${r.warnings.length ? `<p class="mut" style="font-size:12.5px">${r.warnings.map(esc).join(' ')}</p>` : ''}
+    <p class="src">Best = first two lines; Strongest = all four. Rules: 📊 DMA setups in the Swing tab. Educational, not a recommendation.</p></div>`;
 }
 
 // ===== Delivery % and corporate actions (scripts/nsedaily.js, official NSE files) — stock page card =====
