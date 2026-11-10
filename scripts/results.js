@@ -59,9 +59,12 @@ function profits(x) {
   // profit attributable to the company's own shareholders when filed (what Screener shows), else profit for the period.
   // Amounts are in rupees in both formats (the "level of rounding" field only describes the PDF).
   const val = tag => { const o = {}; for (const m of x.matchAll(new RegExp(`<[\\w-]+:${tag}\\b[^>]*contextRef="([^"]+)"[^>]*>\\s*([-0-9.Ee]+)\\s*<`, 'g'))) if (ctx[m[1]] && !(ctx[m[1]] in o)) o[ctx[m[1]]] = +m[2]; return o; };
-  const own = val('ProfitOrLossAttributableToOwnersOfParent');
-  let tot = val('ProfitLossForPeriod'); if (!Object.keys(tot).length) tot = val('NetProfitLossForThePeriod');
-  const rev = val('RevenueFromOperations');
+  // banks file a different format (in-capmkt banking): profit after minority interest, 'Interest earned' as revenue
+  // (what Screener shows as a bank's revenue), EPS after extraordinary items. Read since 10 Nov 2026 (were skipped).
+  const any = (...t) => { for (const k of t) { const o = val(k); if (Object.keys(o).length) return o; } return {}; };
+  const own = any('ProfitOrLossAttributableToOwnersOfParent', 'ProfitLossAfterTaxesMinorityInterestAndShareOfProfitLossOfAssociates');
+  const tot = any('ProfitLossForPeriod', 'NetProfitLossForThePeriod', 'ProfitLossForThePeriod');
+  const rev = any('RevenueFromOperations', 'InterestEarned');
   // sales net of excise duty, as Screener shows them (ITC, refiners): excise is filed as an "other expenses" line
   // described "Excise Duty" in a dimension context â€” same context id carries the amount
   const per = {};
@@ -74,12 +77,25 @@ function profits(x) {
     const id = m[1], bp = /^(One|Two|Three|Four|Five|Six)\w+D$/.exec(id), a = new RegExp(`<[\\w-]+:OtherExpenses\\b[^>]*contextRef="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*>\\s*([-0-9.Ee]+)\\s*<`).exec(x), p = (bp && ctx[bp[1] + 'D']) || ctx[id] || per[id];
     if (a && p && rev[p] !== undefined && +a[1] > 0 && +a[1] < rev[p]) rev[p] -= +a[1];
   }
-  let eps = val('BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations'); if (!Object.keys(eps).length) eps = val('BasicEarningsLossPerShareFromContinuingOperations');
+  const eps = any('BasicEarningsLossPerShareFromContinuingAndDiscontinuedOperations', 'BasicEarningsLossPerShareFromContinuingOperations', 'BasicEarningsPerShareAfterExtraordinaryItems');
   // { 'start..end': { np, rev, eps } }  np = profit attributable to shareholders (else profit for the period), rupees; eps in â‚¹
   const out = {};
   for (const k of new Set([...Object.keys(tot), ...Object.keys(own)])) (out[k] = out[k] || {}).np = own[k] ? own[k] : tot[k] ?? own[k];
   for (const k in rev) (out[k] = out[k] || {}).rev = rev[k];
   for (const k in eps) (out[k] = out[k] || {}).eps = eps[k];
+  // shareholders' equity on balance-sheet dates (half-year and year-end filings): { '@YYYY-MM-DD': { eq } } - for book
+  // value / P/B and bank ROE (Yahoo's bank equity includes subsidiaries' minority holders: HDFCBANK 8.17 vs ~6 lakh Cr)
+  const ins = {};
+  for (const m of x.matchAll(/<(?:[\w-]+:)?context\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?context>/g)) {
+    if (/explicitMember|typedMember/.test(m[2])) continue;
+    const d = (/instant>\s*([\d-]+)/.exec(m[2]) || [])[1]; if (d) ins[m[1]] = '@' + d;
+  }
+  const iv = tag => { const o = {}; for (const m of x.matchAll(new RegExp(`<[\\w-]+:${tag}\\b[^>]*contextRef="([^"]+)"[^>]*>\\s*([-0-9.Ee]+)\\s*<`, 'g'))) if (ins[m[1]] && !(ins[m[1]] in o)) o[ins[m[1]]] = +m[2]; return o; };
+  let eq = iv('EquityAttributableToOwnersOfParent');
+  if (!Object.keys(eq).length) eq = iv('Equity');
+  if (!Object.keys(eq).length) { const c = iv('Capital'), r = iv('ReservesAndSurplus'); for (const k in c) if (r[k] !== undefined) eq[k] = c[k] + r[k]; }
+  if (!Object.keys(eq).length) { const c = iv('EquityShareCapital'), r = iv('OtherEquity'); for (const k in c) if (r[k] !== undefined) eq[k] = c[k] + r[k]; }
+  for (const k in eq) if (eq[k] > 0) out[k] = { eq: eq[k] };
   return out;
 }
 async function readXbrl(url) {
@@ -162,17 +178,36 @@ async function one(sym, prev) {
       if (z) { const a = await year(o, lastFY); if (a) g5 = { b: o, a: [lastFY, a.np], z: [fy5, z.np] }; }
     }
   }
+  // shareholders' equity on the last 4 half-year / year-end balance-sheet dates (book value, P/B, bank ROE): rows [date, eq]
+  const EQ = new Map((pr.eq || []).map(r => [r[0], r]));
+  for (let i = 0; i < 8; i++) {
+    const d = shiftQ(latest, i); if (!/-(03-31|09-30)$/.test(d) || EQ.has(d)) continue;
+    for (const src of ['int', 'ann', 'old']) {
+      const fi = fl.find(f => f.b === b && f.qe === d && f.src === src); if (!fi) continue;
+      const v = (await read(fi))['@' + d]; if (v && v.eq > 0) { EQ.set(d, [d, v.eq]); break; }
+    }
+  }
+  const eqs = [...EQ.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-4);
   const qs = [...Q.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-8), fys = [...FY.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-6);
-  const adj = restate(qs, fys, caOf(sym)), nf = [...qs, ...fys].filter(r => r.length > 5 && r[5] != null).length;
-  return { b, q: qs, fy: fys, g5, qe: latest, t: Math.floor(Date.now() / 1000), v: PRV, ...(adj ? { epsAdj: adj } : {}), ...(nf ? { npFix: nf } : {}) };
+  const ca = caOf(sym), alt = {}, probe = qs.map(r => [...r]);
+  restate(probe, fys.map(r => [...r]), ca, pr.alt);
+  for (const d of probe.flagged || []) {
+    if (pr.alt && pr.alt[d]) { alt[d] = pr.alt[d]; continue; }
+    const p = prevQE(d); if (!p) continue;                                   // a June quarter is its own year-to-date
+    const y1 = await period(b, fyStart(d), d, ['int', 'ann', 'old']), y0 = await period(b, fyStart(p), p, ['int', 'old']);
+    if (y1 && y0) alt[d] = [y1.np != null && y0.np != null ? Math.round(y1.np - y0.np) : null, y1.eps != null && y0.eps != null ? Math.round((y1.eps - y0.eps) * 100) / 100 : null];
+  }
+  const adj = restate(qs, fys, ca, alt), nf = [...qs, ...fys].filter(r => r.length > 5 && r[5] != null).length;
+  return { b, q: qs, fy: fys, g5, qe: latest, t: Math.floor(Date.now() / 1000), v: PRV, ...(adj ? { epsAdj: adj } : {}), ...(nf ? { npFix: nf } : {}), ...(eqs.length ? { eq: eqs } : {}), ...(Object.keys(alt).length ? { alt } : {}) };
 }
 // EPS on today's share count, and misread filings. Rows [end, np, rev, eps(, epsAsFiled)].
 // 1. Bonus / split: EPS of periods before the ex-date is divided by the ratio (as Yahoo / Screener restate it). Ex-dates
 //    and ratios come from NSE's corporate actions (nsedaily.js -> data/s/<SYM>.json 'ca', ~2 years back).
 // 2. A share issue (QIP, merger, IPO, warrants) is a lasting step up in profit / EPS: earlier EPS stays as filed.
 // 3. A misread figure shows as 1-2 periods whose share count (profit / EPS) is out of line with the periods on both sides.
-//    Which of the two figures is wrong is told by the profit margin: whichever is out of line with the company's other
-//    periods. Bad EPS -> profit / that period's share count; bad profit -> EPS x share count (the EPS stays as filed).
+//    Which of the two figures is wrong: first the filing's own year-to-date figures (pr.alt: this quarter's year-to-date
+//    minus the previous quarter's) - the figure that agrees with them is right; when both or neither agree, the profit
+//    margin: whichever is out of line with the company's other periods. Bad EPS -> profit / that period's share count; bad profit -> EPS x share count (the EPS stays as filed).
 // Before this (until 10 Nov 2026) any > 25% change counted as a split: 231 of 306 restated stocks had no bonus or split,
 // and a misread profit pulled the right EPS down (Groww + Screener check: COFORGE TTM EPS 44.2 vs Screener 50.7, GODREJCP
 // 20.7 vs 19.3, TECHM Dec-25 profit read as Rs 199 Cr). Periods older than the action list covers keep the old test.
@@ -185,7 +220,7 @@ function caOf(sym) {
   try { const d = JSON.parse(fs.readFileSync(path.join(OUT, 's', sym + '.NS.json'), 'utf8')); return Array.isArray(d.ca) ? d.ca : null; } catch { return null; }
 }
 const shOf = r => r[1] > 0 && r[3] >= 0.05 ? r[1] / r[3] : null;                 // implied share count = profit / EPS
-function restate(qs, fys, ca) {
+function restate(qs, fys, ca, alt) {
   const rows = [...qs, ...fys];
   // undo an earlier pass: r[4] = EPS as filed, r[5] = profit as filed (null when that figure was kept)
   for (const r of rows) { if (r.length > 5 && r[5] != null) r[1] = r[5]; if (r.length > 4 && r[4] != null) r[3] = r[4]; r.length = 4; }
@@ -207,15 +242,17 @@ function restate(qs, fys, ca) {
     //    agree (the first period: off the next two, which agree). The latest period is left to build_data.py's check against today's shares.
     const S = list.map(shOf), off = (x, y) => x > 0 && y > 0 && (x > 1.25 * y || x < 0.8 * y);
     const nb = (i, d) => { for (let j = i + d; j >= 0 && j < S.length; j += d) if (S[j] > 0) return j; return -1; };
-    const bad = S.map((v, i) => {
+    const bad = [];   // in order: each period is compared with the nearest earlier period that is not itself misread
+    S.forEach((v, i) => { bad[i] = (() => {
       if (!(v > 0) || !covered(list[i][0]) || i === S.length - 1) return false;
-      const p = nb(i, -1);
+      let p = nb(i, -1); while (p >= 0 && bad[p]) p = nb(p, -1);
       if (p < 0) { const n = nb(i, 1), n2 = n >= 0 ? nb(n, 1) : -1; return n2 >= 0 && off(v, S[n]) && !off(S[n], S[n2]); }
       if (!off(v, S[p])) return false;
       // a run of 1-2 periods off the period before it, followed by one back in line with that period
       for (let j = nb(i, 1), k = 0; j >= 0 && k < 2; j = nb(j, 1), k++) { if (!off(S[j], S[p])) return true; if (off(S[j], v)) return false; }
       return false;
-    });
+    })(); });
+    list.flagged = list.filter((r, i) => bad[i]).map(r => r[0]);   // read by one() to fetch the year-to-date check
     const margins = list.filter((r, i) => !bad[i] && S[i] > 0 && r[2] > 0).map(r => r[1] / r[2]).sort((x, y) => x - y);
     const med = margins.length ? margins[margins.length >> 1] : null;
     list.forEach((r, i) => {
@@ -223,6 +260,12 @@ function restate(qs, fys, ca) {
       const near = S.slice(i + 1).find((v, j) => v > 0 && !bad[i + 1 + j]) || null;
       if (!near) return;
       const lg = x => x > 0 && med > 0 ? Math.abs(Math.log(x / med)) : Infinity;
+      // year-to-date check (10 Nov 2026, Groww-verified: ASALCBR Sep-25 EPS wrong; GODREJCP / TECHM / CARRARO / GARFIBRES /
+      // ATUL / KANPRPLA profit wrong - in each the right figure agreed with its year-to-date difference, the wrong one not)
+      const a = list === qs && alt && alt[r[0]], agree = (x, y) => typeof x === 'number' && typeof y === 'number' && Math.abs(x - y) <= 0.03 * Math.max(Math.abs(x), Math.abs(y)) + 0.011;
+      const npOk = a && agree(r[1], a[0]), epsOk = a && agree(r[3], a[1]);
+      if (npOk && !epsOk) { set(r, r[1] / near); return; }
+      if (epsOk && !npOk) { setNp(r, r[3] * near); return; }
       // profit out of line and EPS x shares in line -> the profit is the misread figure: keep the filed EPS and put
       // the profit back as EPS x shares (TECHM Dec-25 read as Rs 199 Cr -> ~Rs 1,120 Cr; it feeds the quarterly table,
       // growth and the earnings-momentum scan)
@@ -262,7 +305,7 @@ async function main() {
   for (const f of files) {
     const fp = path.join(XD, f); let d; try { d = JSON.parse(fs.readFileSync(fp, 'utf8')); } catch { continue; }
     const p = d.pr; if (!p || !p.q || !p.q.length) continue;
-    const before = JSON.stringify([p.q, p.fy]), adj = restate(p.q, p.fy || [], caOf(f.slice(0, -8)));
+    const before = JSON.stringify([p.q, p.fy]), adj = restate(p.q, p.fy || [], caOf(f.slice(0, -8)), p.alt);
     if (adj) p.epsAdj = adj; else delete p.epsAdj;
     const nf = [...p.q, ...(p.fy || [])].filter(r => r.length > 5 && r[5] != null).length; if (nf) p.npFix = nf; else delete p.npFix; D.npFix = (D.npFix || 0) + nf;
     if (JSON.stringify([p.q, p.fy]) !== before) { fs.writeFileSync(fp, JSON.stringify(d)); re++; }

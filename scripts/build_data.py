@@ -377,6 +377,15 @@ def nse_fin(d, s):
                          ('annualNetIncome', a, 1), ('annualTotalRevenue', a, 2), ('annualDilutedEPS', a, 3)):
         v = sorted([r[0], r[i]] for r in rows if isinstance(r[i], (int, float)))
         if len(v) >= 2: f[key] = v; used.append(key)
+    # shareholders' equity from the filings' balance sheets (results.js pr.eq rows [date, eq], last 4 half-years):
+    # replaces Yahoo's figure on the same year-end dates (ROE) - Yahoo's bank equity includes minority holders of
+    # subsidiaries (HDFCBANK Mar-2026 8.17 lakh Cr vs 5.82 filed; ROE 8.9% vs Screener 13.6%) - and the latest one
+    # gives book value for P/B in metrics(). Only dates Yahoo already has, so ROCE / D/E keep matching year-ends.
+    eqr = [r for r in (pr.get('eq') or []) if isinstance(r, list) and len(r) == 2 and isinstance(r[1], (int, float)) and r[1] > 0]
+    if eqr:
+        d['eqNSE'] = eqr[-1]; fe = dict(eqr); ye = series(f, 'annualStockholdersEquity')
+        if ye and any(t in fe for t, _ in ye): f['annualStockholdersEquity'] = [[t, fe.get(t, v)] for t, v in ye]; used.append('annualStockholdersEquity')
+    else: d.pop('eqNSE', None)
     if used: d['fundNSE'] = {'b': pr.get('b'), 'qe': pr.get('qe'), 'keys': used, **({'epsSh': nadj} if nadj else {})}
     else: d.pop('fundNSE', None)
 
@@ -443,6 +452,10 @@ def metrics(d):
     if d.get('sharesNSE') and price:
         m2 = price * d['sharesNSE'][1]
         if not k.get('mcap') or 0.67 < m2 / k['mcap'] < 1.5: k['mcap'] = m2
+    # P/B on the latest balance sheet filed with NSE (half-year), as Screener / Groww show it; Yahoo's lags share issues
+    # and IPOs (COFORGE equity 9,538 -> 22,362 Cr in Sep-2026: P/B 9.3 vs 4.06) and is off for banks (HDFCBANK 1.48 vs 2.04)
+    eqn = d.get('eqNSE')
+    if eqn and k.get('mcap') and time.time() - time.mktime(time.strptime(eqn[0], '%Y-%m-%d')) < 240 * 86400: k['pb'] = k['mcap'] / eqn[1]
     ni, eq, debt, ebit, ta, cl = (last(series(f, t)) for t in ('annualNetIncome', 'annualStockholdersEquity', 'annualTotalDebt', 'annualEBIT', 'annualTotalAssets', 'annualCurrentLiabilities'))
     eqs = series(f, 'annualStockholdersEquity')
     if ni and eq and eq[1] > 0:
