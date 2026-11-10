@@ -163,8 +163,8 @@ async function one(sym, prev) {
     }
   }
   const qs = [...Q.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-8), fys = [...FY.values()].sort((x, y) => x[0] < y[0] ? -1 : 1).slice(-6);
-  const adj = restate(qs, fys, caOf(sym));
-  return { b, q: qs, fy: fys, g5, qe: latest, t: Math.floor(Date.now() / 1000), v: PRV, ...(adj ? { epsAdj: adj } : {}) };
+  const adj = restate(qs, fys, caOf(sym)), nf = [...qs, ...fys].filter(r => r.length > 5 && r[5] != null).length;
+  return { b, q: qs, fy: fys, g5, qe: latest, t: Math.floor(Date.now() / 1000), v: PRV, ...(adj ? { epsAdj: adj } : {}), ...(nf ? { npFix: nf } : {}) };
 }
 // EPS on today's share count, and misread filings. Rows [end, np, rev, eps(, epsAsFiled)].
 // 1. Bonus / split: EPS of periods before the ex-date is divided by the ratio (as Yahoo / Screener restate it). Ex-dates
@@ -172,7 +172,7 @@ async function one(sym, prev) {
 // 2. A share issue (QIP, merger, IPO, warrants) is a lasting step up in profit / EPS: earlier EPS stays as filed.
 // 3. A misread figure shows as 1-2 periods whose share count (profit / EPS) is out of line with the periods on both sides.
 //    Which of the two figures is wrong is told by the profit margin: whichever is out of line with the company's other
-//    periods. Bad EPS -> profit / that period's share count; bad profit -> the EPS stays as filed.
+//    periods. Bad EPS -> profit / that period's share count; bad profit -> EPS x share count (the EPS stays as filed).
 // Before this (until 10 Nov 2026) any > 25% change counted as a split: 231 of 306 restated stocks had no bonus or split,
 // and a misread profit pulled the right EPS down (Groww + Screener check: COFORGE TTM EPS 44.2 vs Screener 50.7, GODREJCP
 // 20.7 vs 19.3, TECHM Dec-25 profit read as Rs 199 Cr). Periods older than the action list covers keep the old test.
@@ -187,11 +187,13 @@ function caOf(sym) {
 const shOf = r => r[1] > 0 && r[3] >= 0.05 ? r[1] / r[3] : null;                 // implied share count = profit / EPS
 function restate(qs, fys, ca) {
   const rows = [...qs, ...fys];
-  for (const r of rows) if (r.length > 4) { r[3] = r[4]; r.length = 4; }          // undo an earlier restatement
+  // undo an earlier pass: r[4] = EPS as filed, r[5] = profit as filed (null when that figure was kept)
+  for (const r of rows) { if (r.length > 5 && r[5] != null) r[1] = r[5]; if (r.length > 4 && r[4] != null) r[3] = r[4]; r.length = 4; }
   const ev = (ca || []).map(c => [c[0], caFactor(c[1] || '')]).filter(e => e[1] && Math.abs(e[1] - 1) > 0.01);
   // the action list covers ~730 days back (an empty list = no actions); a split before that leaves F = 1 anyway
   const covered = d => ca && (ev.length || Date.parse(d) > Date.now() - 720 * 864e5);
   let adj = 0; const set = (r, e) => { if (r.length === 4) r.push(r[3]); r[3] = Math.round(e * 100) / 100; adj++; };
+  const setNp = (r, v) => { while (r.length < 5) r.push(null); r[5] = r[1]; r[1] = Math.round(v); adj++; };
   for (const list of [qs, fys]) {
     const ref = [...list].reverse().map(shOf).find(v => v > 0);
     // 1. bonus / split (skipped when the filing already counts today's shares: filed after the ex-date and restated)
@@ -221,8 +223,10 @@ function restate(qs, fys, ca) {
       const near = S.slice(i + 1).find((v, j) => v > 0 && !bad[i + 1 + j]) || null;
       if (!near) return;
       const lg = x => x > 0 && med > 0 ? Math.abs(Math.log(x / med)) : Infinity;
-      // profit out of line and EPS x shares in line -> the profit is the misread figure: keep the filed EPS
-      if (r[2] > 0 && lg(r[1] / r[2]) > lg(r[3] * near / r[2])) return;
+      // profit out of line and EPS x shares in line -> the profit is the misread figure: keep the filed EPS and put
+      // the profit back as EPS x shares (TECHM Dec-25 read as Rs 199 Cr -> ~Rs 1,120 Cr; it feeds the quarterly table,
+      // growth and the earnings-momentum scan)
+      if (r[2] > 0 && lg(r[1] / r[2]) > lg(r[3] * near / r[2])) { setNp(r, r[3] * near); return; }
       set(r, r[1] / near);
     });
     // 4. periods older than the action list: the old test against the latest share count
@@ -260,6 +264,7 @@ async function main() {
     const p = d.pr; if (!p || !p.q || !p.q.length) continue;
     const before = JSON.stringify([p.q, p.fy]), adj = restate(p.q, p.fy || [], caOf(f.slice(0, -8)));
     if (adj) p.epsAdj = adj; else delete p.epsAdj;
+    const nf = [...p.q, ...(p.fy || [])].filter(r => r.length > 5 && r[5] != null).length; if (nf) p.npFix = nf; else delete p.npFix; D.npFix = (D.npFix || 0) + nf;
     if (JSON.stringify([p.q, p.fy]) !== before) { fs.writeFileSync(fp, JSON.stringify(d)); re++; }
   }
   D.restated = re;

@@ -418,6 +418,18 @@ def promoter_fields(s, pr):
 def metrics(d):
     f, price, hist = d['fund'], d['price'], d['hist']; now = hist[-1][0] if hist else time.time(); k = {}
     eps = series(f, 'quarterlyDilutedEPS')[-4:]
+    # Yahoo-only stocks (no NSE results read yet): one quarter whose EPS is far off profit / shares while the other three
+    # agree is a Yahoo slip -> profit / shares (MOBIKWIK Sep-2026 0.75 vs 1.52; TTM 2.80 vs Screener/Groww 3.54)
+    if len(eps) == 4 and 'quarterlyDilutedEPS' not in ((d.get('fundNSE') or {}).get('keys') or []):
+        ni, sh = dict(series(f, 'quarterlyNetIncome')), (d['sharesNSE'][1] if d.get('sharesNSE') else None)
+        if not sh:
+            mc = last(series(f, 'trailingMarketCap'))
+            pa = price_at(hist, time.mktime(time.strptime(mc[0], '%Y-%m-%d')) + 86400) if mc and mc[1] and hist else None
+            if pa: sh = mc[1] / pa
+        if sh and sh > 0:
+            ok = lambda e, n: isinstance(n, (int, float)) and abs(e) >= 0.05 and 0.8 <= (n / e) / sh <= 1.25
+            good = [ok(e, ni.get(t)) for t, e in eps]
+            if sum(good) == 3: eps = [[t, e] if g or not isinstance(ni.get(t), (int, float)) else [t, round(ni[t] / sh, 2)] for (t, e), g in zip(eps, good)]
     if len(eps) == 4 and all(75 < days(eps[i][0], eps[i-1][0]) < 105 for i in range(1, 4)): k['eps'] = sum(x[1] for x in eps)
     if k.get('eps') and k['eps'] > 0 and price: k['pe'] = price / k['eps']
     elif last(series(f, 'trailingPeRatio')): k['pe'] = last(series(f, 'trailingPeRatio'))[1]
