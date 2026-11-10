@@ -405,8 +405,7 @@ function render() {
     <div><span>ROE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roe) ? Q('roe', fmtPct(k.roe)) : fmtPct(k.roe)}</b></div>
     <div><span>ROCE ${k.fy ? '(FY ' + k.fy.slice(0, 4) + ')' : ''}</span><b>${isNum(k.roce) ? Q('roce', fmtPct(k.roce)) : fmtPct(k.roce)}</b></div>
     <div><span>Debt / equity</span><b>${typeof isFinD === 'function' && isFinD(d) ? '<span class="mut" title="For banks and lenders, deposits and borrowings are their raw material, so debt/equity is not comparable with other companies">n/m (bank / lender)</span>' : k.negEquity ? 'negative equity' : isNum(k.de) ? Q('de', k.de.toFixed(2)) : NA}</b></div>
-    <div><span>20 DMA</span><b>${isNum(k.dma20) ? Q('hist', fmtP(k.dma20, c)) : NA}</b></div>
-    <div><span>50 / 200 DMA</span><b>${isNum(k.dma50) || isNum(k.dma200) ? Q('hist', `${isNum(k.dma50) ? fmtP(k.dma50, c) : NA} / ${isNum(k.dma200) ? fmtP(k.dma200, c) : NA}`) : `${NA} / ${NA}`}</b></div>
+    <div><span>20 / 50 / 200 DMA</span><b>${[k.dma20, k.dma50, k.dma200].some(isNum) ? Q('hist', [k.dma20, k.dma50, k.dma200].map(v => isNum(v) ? `<span style="white-space:nowrap">${fmtP(v, c)}</span>` : NA).join(' / ')) : `${NA} / ${NA} / ${NA}`}</b></div>
     <div><span>RSI (14)</span><b>${isNum(k.rsi) ? k.rsi.toFixed(0) : NA}</b></div>
     <div><span>1-yr return</span><b>${isNum(k.ret1y) ? Q('ret1y', sgnPct(k.ret1y)) : NA}</b></div>
    </div></div>`;
