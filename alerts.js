@@ -1,7 +1,11 @@
 'use strict';
 // ===== Price alerts: local copy + alerts.json on the repo's 'alerts' branch (saved via workflow_dispatch with the
 // existing "Update now" token — needs only Actions: Read and write). The quotes job checks them every 5 min and
-// pushes to ntfy.sh/<topic>. Topic = random 22-char name generated here (not a credential; stored in alerts.json).
+// pushes to ntfy.sh/<topic>.
+// Private mode (11 Nov 2026): the 'alerts' branch is public, and alerts.json used to hold the topic and the list in plain
+// text (anyone could read them or send fake pushes). Now this device makes a key (LS alertsKey) that the user saves once
+// as the repo secret ALERTS_KEY: the list is stored and sent as an AES-256-GCM box, and the topic is derived from the key
+// (never stored or sent). Same scheme as scripts/alertbox.js + alerts.py. Until the user switches it on, the old mode runs.
 const AL_RAW = 'https://raw.githubusercontent.com/abhishek126-sketch/stock-search/alerts/alerts.json';
 // "1,200" / "1,00,000" (thousands commas) -> 1200 / 100000; "1200,50" (comma as decimal point on some keyboards) -> 1200.5;
 // "₹ 1,200" ok. Anything else that isn't a plain number -> NaN (parseFloat alone read "1,200" as 1)
@@ -14,11 +18,28 @@ function parseAmount(s) {
 const AT = { above: 'Price ≥', below: 'Price ≤', chgUp: 'Day change ≥ +', chgDn: 'Day change ≤ −' };
 const newTopic = () => 'stocksearch-' + Array.from(crypto.getRandomValues(new Uint8Array(16)), b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
 function AL() { const a = LS.get('alerts', null) || { topic: null, alerts: [] }; if (!a.topic) { a.topic = newTopic(); LS.set('alerts', a); } return a; }
-let AL_SYNC = '';
+// ---- private mode: key, derived topic, AES-GCM box {v:2, iv, ct} (base64) ----
+const AK = () => LS.get('alertsKey', ''), AK_ON = () => !!AK() && LS.get('alertsKeyOk', false);
+const ub64 = u => { let s = ''; for (let i = 0; i < u.length; i++) s += String.fromCharCode(u[i]); return btoa(s); };
+const b64u = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const newAlertsKey = () => 'ssk1_' + ub64(crypto.getRandomValues(new Uint8Array(24))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const akSha = async s => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
+async function akTopic(k = AK()) { return 'ss-' + Array.from(await akSha('ntfy-topic|' + k), b => b.toString(16).padStart(2, '0')).join('').slice(0, 32); }
+const akKey = async k => crypto.subtle.importKey('raw', await akSha('alerts-enc|' + k), 'AES-GCM', false, ['encrypt', 'decrypt']);
+async function akEnc(obj, k = AK()) { const iv = crypto.getRandomValues(new Uint8Array(12)); const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await akKey(k), new TextEncoder().encode(JSON.stringify(obj)))); return { v: 2, iv: ub64(iv), ct: ub64(ct) }; }
+async function akDec(bx, k = AK()) { const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64u(bx.iv) }, await akKey(k), b64u(bx.ct)); return JSON.parse(new TextDecoder().decode(pt)); }
+async function alertsTopic() { return AK_ON() ? akTopic() : AL().topic; }
+let AL_SYNC = '', AL_SRVENC = false;
 async function alertsPull() {
   try {
-    const srv = await getJSON1(AL_RAW + '?t=' + Date.now()), loc = AL(), byId = Object.fromEntries((srv.alerts || []).map(a => [a.id, a]));
-    if (!LS.get('alerts', null) || (!loc.alerts.length && !LS.get('alertsSaved', 0))) { LS.set('alerts', srv); return srv; }  // first run on this device: adopt
+    let srv = await getJSON1(AL_RAW + '?t=' + Date.now()); AL_SRVENC = !!srv && srv.v === 2;
+    if (AL_SRVENC) {
+      if (!AK()) { AL_SYNC = '🔒 The repo copy is encrypted — add your alerts key on this device (below) to sync it.'; return AL(); }
+      try { srv = await akDec(srv); } catch { AL_SYNC = "⚠ The repo copy is encrypted with a different key than this device's."; return AL(); }
+      if (!LS.get('alertsKeyOk', false)) LS.set('alertsKeyOk', true);   // the server wrote it with this key: setup is complete
+    }
+    const loc = AL(), byId = Object.fromEntries((srv.alerts || []).map(a => [a.id, a]));
+    if (!LS.get('alerts', null) || (!loc.alerts.length && !LS.get('alertsSaved', 0))) { const ad = { topic: srv.topic || loc.topic, alerts: srv.alerts || [] }; LS.set('alerts', ad); return ad; }  // first run on this device: adopt
     loc.alerts.forEach(a => { const s = byId[a.id]; if (s && s.trig && (a.ver || 0) <= s.trig) { a.trig = s.trig; a.trigP = s.trigP; } });
     LS.set('alerts', loc); AL_SYNC = srv.updated ? 'Synced with repo copy (updated ' + new Date(srv.updated * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ')' : ''; return loc;
   } catch { AL_SYNC = 'Repo copy not created yet'; return AL(); }
@@ -26,7 +47,11 @@ async function alertsPull() {
 async function alertsPush() {
   const a = AL(); LS.set('alertsSaved', Date.now());
   if (!LS.get('ghpat', '')) return 'Saved on this device only — add your GitHub token in ⚙ Settings so the server can check alerts and send push notifications.';
-  try { await gh('/actions/workflows/alerts-save.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: 'main', inputs: { alerts: JSON.stringify({ topic: a.topic, alerts: a.alerts }) } }) }); return '✔ Saved — the server copy updates in ~30 s.'; }
+  try {
+    const payload = AK_ON() ? await akEnc({ alerts: a.alerts }) : { topic: a.topic, alerts: a.alerts };
+    await gh('/actions/workflows/alerts-save.yml/dispatches', { method: 'POST', body: JSON.stringify({ ref: 'main', inputs: { alerts: JSON.stringify(payload) } }) });
+    return '✔ Saved' + (AK_ON() ? ' (encrypted)' : '') + ' — the server copy updates in ~30 s.';
+  }
   catch (e) { return '⚠ Saved on this device, but the repo copy could not be updated: ' + e.message; }
 }
 function curPrice(s) {
@@ -68,7 +93,7 @@ function alertDialog(sym, id) {
 async function showAlerts() {
   const v = $('#view'); $('#home').hidden = true; v.hidden = false; CUR = null; updFav(); navTo('#alerts');
   v.innerHTML = '<div class="card"><p class="mut">Loading alerts…</p></div>'; await alertsPull(); if (!QUOTES) await loadQuotes(false);
-  const A = AL(), url = 'https://ntfy.sh/' + A.topic;
+  const A = AL(), topic = await alertsTopic(), url = 'https://ntfy.sh/' + topic;
   const row = a => { const ccy = a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD', [p] = curPrice(a.s);
     return `<tr><td><a href="#" data-s="${esc(a.s)}">${esc(a.s.replace(/\.(NS|BO)$/, ''))}</a>${a.note ? `<br><small class="mut">${esc(a.note)}</small>` : ''}</td><td>${alDesc(a)}</td><td>${isNum(p) ? fmtP(p, ccy) : '–'}</td>
     <td>${a.trig ? `<span style="color:var(--warn)">🔔 Triggered ${new Date(a.trig * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}${a.trigP ? ' @ ' + fmtP(a.trigP, ccy) : ''}</span><br><button class="btn sec" data-rearm="${a.id}" style="padding:3px 8px;font-size:12px">Re-arm</button>` : '<span class="up">● Armed</span>'}</td>
@@ -77,9 +102,10 @@ async function showAlerts() {
   ${A.alerts.length ? `<div class="tw"><table class="pt"><tr><th>Stock</th><th>Condition</th><th>Now</th><th>Status</th><th></th></tr>${A.alerts.map(row).join('')}</table></div>` : '<p class="mut">No alerts yet. Open any stock and tap <b>🔔 Set alert</b>.</p>'}
   <p class="mut" id="alStat">${esc(AL_SYNC)}</p>
   <p class="src">Checked by the server every ~5 min in market hours (every 3 h otherwise) against the latest quotes; each alert fires once until you re-arm it. While the app is open you also get an in-app notification.</p></div>
-  <div class="card"><h2>📲 Push notifications (ntfy)</h2><p>Your private topic: <code style="word-break:break-all">${esc(A.topic)}</code></p>
+  ${privCard()}
+  <div class="card"><h2>📲 Push notifications (ntfy)</h2><p>Your private topic: <code style="word-break:break-all">${esc(topic)}</code></p>
   <div class="links"><a class="btn" href="${url}" target="_blank" rel="noopener">Open in ntfy</a><a class="btn sec" href="https://ntfy.sh/app" target="_blank" rel="noopener">Get the ntfy app</a><button class="btn sec" id="alTest">Send test push</button></div>
-  <p class="mut">Install the free <b>ntfy</b> app (Android: Play Store / F-Droid; iPhone: App Store), tap <b>+</b>, and subscribe to the topic above (server ntfy.sh). Anyone who knows the topic name could read these alerts, so don't share it.</p>
+  <p class="mut">Install the free <b>ntfy</b> app (Android: Play Store / F-Droid; iPhone: App Store), tap <b>+</b>, and subscribe to the topic above (server ntfy.sh). Anyone who knows the topic name could read these alerts, so don't share it.${AK_ON() ? ' <b>If you subscribed to an older topic</b> (starting <code>stocksearch-</code>), remove it in the ntfy app — it is no longer used.' : ''}</p>
   ${'Notification' in window && Notification.permission !== 'granted' ? '<button class="btn sec" id="alPerm">Allow in-app notifications</button>' : ''}</div>`;
   $('#aback').onclick = e => { e.preventDefault(); goHome(); };
   const save = async () => { $('#alStat').textContent = 'Saving…'; const m = await alertsPush(); showAlerts().then(() => $('#alStat').textContent = m); };
@@ -88,7 +114,39 @@ async function showAlerts() {
   v.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => alertDialog(null, b.dataset.edit));
   $('#alTest').onclick = async () => { try { await fetch(url, { method: 'POST', body: 'Test from Stock Search — push notifications are working.' }); $('#alStat').textContent = '✔ Test push sent to your topic.'; } catch (e) { $('#alStat').textContent = 'Test failed: ' + e.message; } };
   const pb = $('#alPerm'); if (pb) pb.onclick = () => Notification.requestPermission().then(() => showAlerts());
+  privWire();
   window.scrollTo(0, 0);
+}
+// ---- private-mode setup card (Alerts page) ----
+const SECRET_URL = 'https://github.com/abhishek126-sketch/stock-search/settings/secrets/actions/new';
+function privCard() {
+  const k = AK();
+  if (AK_ON()) return `<div class="card"><h2>🔒 Private alerts: on</h2><p class="mut">${AL_SRVENC ? 'The copy on GitHub is encrypted with your key' : 'Switched on — the encrypted copy appears on GitHub after the next save (if it never does, check the <b>ALERTS_KEY</b> secret)'}; the push topic is made from the key and is never stored online.</p>
+    <details><summary class="mut">Use alerts on another device</summary><p class="mut">Open <b>🔔 Alerts</b> on the other device and paste this key there (keep it private, like a password):</p><p><code style="word-break:break-all" id="akShow">••••••••</code> <button class="btn sec" id="akReveal" style="padding:3px 8px;font-size:12px">Show</button> <button class="btn sec" id="akCopy" style="padding:3px 8px;font-size:12px">Copy</button></p></details></div>`;
+  return `<div class="card" style="border:2px solid var(--warn)"><h2>🔒 Make your alerts private (recommended)</h2>
+    <p>Right now your alert list and your push topic are stored in plain text in the app's public GitHub repo — anyone could read them or send fake alerts to your phone. This locks them with a key that only this app and your GitHub repo know.</p>
+    <ol style="padding-left:18px">
+      <li>${k ? 'Your key: <code style="word-break:break-all">' + esc(k) + '</code> <button class="btn sec" id="akCopy" style="padding:3px 8px;font-size:12px">Copy</button>' : '<button class="btn" id="akMake">Create my private key</button>'}</li>
+      <li>Open <a href="${SECRET_URL}" target="_blank" rel="noopener">GitHub → repo Settings → Secrets → New secret</a>. <b>Name:</b> <code>ALERTS_KEY</code> · <b>Secret:</b> paste the key · <b>Add secret</b>.</li>
+      <li><button class="btn" id="akOn" ${k ? '' : 'disabled'}>I've added it — switch on</button> Then subscribe to the new topic in the ntfy app (shown below once it's on).</li>
+    </ol>
+    <details><summary class="mut">Already set up on another device? Paste its key</summary><p><input type="text" id="akPaste" placeholder="ssk1_…" style="width:100%"></p><button class="btn sec" id="akUse">Use this key</button></details>
+    <p class="mut" id="akMsg"></p></div>`;
+}
+function privWire() {
+  const m = t => { const e = $('#akMsg'); if (e) e.textContent = t; };
+  const mk = $('#akMake'); if (mk) mk.onclick = () => { LS.set('alertsKey', newAlertsKey()); showAlerts(); };
+  const cp = $('#akCopy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(AK()); cp.textContent = 'Copied'; } catch { cp.textContent = 'Copy failed — select it by hand'; } };
+  const rv = $('#akReveal'); if (rv) rv.onclick = () => { $('#akShow').textContent = AK(); rv.remove(); };
+  const on = $('#akOn'); if (on) on.onclick = async () => {
+    if (!LS.get('ghpat', '')) { m('Add your GitHub token in ⚙ Settings first — it is needed to save alerts to the repo.'); return; }
+    LS.set('alertsKeyOk', true); m('Saving your alerts encrypted…'); const r = await alertsPush(); await showAlerts(); const st = $('#alStat'); if (st) st.textContent = r;
+  };
+  const us = $('#akUse'); if (us) us.onclick = async () => {
+    const k = ($('#akPaste').value || '').trim(); if (!/^ssk1_[A-Za-z0-9_-]{20,}$/.test(k)) { m('That does not look like an alerts key (it starts with ssk1_).'); return; }
+    LS.set('alertsKey', k); LS.set('alertsKeyOk', false); LS.set('alertsSaved', 0); const X = AL(); X.alerts = []; LS.set('alerts', X); await showAlerts();
+    m(AK_ON() ? '✔ Key works — alerts loaded from the encrypted copy.' : 'Key saved. If the encrypted copy does not load, check the key.');
+  };
 }
 // hooks: refresh check after every quotes load; stock-page button
 const _loadQuotesA = loadQuotes; loadQuotes = async f => { await _loadQuotesA(f); alertsLocalCheck(); };

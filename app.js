@@ -440,7 +440,7 @@ window.addEventListener('resize', () => { clearTimeout(window._rz); window._rz =
 // ---------- watchlist & settings ----------
 function updFav() { const f = LS.get('fav', []); $('#favBtn').style.visibility = CUR ? 'visible' : 'hidden'; if (CUR) $('#favBtn').textContent = f.includes(CUR.symbol) ? '★' : '☆'; }
 $('#favBtn').onclick = () => { if (!CUR) return; let f = LS.get('fav', []); f = f.includes(CUR.symbol) ? f.filter(x => x !== CUR.symbol) : [CUR.symbol, ...f].slice(0, 20); LS.set('fav', f); updFav(); };
-$('#setBtn').onclick = () => { $('#avkey').value = LS.get('avkey', ''); $('#ghpat').value = LS.get('ghpat', ''); $('#fullRef').checked = LS.get('fullRefresh', false); if (typeof AL === 'function') { const t = AL().topic; $('#ntfyTopic').textContent = t; $('#ntfyLink').href = 'https://ntfy.sh/' + t; } $('#dlg').showModal(); };
+$('#setBtn').onclick = () => { $('#avkey').value = LS.get('avkey', ''); $('#ghpat').value = LS.get('ghpat', ''); $('#fullRef').checked = LS.get('fullRefresh', false); if (typeof alertsTopic === 'function') alertsTopic().then(t => { $('#ntfyTopic').textContent = t; $('#ntfyLink').href = 'https://ntfy.sh/' + t; }).catch(() => { }); $('#dlg').showModal(); };
 $('#saveSet').onclick = () => { LS.set('avkey', $('#avkey').value.trim()); LS.set('ghpat', $('#ghpat').value.trim()); LS.set('fullRefresh', $('#fullRef').checked); $('#dlg').close(); if (CUR) render(); };
 $('#clrCache').onclick = () => { Object.keys(localStorage).filter(k => k.startsWith('av:')).forEach(k => localStorage.removeItem(k)); $('#clrCache').textContent = 'Cleared'; };
 $('#dlg').addEventListener('click', e => { if (e.target === $('#dlg')) $('#dlg').close(); });

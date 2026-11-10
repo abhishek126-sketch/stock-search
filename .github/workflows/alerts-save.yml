@@ -16,4 +16,4 @@ jobs:
       - name: Clone alerts branch
         run: git clone -q --depth 1 --branch alerts "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" al || (mkdir al && cd al && git init -q && git checkout -q -b alerts && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
       - run: python3 scripts/alerts.py save
-        env: { ALERTS_IN: '${{ inputs.alerts }}' }
+        env: { ALERTS_IN: '${{ inputs.alerts }}', ALERTS_KEY: '${{ secrets.ALERTS_KEY }}' }

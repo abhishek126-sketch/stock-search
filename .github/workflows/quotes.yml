@@ -36,6 +36,7 @@ jobs:
         run: bash scripts/quotes_loop.sh
         env:
           FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}'
+          ALERTS_KEY: '${{ secrets.ALERTS_KEY }}'
           GH_TOKEN: '${{ github.token }}'
           GH_REPO: '${{ github.repository }}'
           REPO_URL: 'https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git'

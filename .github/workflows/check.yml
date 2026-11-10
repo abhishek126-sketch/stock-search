@@ -15,6 +15,8 @@ jobs:
         with: { fetch-depth: 30 }
       - name: Python scripts compile
         run: python3 -m py_compile scripts/*.py
+      - name: Private price alerts self-test (throwaway local repo, never the real alerts branch)
+        run: bash scripts/test_alerts.sh
       - name: JavaScript syntax (app and scripts)
         run: for f in *.js scripts/*.js; do node --check "$f" || exit 1; done
       - name: App files changed -> service-worker cache version bumped
