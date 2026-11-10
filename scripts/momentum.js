@@ -70,7 +70,8 @@ function chart(d) {
   if (istDate(b[b.length - 1][0]) < istDate(last[0])) b = b.concat([[last[0], last[1], last[1], last[1], last[1], 0]]);
   const n = b.length, C = last[1], H = b.map(x => x[2]), L = b.map(x => x[3]), V = b.map(x => x[5]);
   const e20 = ema(c.slice(-120), 20), s50 = sma(c, 50), s200 = sma(c, 200), R = rsi(c.slice(-120)), A = atr(b.slice(-40));
-  const hi52 = Math.max(...c.slice(-250), ...H.slice(-250)), vol21 = avg(V.slice(-22, -1).filter(v => v > 0)), vol50 = avg(V.slice(-51, -1).filter(v => v > 0)), vol5 = avg(V.slice(-5).filter(v => v > 0));
+  const hi52 = Math.max(...c.slice(-250), ...H.slice(-250), ...(Array.isArray(d.hl52) && d.hl52[0] > 0 ? [d.hl52[0]] : [])),   // + full-year intraday high (build_data.py hl52)
+       vol21 = avg(V.slice(-22, -1).filter(v => v > 0)), vol50 = avg(V.slice(-51, -1).filter(v => v > 0)), vol5 = avg(V.slice(-5).filter(v => v > 0));
   const depth = (a, z) => { a = Math.max(0, a); if (z - a < 3) return null; const hh = Math.max(...H.slice(a, z)), ll = Math.min(...L.slice(a, z)); return 100 * (hh - ll) / hh; };
   const d1 = depth(n - 60, n - 30), d2 = depth(n - 30, n - 10), d3 = depth(n - 10, n);
   const hi10 = Math.max(...H.slice(-10)), lo5 = Math.min(...L.slice(-5)), lo10 = Math.min(...L.slice(-10)), hiBase = Math.max(...H.slice(-30));

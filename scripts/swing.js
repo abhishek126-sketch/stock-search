@@ -36,7 +36,7 @@ function setup(d, row, x) {
   const bar = b[b.length - 1], C = last[1], H = Math.max(bar[2], C), L = Math.min(bar[3], C);
   const s50 = sma(c, 50), s200 = sma(c, 200), s200p = sma(c, 200, c.length - 20), e20 = ema(c.slice(-120), 20), R = rsi(c.slice(-120)), A = atr(b.slice(-40));
   const vols = b.slice(-21, -1).map(x => x[5]).filter(v => v > 0), av20 = vols.length >= 10 ? vols.reduce((s, v) => s + v, 0) / vols.length : null, vToday = bar[5];
-  const hi20 = Math.max(...b.slice(-21, -1).map(x => x[2])), lo5 = Math.min(...b.slice(-5).map(x => x[3])), hi52 = Math.max(...c.slice(-250));
+  const hi20 = Math.max(...b.slice(-21, -1).map(x => x[2])), lo5 = Math.min(...b.slice(-5).map(x => x[3])), hi52 = Math.max(...c.slice(-250), ...b.slice(-250).map(x => x[2]), ...(Array.isArray(d.hl52) && d.hl52[0] > 0 ? [d.hl52[0]] : []));   // intraday 52-week high (build_data.py hl52)
   const o = { asOf: istDate(last[0]), next: nextSession(last[0]), close: C, s50: r2(s50), s200: r2(s200), e20: r2(e20), rsi: R && Math.round(R), atr: A && r2(A), hi20: r2(hi20), hi52: r2(hi52), why: [], warn: [] };
   // things that rule a stock out for swing trading
   const turnover = av20 ? av20 * C : null;

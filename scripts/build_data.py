@@ -505,7 +505,7 @@ def canslim(d, k, mkt, rsr):
     # N
     yr = [x[1] for x in hist if x[0] >= hist[-1][0] - 365 * 86400] if hist else []
     if len(yr) > 150:
-        hi = max(yr); dist = price / hi - 1
+        hi = max(yr + ([d['hl52'][0]] if d.get('hl52') else [])); dist = price / hi - 1   # intraday 52-week high when known
         o['N'] = {'s': 'pass' if dist >= -0.15 else 'fail', 'v': dist, 'why': f'{-dist*100:.0f}% below 52-week high (needs within 15%; O\'Neil also wants a new product/catalyst — check news)'}
     else: o['N'] = {'s': 'na', 'why': 'Less than 1 year of price history'}
     # S
@@ -547,6 +547,12 @@ def fetch(sym, name, sector, prev=None):
     o_, h_, l_ = qd.get('open') or [], qd.get('high') or [], qd.get('low') or []
     ohlc = [[t, round(o, 2), round(h, 2), round(l, 2), round(c, 2), int(v or 0)] for t, o, h, l, c, v in zip(ts, o_, h_, l_, cl, list(vo) + [0] * (len(ts) - len(vo)))
             if None not in (o, h, l, c)][-80:]
+    # 52-week intraday high / low (as NSE, Groww and Screener show it - hist keeps closes only, ohlc only 80 bars).
+    # A bar whose high / low is wildly off its own close (a bad tick: > 1.5x / < 0.5x) is left out. TMB 11 Nov 2026:
+    # closes gave 942.45 / 493.80, intraday 954.20 / 491.50 (= Groww).
+    t1 = (ts[-1] if ts else time.time()) - 365 * 86400
+    hl = [(h, l) for t, h, l, c in zip(ts, h_, l_, cl) if t >= t1 and None not in (h, l, c) and c > 0 and 0 < l <= h and h <= 1.5 * c and l >= 0.5 * c]
+    hl52 = [round(max(x[0] for x in hl), 2), round(min(x[1] for x in hl), 2)] if len(hl) > 150 else None
     divs = [[int(k), v['amount']] for k, v in (ch.get('events', {}).get('dividends') or {}).items()]
     cv = [(c, v) for c, v in zip(cl, vo) if c is not None and v is not None][-51:]
     vol = None
@@ -555,7 +561,7 @@ def fetch(sym, name, sector, prev=None):
         vol = {'avg50': round(sum(v for _, v in cv[1:]) / (len(cv) - 1)), 'last': cv[-1][1], 'udr': round(upv / dnv, 3) if dnv else None}
     now = int(time.time())
     if prev:  # light refresh: new prices/history, keep the day-old fundamentals, news and analysts
-        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now})
+        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'hl52': hl52, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now})
         if len(hist) >= 2: prev['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (prev['price'] or 0)) < 1e-6 else hist[-1][1]
         return prev
     fu = json.loads(get(f'https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{q}?type={TYPES}&period1={now-6*365*86400}&period2={now+86400}'))
@@ -578,7 +584,7 @@ def fetch(sym, name, sector, prev=None):
     d = {'symbol': sym, 'name': m.get('longName') or m.get('shortName') or name, 'sector': pr.get('sector') or sector, 'industry': pr.get('industry'),
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
-         'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
+         'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'hl52': hl52, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
          'analyst': an, 'cap': CAP.get(sym), 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
     if len(hist) >= 2: d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     d['news'] = news(sym, d['name'])

@@ -186,7 +186,15 @@ function compute(d) {
   const dc = daily.map(x => x[1]);
   k.chg = isNum(price) && isNum(d.prevClose) ? price - d.prevClose : undefined; k.chgPct = isNum(k.chg) ? k.chg / d.prevClose : undefined;
   const yr = hist.filter(x => x[0] >= now - 365 * DAY).map(x => x[1]);
-  if (yr.length > 150) { k.hi52 = Math.max(...yr, price || -Infinity); k.lo52 = Math.min(...yr, price || Infinity); }
+  if (yr.length > 150) {
+    k.hi52 = Math.max(...yr, price || -Infinity); k.lo52 = Math.min(...yr, price || Infinity);
+    // intraday 52-week range, as the exchanges / Groww / Screener show it: server's full-year highs and lows (hl52) and
+    // the recent OHLC bars (which carry today's official high / low); closes alone understate it (TMB 942 vs 954)
+    if (Array.isArray(d.hl52) && d.hl52[0] > 0 && d.hl52[1] > 0) {
+      const ob = (d.ohlc || []).filter(b => b[0] >= now - 365 * DAY && b[2] > 0 && b[3] > 0);
+      k.hi52 = Math.max(k.hi52, d.hl52[0], ...ob.map(b => b[2])); k.lo52 = Math.min(k.lo52, d.hl52[1], ...ob.map(b => b[3]));
+    }
+  }
   k.dma50 = sma(dc, 50); k.dma200 = sma(dc, 200); k.rsi = rsi(dc.slice(-250));
   const p1y = priceAt(hist, now - 365 * DAY); if (p1y && hist[0][0] < now - 360 * DAY) k.ret1y = price / p1y - 1;
   const p6m = priceAt(hist, now - 182 * DAY); if (p6m && hist[0][0] < now - 180 * DAY) k.ret6m = price / p6m - 1;
