@@ -265,7 +265,8 @@ def fix_stale_price(d):
 
 def nse_bhavcopy():
     """Latest official NSE end-of-day file (sec_bhavdata_full, published in the evening after the 15:30 close).
-    Returns (date, {SYMBOL: (close, prev_close)}) or (None, {}). Tries today, then up to 7 earlier days."""
+    Returns (date, {SYMBOL: (close, prev_close, open, high, low, volume)}) or (None, {}). Tries today, then up to 7
+    earlier days. open / high / low / volume are None when missing."""
     import datetime as dt
     ist = dt.timezone(dt.timedelta(hours=5, minutes=30)); today = dt.datetime.now(ist).date()
     for back in range(8):
@@ -277,10 +278,14 @@ def nse_bhavcopy():
             r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
             if td is None: td = trade_date(r.get('DATE1'), '%d-%b-%Y')
             if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST'): continue
-            try: rows[r['SYMBOL']] = (float(r['CLOSE_PRICE']), float(r['PREV_CLOSE']))
+            try: rows[r['SYMBOL']] = (float(r['CLOSE_PRICE']), float(r['PREV_CLOSE']), fnum(r.get('OPEN_PRICE')), fnum(r.get('HIGH_PRICE')), fnum(r.get('LOW_PRICE')), fnum(r.get('TTL_TRD_QNTY')))
             except (KeyError, ValueError): pass
         if len(rows) > 500: return td or day, rows
     return None, {}
+
+def fnum(v):
+    try: x = float(str(v).replace(',', '').strip()); return x if x == x else None
+    except (TypeError, ValueError): return None
 
 def trade_date(v, fmt):
     """The session date written inside an exchange end-of-day file. On a holiday NSE still publishes a file named for
@@ -303,7 +308,7 @@ def bse_bhavcopy():
         for r in csv.DictReader(io.StringIO(raw)):
             if td is None: td = trade_date(r.get('TradDt'), '%Y-%m-%d')
             if (r.get('FinInstrmTp') or '').strip() != 'STK': continue
-            try: rows[(r.get('TckrSymb') or '').strip()] = (float(r['ClsPric']), float(r.get('PrvsClsgPric') or 0) or None)
+            try: rows[(r.get('TckrSymb') or '').strip()] = (float(r['ClsPric']), float(r.get('PrvsClsgPric') or 0) or None, fnum(r.get('OpnPric')), fnum(r.get('HghPric')), fnum(r.get('LwPric')), fnum(r.get('TtlTradgVol')))
             except (KeyError, ValueError, TypeError): pass
         if len(rows) > 500: return td or day, rows
     return None, {}
@@ -321,16 +326,24 @@ def apply_exchange_close(docs, ex):
     n = moved = 0
     for s, d in docs.items():
         if not s.endswith(sfx) or d.get('etf') or s[:-3] not in B: continue
-        close, pcl = B[s[:-3]]; h = d.get('hist') or []
+        close, pcl = B[s[:-3]][:2]; xo, xh, xl, xv = (list(B[s[:-3]][2:6]) + [None] * 4)[:4]; h = d.get('hist') or []
         if not close or close <= 0: continue
         lastday = dt.datetime.fromtimestamp(h[-1][0], ist).date() if h else None
         if lastday and lastday > day: continue                      # Yahoo already has a newer session
         if h and lastday == day: h[-1] = [h[-1][0], round(close, 2)]
         else: h.append([t_bar, round(close, 2)])
         oh = d.get('ohlc') or []                                        # keep the OHLC bars in step with the official close
+        # the exchange file's own open / high / low / traded quantity: used when Yahoo has no candle for the session (or only
+        # a flat placeholder). From GitHub, Yahoo's daily series lacked 11 Nov 2026 for ~4,400 stocks while the quote was
+        # current; a flat zero-volume bar then broke ranges, volume ratios and swing / plan levels.
+        exb = [t_bar, round(xo, 2), round(max(xh, close), 2), round(min(xl, close), 2), round(close, 2), int(xv)] if xo and xh and xl and xv is not None and 0 < xl <= xh else None
         if oh and dt.datetime.fromtimestamp(oh[-1][0], ist).date() == day:
-            b = oh[-1]; oh[-1] = [b[0], b[1], round(max(b[2], close), 2), round(min(b[3], close), 2), round(close, 2), b[5]]
-        elif oh and dt.datetime.fromtimestamp(oh[-1][0], ist).date() < day: oh.append([t_bar, round(close, 2), round(close, 2), round(close, 2), round(close, 2), 0]); d['ohlcPartial'] = 1
+            b = oh[-1]
+            if exb and (not b[5] or b[2] == b[3]): oh[-1] = [b[0]] + exb[1:]; d.pop('ohlcPartial', None)
+            else: oh[-1] = [b[0], b[1], round(max(b[2], close), 2), round(min(b[3], close), 2), round(close, 2), b[5]]
+        elif oh and dt.datetime.fromtimestamp(oh[-1][0], ist).date() < day:
+            if exb: oh.append(exb); d.pop('ohlcPartial', None)
+            else: oh.append([t_bar, round(close, 2), round(close, 2), round(close, 2), round(close, 2), 0]); d['ohlcPartial'] = 1
         if isinstance(d.get('price'), (int, float)) and d['price'] and abs(d['price'] / close - 1) > 0.01: moved += 1
         d['price'], d['priceTime'] = close, t_close
         if pcl: d['prevClose'] = pcl
