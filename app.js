@@ -171,10 +171,7 @@ let LISTTAB = 'cap';
 
 // ---------- analytics ----------
 const last = a => a && a.length ? a[a.length - 1] : undefined;
-function sma(c, n) { if (c.length < n) return; let s = 0; for (let i = c.length - n; i < c.length; i++) s += c[i]; return s / n; }
-function smaSeries(c, n) { const o = new Array(c.length); let s = 0; for (let i = 0; i < c.length; i++) { s += c[i]; if (i >= n) s -= c[i - n]; o[i] = i >= n - 1 ? s / n : null; } return o; }
-function rsi(c, n = 14) { if (c.length < n + 1) return; let g = 0, l = 0; for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; d > 0 ? g += d : l -= d; } g /= n; l /= n;
-  for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; } return l === 0 ? 100 : 100 - 100 / (1 + g / l); }
+const sma = IND.sma, smaSeries = IND.smaSeries, rsi = IND.rsi;
 const days = (a, b) => Math.abs(Date.parse(a) - Date.parse(b)) / 864e5;
 function priceAt(hist, t) { let p; for (const [ts, c] of hist) { if (ts <= t) p = c; else break; } return p; }
 
@@ -195,7 +192,7 @@ function compute(d) {
       k.hi52 = Math.max(k.hi52, d.hl52[0], ...ob.map(b => b[2])); k.lo52 = Math.min(k.lo52, d.hl52[1], ...ob.map(b => b[3]));
     }
   }
-  k.dma20 = sma(dc, 20); k.dma50 = sma(dc, 50); k.dma200 = sma(dc, 200); k.rsi = rsi(dc.slice(-250));
+  k.dma20 = sma(dc, 20); k.dma50 = sma(dc, 50); k.dma200 = sma(dc, 200); k.rsi = rsi(dc);
   const p1y = priceAt(hist, now - 365 * DAY); if (p1y && hist[0][0] < now - 360 * DAY) k.ret1y = price / p1y - 1;
   const p6m = priceAt(hist, now - 182 * DAY); if (p6m && hist[0][0] < now - 180 * DAY) k.ret6m = price / p6m - 1;
   const ds50 = smaSeries(dc, 50), ds200 = smaSeries(dc, 200);

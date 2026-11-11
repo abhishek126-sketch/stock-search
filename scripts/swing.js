@@ -15,17 +15,13 @@
 //   Avoid        : turnover < Rs 2 Cr/day, penny (< Rs 50), ASM/GSM, results due within 7 days, price data older than 5 days.
 // Writes: s/<SYM>.json .swing, summary.json rows .sw (compact), swing.json (list for the app's Swing setups tab).
 const fs = require('fs'), path = require('path');
+const I = require('../indicators.js');
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const IST = 19800, DAY = 86400, now = Math.floor(Date.now() / 1000);
 const istDate = t => new Date((t + IST) * 1000).toISOString().slice(0, 10);
 const r2 = v => Math.round(v * 100) / 100;
 const tickUp = v => Math.ceil(v / 0.05 - 1e-9) * 0.05, tickDn = v => Math.floor(v / 0.05 + 1e-9) * 0.05;
-const sma = (a, n, end = a.length) => end >= n ? a.slice(end - n, end).reduce((s, x) => s + x, 0) / n : null;
-function ema(a, n) { const k = 2 / (n + 1); let e = null; for (const x of a) e = e === null ? x : x * k + e * (1 - k); return e; }
-function rsi(c, n = 14) { if (c.length <= n) return null; let g = 0, l = 0; for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; } g /= n; l /= n;
-  for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; } return l === 0 ? 100 : 100 - 100 / (1 + g / l); }
-function atr(b, n = 14) { if (b.length <= n) return null; const tr = b.slice(1).map((x, i) => Math.max(x[2] - x[3], Math.abs(x[2] - b[i][4]), Math.abs(x[3] - b[i][4])));
-  let a = tr.slice(0, n).reduce((s, x) => s + x, 0) / n; for (let i = n; i < tr.length; i++) a = (a * (n - 1) + tr[i]) / n; return a; }
+const sma = I.sma, ema = I.ema, rsi = I.rsi, atr = I.atr;
 function nextSession(t) { let d = new Date((t + IST) * 1000); do { d = new Date(d.getTime() + DAY * 1000); } while ([0, 6].includes(d.getUTCDay())); return d.toISOString().slice(0, 10); }
 
 function setup(d, row, x) {
@@ -34,7 +30,7 @@ function setup(d, row, x) {
   const last = hist[hist.length - 1];
   if (istDate(b[b.length - 1][0]) < istDate(last[0])) b.push([last[0], last[1], last[1], last[1], last[1], 0]);   // official close newer than the OHLC bars
   const bar = b[b.length - 1], C = last[1], H = Math.max(bar[2], C), L = Math.min(bar[3], C);
-  const s50 = sma(c, 50), s200 = sma(c, 200), s200p = sma(c, 200, c.length - 20), e20 = ema(c.slice(-120), 20), R = rsi(c.slice(-120)), A = atr(b.slice(-40));
+  const s50 = sma(c, 50), s200 = sma(c, 200), s200p = sma(c, 200, c.length - 20), e20 = ema(c, 20), R = rsi(c), A = atr(b.slice(-40));
   const vols = b.slice(-21, -1).map(x => x[5]).filter(v => v > 0), av20 = vols.length >= 10 ? vols.reduce((s, v) => s + v, 0) / vols.length : null, vToday = bar[5];
   const hi20 = Math.max(...b.slice(-21, -1).map(x => x[2])), lo5 = Math.min(...b.slice(-5).map(x => x[3])), hi52 = Math.max(...c.slice(-250), ...b.slice(-250).map(x => x[2]), ...(Array.isArray(d.hl52) && d.hl52[0] > 0 ? [d.hl52[0]] : []));   // intraday 52-week high (build_data.py hl52)
   const o = { asOf: istDate(last[0]), next: nextSession(last[0]), close: C, s50: r2(s50), s200: r2(s200), e20: r2(e20), rsi: R && Math.round(R), atr: A && r2(A), hi20: r2(hi20), hi52: r2(hi52), why: [], warn: [] };

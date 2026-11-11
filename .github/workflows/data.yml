@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', 'scripts/swing.js', 'scripts/momentum.js', 'scripts/nsedaily.js', 'scripts/dmascan.js', 'dmasetup.js', 'scripts/plan.js', 'scripts/planrules.js', 'scripts/planstats.js', 'scripts/backtest.js', 'scripts/simengine.js', 'scripts/track.js', 'planport.js', '.github/workflows/data.yml']
+    paths: ['scripts/build_data.py', 'scripts/crosscheck.py', 'indicators.js', 'scripts/swing.js', 'scripts/momentum.js', 'scripts/nsedaily.js', 'scripts/dmascan.js', 'dmasetup.js', 'scripts/plan.js', 'scripts/planrules.js', 'scripts/planstats.js', 'scripts/backtest.js', 'scripts/simengine.js', 'scripts/track.js', 'planport.js', '.github/workflows/data.yml']
 permissions:
   contents: write
   actions: write

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds static JSON snapshots (data/) from Yahoo Finance public endpoints.
 Runs server-side in GitHub Actions (no browser CORS). No API keys or secrets."""
-import http.cookiejar, csv, io, json, os, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
+import http.cookiejar, csv, io, json, os, subprocess, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
 UA = {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}
 OUT = os.path.join(os.path.dirname(__file__), '..', 'data')
 EXTRA_IN = ['RELIANCE','TCS','ITC','HDFCBANK','INFY','SBIN']
@@ -240,7 +240,7 @@ def news(sym, name):
 def series(f, k): return f.get(k) or []
 def last(a): return a[-1] if a else None
 def days(a, b): return abs((time.mktime(time.strptime(a, '%Y-%m-%d')) - time.mktime(time.strptime(b, '%Y-%m-%d'))) / 86400)
-def sma(c, n): return sum(c[-n:]) / n if len(c) >= n else None
+def sma(c, n): return sum(c[-n:]) / n if len(c) >= n else None   # same mean as indicators.js sma (index snapshots only)
 def price_at(hist, t):
     p = None
     for ts, c in hist:
@@ -733,12 +733,10 @@ def main():
         try: K[s] = metrics(d)
         except Exception as e: K[s] = {}; mfail.append(s); print('metrics', s, repr(e)[:160])
     if mfail: print('metrics failed for', len(mfail), 'stocks:', ' '.join(mfail[:20]))
-    # relative strength rank (O'Neil-style weighting) within each market
-    rsr = {}
-    for mk in ('IN', 'US'):
-        sc = {s: 0.4 * k['r3m'] + 0.2 * k.get('r6m', k['r3m']) + 0.4 * k.get('r1y', k.get('r6m', k['r3m'])) for s, k in K.items() if 'r3m' in k and s.endswith(('.NS', '.BO')) == (mk == 'IN') and not docs[s].get('etf')}
-        order = sorted(sc, key=sc.get)
-        for i, s in enumerate(order): rsr[s] = round(1 + 98 * i / max(1, len(order) - 1))
+    # relative strength rank: same formula as indicators.js rsRanks (3/6/12-month weights, rank 1–99 per market)
+    rs_in = [{'s': s, 'r3m': k['r3m'], 'r6m': k.get('r6m'), 'r1y': k.get('r1y'), 'market': 'IN' if s.endswith(('.NS', '.BO')) else 'US'}
+             for s, k in K.items() if 'r3m' in k and not docs[s].get('etf')]
+    rsr = json.loads(subprocess.run(['node', os.path.join(os.path.dirname(__file__), 'rs_rank.js')], input=json.dumps(rs_in), capture_output=True, text=True, check=True).stdout)
     rows = []
     for s, d in docs.items():
         et = d.get('etf')

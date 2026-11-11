@@ -8,7 +8,6 @@ const strip = h => String(h).replace(/<[^>]+>/g, '');
 const how = t => `<details class="how"><summary>How calculated</summary><div class="mut">${t}</div></details>`;
 const RSEC = (n, id, title, body, open) => `<details class="card sec rpt" id="${id}" data-n="${n}" ${open ? 'open' : ''}><summary><h2><span class="rn">${n}</span> ${title}</h2></summary>${body}</details>`;
 const inner = h => { const i = h.indexOf('</summary>'), j = h.lastIndexOf('</details>'); return i > 0 && j > i ? h.slice(i + 10, j) : h; };
-const ema = (a, n) => { const k = 2 / (n + 1), o = []; let e; a.forEach((x, i) => { e = i ? x * k + e * (1 - k) : x; o.push(e); }); return o; };
 const stdev = a => { const m = a.reduce((s, x) => s + x, 0) / a.length; return Math.sqrt(a.reduce((s, x) => s + (x - m) ** 2, 0) / (a.length - 1)); };
 function scoreTable(C) {
   const av = C.filter(c => isNum(c.s)), W = C.reduce((s, c) => s + c.w, 0), Wa = av.reduce((s, c) => s + c.w, 0);
@@ -54,7 +53,7 @@ function buildReport(d, k, A) {
   // technicals
   const hist = d.hist || [], cls = hist.map(x => x[1]), T = R.T = {};
   T.d20 = sma(cls, 20); T.d50 = k.dma50; T.d200 = k.dma200; T.rsi = k.rsi;
-  if (cls.length > 60) { const e12 = ema(cls, 12), e26 = ema(cls, 26), m = e12.map((x, i) => x - e26[i]), s = ema(m, 9); T.macd = last(m); T.sig = last(s); T.hist = T.macd - T.sig; }
+  if (cls.length > 60) { const m = IND.macd(cls); T.macd = m.macd; T.sig = m.signal; T.hist = m.hist; }
   const yr = hist.filter(x => x[0] >= now - 400 * DAY), piv = [];
   for (let i = 5; i < yr.length - 5; i++) { const w = yr.slice(i - 5, i + 6).map(x => x[1]); if (yr[i][1] === Math.max(...w)) piv.push(['H', yr[i][1], yr[i][0]]); if (yr[i][1] === Math.min(...w)) piv.push(['L', yr[i][1], yr[i][0]]); }
   T.sup = piv.filter(x => x[1] < P).sort((a, b) => b[1] - a[1]).slice(0, 2); T.res = piv.filter(x => x[1] > P).sort((a, b) => a[1] - b[1]).slice(0, 2);

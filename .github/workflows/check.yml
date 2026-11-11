@@ -17,6 +17,8 @@ jobs:
         run: python3 -m py_compile scripts/*.py
       - name: Private price alerts self-test (throwaway local repo, never the real alerts branch)
         run: bash scripts/test_alerts.sh
+      - name: Shared indicator tests
+        run: node scripts/test_indicators.js
       - name: DMA setups unit tests
         run: node scripts/test_dmasetup.js
       - name: Daily plan rule tests
