@@ -33,7 +33,7 @@ watchdog() {
   full=$(python3 -c "import json;print(int(json.load(open('pub/data/meta.json')).get('full',0)))" 2>/dev/null || echo 0)
   corp=$(python3 -c "import json;print(int(json.load(open('pub/data/corp/coverage.json')).get('built',0)))" 2>/dev/null || echo 0)
   for wf in data.yml corp.yml; do
-    if [ "$wf" = data.yml ]; then t=$full; lim=$([ "$dow" = 1 ] && echo 216000 || echo 108000); else t=$corp; lim=108000; fi
+    if [ "$wf" = data.yml ]; then t=$full; lim=$([ "$dow" = 1 ] && echo 216000 || echo 108000); else t=$corp; lim=43200; fi   # exchange data: 12 h (evening results filings; GitHub often drops the 20:30 / 23:45 IST runs)
     { [ "$t" -gt 0 ] && [ $((now - t)) -gt "$lim" ]; } || continue
     busy=$(gh run list --workflow "$wf" --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo 1)
     [ "$busy" = 0 ] || { echo "watchdog: $wf is $(( (now - t) / 3600 )) h old but a run is already queued"; continue; }
