@@ -22,7 +22,7 @@ const SW_RULES = () => `<ul style="margin:4px 0;padding-left:18px">
   <li><b>Position size${swq('possize')}:</b> quantity = (capital × risk %) ÷ (entry − stop), so a stop-out costs about your chosen risk %${swq('riskpct')}.</li></ul>`;
 const SW_DISC = `<div class="disc" style="margin-top:8px"><b>Educational tool, not a recommendation.</b> These levels come from fixed technical rules applied to official closing prices; they don't know news, order flow or your situation. Gaps at the open can skip past a stop. Check the chart yourself, use a stop-loss, risk only a small part of your capital per trade, and consult a SEBI-registered adviser before trading.</div>`;
 
-const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['plan', '🧭 Daily plan'], ['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum'], ['dma', '📊 DMA setups'], ['trades', '📒 My trades']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'plan') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['plan', '🧭 Daily plan'], ['trades', '📒 My trades']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode === 'trades' ? 'trades' : 'plan') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const swModeWire = box => box.querySelectorAll('[data-swmode]').forEach(b => b.onclick = () => { SWF.mode = b.dataset.swmode; swSave(); renderSwing(box); });
 
 // ===== Sector grouping: stocks from one sector tend to move together, so several setups in it are really one bet =====
@@ -63,8 +63,9 @@ function swGroup(rows, trFn, ncol) {
 }
 
 async function renderSwing(box) {
-  if ((SWF.mode || 'plan') === 'plan' && typeof renderPlan === 'function') return renderPlan(box);
+  // the tab has two views (as asked, 12 Nov 2026): 🧭 Daily plan and 📒 My trades; trend / momentum / DMA details are on each stock's page
   if (SWF.mode === 'trades' && typeof renderTrades === 'function') return renderTrades(box);
+  if (typeof renderPlan === 'function') return renderPlan(box);
   if (SWF.mode === 'mom') return renderMomentum(box);
   if (SWF.mode === 'dma') return renderDma(box);
   if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `${swMode()}<p>${NA} — summary data could not be loaded.</p>`; swModeWire(box); return; }
@@ -229,7 +230,7 @@ function swingCard(d) {
    <p style="margin:0 0 6px">${swBadge(o.st)}${swq('swingst')} <b>${SWT[o.t]}</b>${swq(o.t)}${o.t === 'breakout' ? (o.conf ? ` <span class="up">· volume confirmed</span>${swq('volconf')}` : ` <span class="mut">· needs a high-volume move</span>${swq('volconf')}`) : ''} · score <b>${o.sc}</b>/100${swq('swsc')}${o.st === 'watch' && o.watch ? ` <span class="mut">— ${esc(o.watch)}</span>` : ''}</p>
    <div class="kv"><div><span>Buy above (trigger)${swq('trigger')}</span><b style="font-size:20px">₹${o.e}</b></div><div><span>Stop-loss${swq('stoploss')}</span><b class="dn">₹${o.sl} <small>(−${o.riskPct}%)</small></b></div><div><span>Target 1 (2R)${swq('rmult')}</span><b class="up">₹${o.t1}</b></div><div><span>Target 2 (3R)</span><b class="up">₹${o.t2}</b></div><div><span>Risk per share (R)</span><b>₹${r2s(r)}</b></div><div><span>Quantity${swq('possize')} <small class="mut">(₹${(+SWF.cash).toLocaleString('en-IN')} capital, ${SWF.riskPct}% risk)</small></span><b>${q === null ? '–' : q.toLocaleString('en-IN')}</b></div></div>
    <ul style="margin-top:8px">${why}${warn}</ul>
-   <p class="mut" style="font-size:12.5px">Last close ₹${o.close} · 20-EMA${swq('ema')} ₹${o.e20} · 50-DMA${swq('dma')} ₹${o.s50} · 200-DMA ₹${o.s200} · RSI${swq('rsi')} ${o.rsi} · ATR${swq('atr')} ₹${o.atr} · 20-session high${swq('hi20')} ₹${o.hi20} · 52-week high${swq('hi52')} ₹${o.hi52}. Change capital and risk % in the 📈 Swing setups tab.</p>
+   <p class="mut" style="font-size:12.5px">Last close ₹${o.close} · 20-EMA${swq('ema')} ₹${o.e20} · 50-DMA${swq('dma')} ₹${o.s50} · 200-DMA ₹${o.s200} · RSI${swq('rsi')} ${o.rsi} · ATR${swq('atr')} ₹${o.atr} · 20-session high${swq('hi20')} ₹${o.hi20} · 52-week high${swq('hi52')} ₹${o.hi52}. Change capital and risk % in the Swing tab.</p>
    ${SW_DISC}</div>`;
 }
 const r2s = v => (Math.round(v * 100) / 100).toLocaleString('en-IN');

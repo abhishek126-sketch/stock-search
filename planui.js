@@ -47,6 +47,19 @@ function planBuild(P) {
   return { cap, reg, riskAmt, maxRiskAmt, expCap, posCap, nMax, picks, skipped, inv, risk, openInv, openRisk, nOpen: open.length };
 }
 
+// ---------- your capital and limits: one bar on both views, saved on this device, change any time ----------
+const plBar = () => `<div class="card" style="padding:10px 12px"><div class="swbar" style="margin:0"><b style="font-size:14px">💰 Your capital</b>
+  <label class="mut" style="font-size:13px">₹ <input type="number" id="pl-cash" min="0" step="1000" value="${SWF.cash}" aria-label="Capital in rupees"></label>
+  <label class="mut" style="font-size:13px">Risk / trade %${swq('riskpct')} <input type="number" id="pl-risk" min="0.1" max="5" step="0.1" value="${SWF.riskPct}" style="width:64px"></label>
+  <label class="mut" style="font-size:13px">Max total risk %${swq('portrisk')} <input type="number" id="pl-mrisk" min="0.5" max="20" step="0.5" value="${SWF.maxRisk}" style="width:64px"></label>
+  <label class="mut" style="font-size:13px">Max per stock % <input type="number" id="pl-pos" min="5" max="100" step="5" value="${SWF.posPct}" style="width:64px"></label></div>
+  <p class="mut" style="font-size:12.5px;margin:4px 0 0">→ risk ≈ ${inr(SWF.cash * SWF.riskPct / 100)} a trade, at most ${inr(SWF.cash * SWF.maxRisk / 100)} on all open trades, at most ${inr(SWF.cash * SWF.posPct / 100)} in one stock. Saved on this device; change it any time — the plan and quantities update at once.</p></div>`;
+function plBarWire(box, re) {
+  const num = (id, f) => { const el = box.querySelector(id); if (el) el.onchange = e => { f(+e.target.value); swSave(); re(); }; };
+  num('#pl-cash', v => SWF.cash = Math.max(0, v || 0)); num('#pl-risk', v => SWF.riskPct = Math.min(5, Math.max(0.1, v || 1)));
+  num('#pl-mrisk', v => SWF.maxRisk = Math.min(20, Math.max(0.5, v || 5))); num('#pl-pos', v => SWF.posPct = Math.min(100, Math.max(5, v || 25)));
+}
+
 // ---------- the Daily plan view ----------
 async function renderPlan(box) {
   plDef();
@@ -73,10 +86,6 @@ async function renderPlan(box) {
 
   const allocLo = B.expCap / B.nMax, allocHi = Math.min(B.posCap, B.expCap / Math.max(1, Math.min(B.nMax, 3)));
   const S2 = `<div class="card"><h2>2 · Portfolio recommendation</h2>
-    <div class="swbar"><label class="mut" style="font-size:13px">Capital ₹ <input type="number" id="pl-cash" min="0" step="1000" value="${SWF.cash}"></label>
-     <label class="mut" style="font-size:13px">Risk per trade %${swq('riskpct')} <input type="number" id="pl-risk" min="0.1" max="5" step="0.1" value="${SWF.riskPct}" style="width:70px"></label>
-     <label class="mut" style="font-size:13px">Max total risk %${swq('portrisk')} <input type="number" id="pl-mrisk" min="0.5" max="20" step="0.5" value="${SWF.maxRisk}" style="width:70px"></label>
-     <label class="mut" style="font-size:13px">Max per stock % <input type="number" id="pl-pos" min="5" max="100" step="5" value="${SWF.posPct}" style="width:70px"></label></div>
     <ul style="margin:4px 0;padding-left:18px">
      <li>Up to <b>${B.nMax} positions</b>${swq('maxpos')} for ${inr(B.cap)} (rule: under ₹50k → 3, ₹50k–2L → 5, ₹2L–10L → 8, above → 10).</li>
      <li>${esc(reg.label)} market → invest at most <b>${reg.exposure}%</b> = <b>${inr(B.expCap)}</b>; keep the rest in cash.</li>
@@ -163,12 +172,10 @@ async function renderPlan(box) {
 
   box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;width:110px}#plix td,#plix th,#plsz td,#plsz th,#plbuy td,#plbuy th,.plk td,.plk th{text-align:right}#plmg td{text-align:right}</style>
     <p style="margin:0 0 6px">Your daily plan${swq('regime')} from the close of <b>${swDate(P.asOf)}</b> — for <b>${swDate(P.next)}</b>. <span class="mut">Rebuilt every evening after the official closing prices.</span>${stale ? ' <span class="doubt" style="text-decoration:none">⚠ more than 4 days old</span>' : ''}</p>
-    ${S1}${S2}${S3}${S4}${S5}${S6}${S7}${S8}${S9}${SW_DISC}</div>`;
+    ${plBar()}${S1}${S2}${S3}${S4}${S5}${S6}${S7}${S8}${S9}${SW_DISC}</div>`;
   swModeWire(box);
   const re = () => { swSave(); const y = window.scrollY; renderPlan(box).then(() => window.scrollTo(0, y)); };
-  const num = (id, f) => { const el = box.querySelector(id); if (el) el.onchange = e => { f(+e.target.value); re(); }; };
-  num('#pl-cash', v => SWF.cash = Math.max(0, v || 0)); num('#pl-risk', v => SWF.riskPct = Math.min(5, Math.max(0.1, v || 1)));
-  num('#pl-mrisk', v => SWF.maxRisk = Math.min(20, Math.max(0.5, v || 5))); num('#pl-pos', v => SWF.posPct = Math.min(100, Math.max(5, v || 25)));
+  plBarWire(box, re);
   box.querySelectorAll('[data-pllog]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.pllog); if (p) tradeDialog(null, p, () => { SWF.mode = 'trades'; swSave(); renderSwing(box); }); });
 }
 
@@ -273,6 +280,7 @@ function stopDialog(id, sug, done) {
 function confirm2(d) { const m = d.querySelector('#stMsg'); if (m.dataset.ok) return true; m.dataset.ok = '1'; m.innerHTML = '<span class="dn">That is <b>lower</b> than the current stop — it adds risk. Press Save again if you really mean it.</span>'; return false; }
 
 async function renderTrades(box) {
+  plDef();
   box.innerHTML = `${swMode()}<p class="mut">Loading your trades…</p>`; swModeWire(box);
   if (typeof ensureSummary === 'function') await ensureSummary(); if (typeof loadQuotes === 'function' && typeof QUOTES !== 'undefined' && !QUOTES) { try { await loadQuotes(false); } catch { } }
   const A = TR(), open = A.trades.filter(t => !t.exit && trRem(t) > 0), closed = A.trades.filter(t => t.exit || trRem(t) <= 0);
@@ -297,8 +305,8 @@ async function renderTrades(box) {
     <p class="mut" style="font-size:13px">By setup: ${Object.entries(bySet).map(([k, a]) => `${esc(PL_SET[k] || k)} ${a.length} trade${a.length === 1 ? '' : 's'}, ${Math.round(a.filter(j => j.pl > 0).length / a.length * 100)}% won, ${sgn(a.reduce((s, j) => s + j.R, 0) / a.length, 2)}R`).join(' · ')}${J.length < 20 ? ' — under 20 trades says little; keep logging.' : ''}</p>
     <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a><br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td><td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${inr2(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${inr2(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, 0)} ₹</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`).join('')}</table></div>` : '<p class="mut">No closed trades yet. Your win rate and average R by setup appear here.</p>';
   const cap = +SWF.cash || 0;
-  box.innerHTML = `${swMode()}<div class="nogq"><style>#trt td,#trt th,#trj td,#trj th{text-align:right}#trt .btn,#trj .btn{padding:4px 7px;font-size:13px}</style>
-    <div class="card"><h2>📒 My trades <span class="mut">(open)</span></h2>
+  box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;width:110px}#trt td,#trt th,#trj td,#trj th{text-align:right}#trt .btn,#trj .btn{padding:4px 7px;font-size:13px}</style>
+    ${plBar()}<div class="card"><h2>📒 My trades <span class="mut">(open)</span></h2>
      <div class="kv"><div><span>Capital</span><b>${inr(cap)}</b></div><div><span>Invested</span><b>${inr(inv)}</b> <small class="mut">${cap ? (inv / cap * 100).toFixed(1) + '%' : ''}</small></div><div><span>Cash</span><b>${inr(cap - inv)}</b></div><div><span>Open risk</span><b class="dn">${inr(risk)}</b> <small class="mut">${cap ? (risk / cap * 100).toFixed(2) + '%' : ''}</small></div><div><span>Unrealised P&amp;L</span><b class="${unr >= 0 ? 'up' : 'dn'}">${sgn(unr, 0)} ₹</b></div></div>
      ${openHTML}<p style="margin:8px 0 0"><button class="btn" id="trAdd">➕ Add a trade</button></p>
      <p class="mut" style="font-size:12.5px">"What to do" checks each trade against the management plan: stop hit → exit · up 1R → stop to breakeven · T1 → sell half · after that, trail under the 20 EMA / 5-day low · 15 sessions without +1R → time stop. Prices: latest quote; 20 EMA and 5-day low: last close.</p></div>
@@ -307,6 +315,7 @@ async function renderTrades(box) {
      <p><button class="btn sec" id="trExp">⬇ Download backup</button> <label class="btn sec" style="cursor:pointer">⬆ Restore from file<input type="file" id="trImp" accept=".json,application/json" hidden></label> <span class="mut" id="trBk"></span></p></div>${SW_DISC}</div>`;
   swModeWire(box);
   const re = () => { const y = window.scrollY; renderTrades(box).then(() => window.scrollTo(0, y)); };
+  plBarWire(box, re);
   box.querySelector('#trAdd').onclick = () => tradeDialog(null, null, re);
   box.querySelectorAll('[data-tredit]').forEach(b => b.onclick = () => tradeDialog(b.dataset.tredit, null, re));
   box.querySelectorAll('[data-trpart]').forEach(b => b.onclick = () => sellDialog(b.dataset.trpart, false, re));
@@ -337,9 +346,36 @@ async function planCardFill(d) {
     h = `<p style="margin:0 0 6px">${b.buy ? '<b class="up">🟢 On the buy list</b>' : '<b>🟡 Watchlist</b>'} · trend ${plGrade(b.grade)}${swq('tgrade')} <small class="mut">${b.ts}/100</small> · ${PL_SET[b.setup]}${b.ss ? ` <small class="mut">score ${b.ss}</small>` : ''} · confidence ${b.conf}/100</p>
       <p style="font-size:14px;margin:0 0 4px">${esc(b.tn.join('; '))}.</p>${b.buy ? '' : `<p style="font-size:14px;margin:0 0 4px"><b>Next:</b> ${esc(b.wait)}.</p>`}
       ${pl && b.buy ? `<div class="kv"><div><span>Buy above</span><b>${inr2(pl.E)}</b></div><div><span>Stop</span><b class="dn">${inr2(pl.SL)} <small>(−${pl.Rpct}%)</small></b></div><div><span>T1 / T2</span><b class="up">${inr2(pl.T1)} / ${inr2(pl.T2)}</b></div><div><span>Wrong if</span><b style="font-size:13px;font-weight:500">${esc(pl.inval)}</b></div></div>` : ''}
-      ${b.warn.length ? `<p class="dn" style="font-size:13px">⚠ ${b.warn.map(esc).join(' · ')}</p>` : ''}`; }
+      ${b.warn.length ? `<p class="dn" style="font-size:13px">⚠ ${b.warn.map(esc).join(' · ')}</p>` : ''}
+      ${(b.tags || []).length ? `<p class="mut" style="font-size:13px;margin:4px 0 0">Also picked by the app's other scans: ${esc(b.tags.join(', '))} — details in the cards below.</p>` : ''}`; }
   else h = `<p>Passed the reject rules · trend ${plGrade(g[0])} <small class="mut">${g[5]}/100</small> · ${PL_SET[g[1]] || ''} — not strong enough for the watchlist.</p>`;
   el.innerHTML = head + h + (held ? `<p style="margin:6px 0 0">📒 You hold ${trRem(held)} @ ${inr2(held.entry)}, stop ${inr2(held.sl)} — see My trades in the Swing tab.</p>` : '') + `<p class="src">Market: ${plBadge(P.market.regime.cls)} ${esc(P.market.regime.label)}, max exposure ${P.market.regime.exposure}%. Full plan: 🧭 Daily plan in the Swing tab. Educational, not a recommendation.</p>`;
+}
+
+// ---------- stock page: earnings-momentum card (the scan that used to be its own Swing view) ----------
+function momCardPh(d) {
+  if (!d || d.etf || !/\.NS$/.test(d.symbol || '')) return '';
+  setTimeout(() => momCardFill(d), 0);
+  return `<div class="card nogq" id="momcard"><h2>🚀 Earnings momentum${swq('momscan')}</h2><p class="mut">Loading…</p></div>`;
+}
+async function momCardFill(d) {
+  let m = typeof MOM !== 'undefined' ? MOM : null;
+  if (!m) { try { m = await getJSON(DATA + 'momentum.json'); if (typeof MOM !== 'undefined') MOM = m; } catch (e) { m = null; } }
+  const el = document.getElementById('momcard'); if (!el || typeof CUR !== 'undefined' && CUR && CUR !== d) return;
+  const head = `<h2>🚀 Earnings momentum${swq('momscan')}${m && m.asOf ? ` <span class="mut">(close of ${swDate(m.asOf)})</span>` : ''}</h2>`;
+  if (!m || !m.list) { el.innerHTML = head + '<p class="mut">The earnings-momentum scan isn\'t available yet.</p>'; return; }
+  const R = m.rules || {}, rules = `quarterly profit growth &gt; ${R.qg}% · 5-year profit growth &gt; ${R.g5}% a year · ROCE &gt; ${R.roce}% · price &gt; ${Math.round((R.hi || 0.85) * 100)}% of the 52-week high · average volume &gt; ${((R.vol || 5e5) / 1e5).toFixed(0)} lakh shares · no banks, finance or real estate`;
+  const r = m.list.find(x => x.s === d.symbol), u = (m.unchecked || []).find(x => x.s === d.symbol);
+  let h;
+  if (r) { const q = r.e ? swQty(r.e, r.sl) : null, lab = (typeof MOT !== 'undefined' && MOT[r.t]) ? MOT[r.t] : [r.t, ''];
+    h = `<p style="margin:0 0 6px"><b class="up">✔ Passes your earnings-momentum screen</b> · setup <b>${lab[0]}</b> <small class="mut">${esc(lab[1])}</small> · rank ${r.sc}/100</p>
+      <div class="kv"><div><span>Quarterly profit growth</span><b>${moPct(r.qg)}</b></div><div><span>5-year profit growth</span><b>${moPct(r.g5)} a year</b></div><div><span>ROCE</span><b>${r.roce}%</b></div><div><span>From 52-week high</span><b>${r.offHi}%</b></div>
+      ${r.e ? `<div><span>Entry trigger${swq('pivot')}</span><b>${inr2(r.e)}</b></div><div><span>Stop-loss</span><b class="dn">${inr2(r.sl)} <small>(−${r.rp}%)</small></b></div><div><span>Quantity${swq('possize')}</span><b>${q === null ? '–' : q.toLocaleString('en-IN')}</b> <small class="mut">(${inr(SWF.cash)}, ${SWF.riskPct}% risk)</small></div>` : ''}</div>
+      ${r.trig ? `<p style="font-size:14px;margin:6px 0 2px"><b>Buy on:</b> ${esc(r.trig)}.</p>` : r.wait ? `<p style="font-size:14px;margin:6px 0 2px"><b>Wait:</b> ${esc(r.wait)}.</p>` : ''}
+      <ul style="margin:4px 0">${(r.why || []).map(w => `<li>${esc(w)}</li>`).join('')}${(r.warn || []).map(w => `<li class="dn">⚠ ${esc(w)}</li>`).join('')}</ul>`; }
+  else if (u) h = `<p><b>? Couldn't check</b> — ${esc(u.why)}. It passes the price, volume and ROCE tests (ROCE ${u.roce}%); check its profit history yourself.</p>`;
+  else h = `<p><b>Not on the list</b> — it doesn't pass every test of the screen.</p>`;
+  el.innerHTML = head + h + `<p class="src">Screen: ${rules}. Profits from the company's NSE results filings. Educational, not a recommendation.</p>`;
 }
 
 // ---------- glossary terms used here ----------

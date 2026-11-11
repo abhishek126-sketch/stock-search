@@ -81,7 +81,7 @@ function corpHTML(d, k, R, x) {
      <p class="mut" style="margin-top:6px">${R.parts.map(p => `${p[0]} ${isNum(p[1]) ? Math.round(p[1]) : 'n/a'} (weight ${p[2]})`).join(' · ')}</p>
      <p class="src"><b>This is an estimate from fixed rules, not expert opinion and not a recommendation.</b> It is the weighted composite of the 25-point research report below (fundamentals, Buffett, Graham, Fisher, Lynch, CANSLIM, technicals), using only the free data shown on this page; missing data is left out. The exchange red-flags check above is not part of the score — read both. <a href="#" data-jump="r-exec">See the full report ↓</a></p></div>`; }
   else qs = `<div class="card"><h2>🧮 Quality score <span class="mut">(rule-based estimate)</span></h2><p class="mut">Not enough data to compute the score from the 25-point report for this stock.</p></div>`;
-  return `${typeof planCardPh === 'function' ? planCardPh(d) : ''}${typeof swingCard === 'function' ? swingCard(d) : ''}${typeof dmaCard === 'function' ? dmaCard(d) : ''}${typeof nseDailyCard === 'function' ? nseDailyCard(d) : ''}<div class="grid two">${flags}${qs}</div>${promoterHTML(d, x)}${growthHTML(d, x)}${filings}${deals}`;
+  return `${typeof planCardPh === 'function' ? planCardPh(d) : ''}${typeof swingCard === 'function' ? swingCard(d) : ''}${typeof momCardPh === 'function' ? momCardPh(d) : ''}${typeof dmaCard === 'function' ? dmaCard(d) : ''}${typeof nseDailyCard === 'function' ? nseDailyCard(d) : ''}<div class="grid two">${flags}${qs}</div>${promoterHTML(d, x)}${growthHTML(d, x)}${filings}${deals}`;
 }
 // ===== Promoter holding & pledge (NSE disclosures for NSE stocks; Yahoo Finance holder data as cross-check / for BSE-only) =====
 function promoterHTML(d, x) {
