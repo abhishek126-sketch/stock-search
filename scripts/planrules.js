@@ -30,6 +30,7 @@ const maxPositions = cap => cap < 50000 ? 3 : cap <= 200000 ? 5 : cap <= 1000000
 const r2 = v => Math.round(v * 100) / 100;
 const tickUp = v => Math.ceil(v / 0.05 - 1e-9) * 0.05, tickDn = v => Math.floor(v / 0.05 + 1e-9) * 0.05;
 const tk = v => r2(Math.round(v / 0.05) * 0.05);
+const inrS = v => '₹' + Number(tk(v)).toLocaleString('en-IN', { maximumFractionDigits: 2 });   // ₹1,288.8 (Indian grouping) in the plan's own text
 function emaS(a, n) { const k = 2 / (n + 1), o = new Array(a.length).fill(null); if (a.length < n) return o; let e = a.slice(0, n).reduce((s, x) => s + x, 0) / n; o[n - 1] = e; for (let i = n; i < a.length; i++) { e = a[i] * k + e * (1 - k); o[i] = e; } return o; }
 function rsiS(a, n = 14) { const o = new Array(a.length).fill(null); if (a.length <= n) return o; let g = 0, l = 0; for (let i = 1; i <= n; i++) { const d = a[i] - a[i - 1]; d > 0 ? g += d : l -= d; } g /= n; l /= n; o[n] = l ? 100 - 100 / (1 + g / l) : 100;
   for (let i = n + 1; i < a.length; i++) { const d = a[i] - a[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; o[i] = l ? 100 - 100 / (1 + g / l) : 100; } return o; }
@@ -137,7 +138,7 @@ function evaluate(d, row, x, ctx) {
     setup = 'breakout';
     det = { cons: bRng <= 6 ? 25 : bRng <= 9 ? 19 : bRng <= 12 ? 12 : 6, res: Math.max(...H.slice(-31, -1)) <= hi20 * 1.015 ? 15 : 8,
       cand: closeLoc >= 0.75 && p > o ? 15 : closeLoc >= 0.6 ? 10 : 4, vol: vr >= 2 ? 20 : vr >= 1.5 ? 14 : 8, rs: rs >= 90 ? 15 : rs >= 80 ? 11 : 7, sec: ir ? Math.round(10 * (1 - (ir.rank - 1) / ir.of)) : 4 };
-    sw = [`closed above the 20-session high ₹${r2(hi20)} after a ${bRng.toFixed(1)}% base`, `volume ${vr.toFixed(1)}× its 50-day average`];
+    sw = [`closed above the 20-session high ${inrS(hi20)} after a ${bRng.toFixed(1)}% base`, `volume ${vr.toFixed(1)}× its 50-day average`];
   } else if (isPB) {
     setup = 'pullback';
     det = { d20: Math.abs(ext20) <= 1.5 ? 20 : 13, d50: p / e50 - 1 <= 0.06 ? 10 : 5, rsi: rsi >= 42 && rsi <= 55 ? 15 : 9, vc: v5 < 0.8 * v50 ? 15 : v5 < v50 ? 9 : 3,
@@ -167,17 +168,17 @@ function evaluate(d, row, x, ctx) {
     // Further away but closer than 2R: not enough room — wait for a close above it.
     if (hi52 > E && hi52 - E < R && hi52 <= E * 1.02) { E = tickUp(hi52 * 1.0015 + 0.05); SL = fixSL(E, SLs); R = E - SL; moved = true; }
     const room = hi52 > E * 1.003 ? (hi52 - E) / R : null;
-    if (room !== null && room < RULES.minRR) rrWhy = `reward to the 52-week high ₹${r2(hi52)} is only ${room.toFixed(1)}R (needs ${RULES.minRR}R)`;
+    if (room !== null && room < RULES.minRR) rrWhy = `reward to the 52-week high ${inrS(hi52)} is only ${room.toFixed(1)}R (needs ${RULES.minRR}R)`;
     const st = (ctx.stats && ctx.stats[setup]) || null;
     const T = k => r2(tickDn(E + k * R));
     plan = { E: r2(E), SL: r2(SL), R: r2(R), Rpct: r2(R / E * 100), moved, T1: T(2), T2: T(3), T3: T(4), T4: T(6), be: T(1), room: room && r2(room),
       ent: { aggr: r2(p), norm: r2(E), cons: setup === 'breakout' ? r2(tickUp(hi20 * 1.005)) : r2(tickUp(Math.max(E, e20 * 1.01))),
         ideal: setup === 'breakout' ? [tk(hi20), tk(hi20 * 1.01)] : [tk(e20 * 0.995), tk(e20 * 1.012)] },
       stops: { tech: r2(tickDn(E - 1.5 * atr)), struct: r2(SL), cons: r2(tickDn((setup === 'continuation' ? e20 : e50) - 0.5 * atr)) },
-      inval: setup === 'breakout' ? `a daily close back below ₹${tk(hi20 - 0.5 * atr)} — the breakout failed and price is back inside the old range`
-        : setup === 'pullback' ? `a daily close below ₹${tk(Math.min(lo10, e50))} — the swing low / 50 EMA support broke`
-        : setup === 'continuation' ? `a daily close below ₹${tk(Math.min(lo5, e20))} — the last 5 sessions' low / 20 EMA broke`
-        : `the 20 EMA falling back under the 50 EMA (₹${tk(e50)})`,
+      inval: setup === 'breakout' ? `a daily close back below ${inrS(hi20 - 0.5 * atr)} — the breakout failed and price is back inside the old range`
+        : setup === 'pullback' ? `a daily close below ${inrS(Math.min(lo10, e50))} — the swing low / 50 EMA support broke`
+        : setup === 'continuation' ? `a daily close below ${inrS(Math.min(lo5, e20))} — the last 5 sessions' low / 20 EMA broke`
+        : `the 20 EMA falling back under the 50 EMA (${inrS(e50)})`,
       prob: st ? { T1: st.p2, T2: st.p3, T3: st.p4, T4: st.p6, lose: st.lose, days: st.days, n: st.n, avgR: st.avgR } : null };
   }
   // ---- 5. confidence (rule-based, 0-100) ----
@@ -188,10 +189,10 @@ function evaluate(d, row, x, ctx) {
   const buy = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > RULES.minSetupScore && !rrWhy;
   // what to wait for (watchlist)
   let wait = '';
-  if (!buy) wait = rrWhy ? `wait for a close above the 52-week high ₹${r2(hi52)}`
-    : ext20 > 3 ? `wait for a pullback towards the 20 EMA ₹${tk(e20)} and a green candle`
+  if (!buy) wait = rrWhy ? `wait for a close above the 52-week high ${inrS(hi52)}`
+    : ext20 > 3 ? `wait for a pullback towards the 20 EMA ${inrS(e20)} and a green candle`
     : setup === 'early' ? `early trend — wait for higher highs and the 50 EMA rising above the 200 EMA`
-    : offHi > -0.05 ? `wait for a breakout above ₹${r2(Math.max(hi20, hi52))} on volume ≥ 1.5× normal`
+    : offHi > -0.05 ? `wait for a breakout above ${inrS(Math.max(hi20, hi52))} on volume ≥ 1.5× normal`
     : !RULES.buyGrades.includes(grade) ? `trend grade ${grade} — needs a stronger trend (A or A+)` : `no clean setup yet`;
   return { ...S, pass: true, warn, grade, ts, tn, setup, ss, det, sw, plan, rrWhy, conf, buy, wait, hl };
 }
