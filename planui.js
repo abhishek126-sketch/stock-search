@@ -27,26 +27,50 @@ const trOpen = () => TR().trades.filter(t => !t.exit && trRem(t) > 0);
 // ---------- portfolio construction (capital-dependent, so done here) ----------
 function planBuild(P) {
   plDef();
-  const cap = +SWF.cash || 0, reg = P.market.regime, riskAmt = cap * SWF.riskPct / 100, maxRiskAmt = cap * SWF.maxRisk / 100, expCap = cap * reg.exposure / 100, posCap = cap * SWF.posPct / 100, nMax = plMaxPos(cap);
-  const open = trOpen(), held = new Set(open.map(t => t.s));
-  const openInv = open.reduce((s, t) => s + trRem(t) * t.entry, 0), openRisk = open.reduce((s, t) => s + Math.max(0, t.entry - t.sl) * trRem(t), 0);
-  let inv = openInv, risk = openRisk, n = open.length; const used = new Map(open.map(t => [swSec({ s: t.s }).sec, plSym(t.s)]));
-  const picks = [], skipped = [];
-  for (const b of P.buy) {
-    const th = swSec(b).sec, E = b.plan.E, R = b.plan.R;
-    if (held.has(b.s)) { skipped.push([b, 'already in 📒 My trades']); continue; }
-    if (th && used.has(th)) { skipped.push([b, `same sector as ${used.get(th)} (${th}) — one bet, not two`]); continue; }
-    if (n >= nMax) { skipped.push([b, `position limit reached (${nMax} for this capital)`]); continue; }
-    const lim = [[riskAmt / R, 'risk per trade'], [posCap / E, `${SWF.posPct}% per-stock limit`], [(expCap - inv) / E, `${reg.exposure}% exposure cap`], [(maxRiskAmt - risk) / R, `${SWF.maxRisk}% total-risk limit`]];
-    const q = Math.floor(Math.min(...lim.map(x => x[0])));
-    if (!(q >= 1)) { const why = lim.reduce((a, x) => x[0] < a[0] ? x : a); skipped.push([b, `no room left: ${why[1]}${E > posCap ? ` (one share costs ${inr(E)})` : ''}`]); continue; }
-    const bind = lim.reduce((a, x) => x[0] < a[0] ? x : a)[1];
-    if (q * R < 0.5 * riskAmt) { skipped.push([b, `only ${q} share${q === 1 ? "" : "s"} fit (${inr(q * E)}) under the ${bind} — too small to be worth it`]); continue; }
-    picks.push({ ...b, q, cost: q * E, risk: q * R, bind }); inv += q * E; risk += q * R; n++; if (th) used.set(th, plSym(b.s));
-  }
-  return { cap, reg, riskAmt, maxRiskAmt, expCap, posCap, nMax, picks, skipped, inv, risk, openInv, openRisk, nOpen: open.length };
+  const cap = +SWF.cash || 0, reg = P.market.regime, open = trOpen();
+  const B = PlanPort.buildPortfolio(P.buy.map(b => ({ ...b, theme: swSec(b).sec })), { capital: cap, riskPct: SWF.riskPct, maxRisk: SWF.maxRisk, posPct: SWF.posPct, exposure: reg.exposure,
+    open: open.map(t => ({ s: t.s, theme: swSec({ s: t.s }).sec, qty: trRem(t), entry: t.entry, sl: t.sl })), costs: { ...PlanPort.COSTS, brk: +SWF.brk || 0 } });
+  B.skipped = B.skipped.map(([b, w]) => [b, w === 'already held' ? 'already in 📒 My trades' : w]);
+  return { ...B, reg };
 }
-
+// history test (scripts/backtest.js → backtest.json) and paper portfolio (scripts/track.js → track.json)
+let PLBT = null, PLTR = null;
+async function plEvidenceLoad() { const g = async f => { try { return await getJSON(DATA + f); } catch { return null; } }; if (!PLBT) PLBT = await g('backtest.json'); if (!PLTR) PLTR = await g('track.json'); }
+const plConfBand = c => c < 55 ? '<55' : c < 60 ? '55-59' : c < 65 ? '60-64' : c < 70 ? '65-69' : c < 75 ? '70-74' : '75+';
+const plRef = () => PLBT && PLBT.runs ? (PLBT.runs.find(r => r.capital === 100000) || PLBT.runs[0]) : null;
+function plSpark(series, w = 320, h = 70) {   // [[label, [[date, value]...], colour]] → small line chart
+  const all = series.flatMap(x => x[1].map(p => p[1])), lo = Math.min(...all), hi = Math.max(...all);
+  const line = (pts, col) => `<polyline fill="none" stroke="${col}" stroke-width="2" points="${pts.map((p, i) => `${(i / Math.max(1, pts.length - 1) * w).toFixed(1)},${(h - (p[1] - lo) / Math.max(1e-9, hi - lo) * h).toFixed(1)}`).join(' ')}"/>`;
+  return `<svg viewBox="0 -4 ${w} ${h + 8}" style="width:100%;max-width:${w}px;height:${h + 8}px" role="img" aria-label="equity curve">${series.map(x => line(x[1], x[2])).join('')}</svg>
+    <div class="mut" style="font-size:12px">${series.map(x => `<span style="color:${x[2]}">━</span> ${esc(x[0])}`).join(' · ')}</div>`;
+}
+function plEvidence() {
+  const BT = PLBT, TR = PLTR, ref = plRef(); if (!ref) return '';
+  const t = ref.trades || {}, beat = ref.cagr >= BT.nifty.cagr, edge = (t.avgR ?? 0) > 0.05;
+  const tone = edge && beat ? ['#15803d', '#dcfce7', '✅'] : edge || ref.ret > 0 ? ['#a16207', '#fef9c3', '⚠️'] : ['#b91c1c', '#fee2e2', '⛔'];
+  const verdict = edge && beat ? 'The rules made money after costs and beat simply holding Nifty in the history test.'
+    : `The rules have <b>not shown an edge after costs</b>: ${sgn(t.avgR, 2)}R per trade, ${ref.cagr}% a year vs ${BT.nifty.cagr}% for simply holding Nifty. Treat the plan as <b>paper trades</b> until the paper portfolio below proves otherwise — or risk very little (0.25–0.5% a trade).`;
+  const row = r => `<tr><td style="text-align:left">${inr(r.capital)}</td><td>${inr(r.end)}</td><td class="${r.ret >= 0 ? 'up' : 'dn'}">${sgn(r.ret)}%</td><td>${r.cagr}%</td><td class="dn">${r.maxDD}%</td><td>${r.trades.n}</td><td>${pctS(r.trades.win)}</td><td>${sgn(r.trades.avgR, 2)}R <small class="mut">(${sgn(r.trades.avgRg, 2)} before costs)</small></td><td>${r.trades.pf ?? '–'}</td><td>${inr(r.fees)}</td></tr>`;
+  const grp = (o, lab) => Object.entries(o || {}).sort((x, y) => y[1].n - x[1].n).map(([k, v]) => `<tr><td style="text-align:left">${lab ? lab(k) : esc(k)}</td><td>${v.n}</td><td>${pctS(v.win)}</td><td class="${v.avgR > 0 ? 'up' : 'dn'}">${sgn(v.avgR, 2)}R</td></tr>`).join('');
+  const n0 = BT.nifty.curve[0][1], nifty = BT.nifty.curve.map(([d, v]) => [d, v / n0 * ref.capital]);
+  let trHTML = '<p class="mut">The paper portfolio starts with tonight\'s plan.</p>';
+  if (TR && TR.sum) { const s = TR.sum, tt = s.trades || {};
+    trHTML = `<p style="margin:0 0 4px">Started <b>${swDate(TR.start)}</b> with ${inr(TR.capital)} (1% risk a trade, brokerage ₹0 + DP charge) and trades every evening's plan by itself — no real money. Now <b>${inr(s.end)}</b> (<span class="${s.ret >= 0 ? 'up' : 'dn'}">${sgn(s.ret, 2)}%</span>)${TR.niftyRet != null ? ` vs Nifty ${sgn(TR.niftyRet, 2)}%` : ''} · ${tt.n || 0} closed trade${tt.n === 1 ? '' : 's'}${tt.n ? `, ${pctS(tt.win)} won, ${sgn(tt.avgR, 2)}R a trade after costs` : ''} · open: ${(TR.openView || []).map(p => `${esc(plSym(p.s))} ${p.rem} @ ${inr2(p.entry)}`).join(', ') || 'none'} · paper orders for the next session: ${(TR.pendingView || []).map(o => esc(plSym(o.s))).join(', ') || 'none'}.</p>
+      <p class="mut" style="font-size:12.5px">${(tt.n || 0) < 40 ? `It needs about 40 closed trades (2–4 months) before its result means much${tt.n ? ` — ${tt.n} so far` : ''}.` : 'Enough trades to start judging the rules on live data.'}</p>`; }
+  return `<div class="card" id="plev" style="border-left:4px solid ${tone[0]}"><h2>🧪 Evidence check: does this plan make money?</h2>
+    <p style="background:${tone[1]};color:${tone[0]};padding:8px 10px;border-radius:8px;margin:0 0 8px">${tone[2]} ${verdict}</p>
+    <h3 style="margin:6px 0 4px">History test <small class="mut">(${swDate(BT.from)} → ${swDate(BT.to)}, ${BT.stocks} stocks, every evening rebuilt with today's rules)</small></h3>
+    ${plSpark([[`₹1 lakh following the plan → ${inr(ref.end)}`, ref.curve, '#2563eb'], [`₹1 lakh in Nifty → ${inr(nifty[nifty.length - 1][1])}`, nifty, '#94a3b8']])}
+    <div class="tw"><table class="pt" id="plbt"><tr><th style="text-align:left">Capital</th><th>Ended</th><th>Return</th><th>A year</th><th>Worst fall</th><th>Trades</th><th>Won</th><th>Per trade${swq('expectancy')}</th><th>Profit factor</th><th>Charges</th></tr>${BT.runs.map(row).join('')}
+      <tr><td style="text-align:left">Nifty (hold)</td><td>–</td><td class="${BT.nifty.ret >= 0 ? 'up' : 'dn'}">${sgn(BT.nifty.ret)}%</td><td>${BT.nifty.cagr}%</td><td class="dn">${BT.nifty.maxDD}%</td><td colspan="5" class="mut" style="text-align:left">buy and hold, no trading</td></tr></table></div>
+    <details class="how"><summary>What worked and what didn't (₹1 lakh run)</summary><div style="display:flex;flex-wrap:wrap;gap:10px">
+      <div class="tw"><table class="pt pls"><tr><th style="text-align:left">Setup</th><th>Trades</th><th>Won</th><th>Per trade</th></tr>${grp(ref.bySetup, k => PL_SET[k] || esc(k))}</table></div>
+      <div class="tw"><table class="pt pls"><tr><th style="text-align:left">Confidence${swq('tconf')}</th><th>Trades</th><th>Won</th><th>Per trade</th></tr>${grp(ref.byConf)}</table></div>
+      <div class="tw"><table class="pt pls"><tr><th style="text-align:left">Market</th><th>Trades</th><th>Won</th><th>Per trade</th></tr>${grp(ref.byRegime, k => esc(k + ' ' + ({ A: 'Strong Bull', B: 'Bull', C: 'Neutral', D: 'Weak', E: 'Bear' }[k] || '')))}</table></div>
+      <div class="tw"><table class="pt pls"><tr><th style="text-align:left">Exit</th><th>Trades</th><th>Won</th><th>Per trade</th></tr>${grp(ref.byExit)}</table></div></div>
+      <p class="mut" style="font-size:12.5px">How it was tested: every past evening the plan was rebuilt with the same code as tonight's and traded next morning with GTT buy-stops (limit +0.5%; a gap above the limit = no fill), stops and targets during the day (gap through a stop = sold at the open; stop and target on one candle = stop first), breakeven at +1R, half at T1, trailing under the 20 EMA, a 15-session time stop, and real charges (STT, stamp duty, exchange and SEBI fees, GST, DP ₹15.93 per sell). <b>It flatters the rules:</b> only stocks still listed and liquid today were tested (companies that collapsed are missing), and market cap / pledge / surveillance are today's. Real results are likely worse. Rebuilt every week.</p></details>
+    <h3 style="margin:8px 0 4px">Paper portfolio <small class="mut">(forward test from ${TR && TR.start ? swDate(TR.start) : 'today'})</small></h3>${trHTML}</div>`;
+}
 // ---------- your capital and limits: one bar on both views, saved on this device, change any time ----------
 const plBar = () => `<div class="card" style="padding:10px 12px"><div class="swbar" style="margin:0"><b style="font-size:14px">💰 Your capital</b>
   <label class="mut" style="font-size:13px">₹ <input type="number" id="pl-cash" min="0" step="1000" value="${SWF.cash}" aria-label="Capital in rupees"></label>
@@ -64,7 +88,7 @@ function plBarWire(box, re) {
 async function renderPlan(box) {
   plDef();
   box.innerHTML = `${swMode()}<p class="mut">Loading the daily plan…</p>`; swModeWire(box);
-  const P = await planLoad(); if (typeof ensureSummary === 'function') await ensureSummary();
+  const P = await planLoad(); if (typeof ensureSummary === 'function') await ensureSummary(); await plEvidenceLoad();
   if (!P || P.err || !P.market) { box.innerHTML = `${swMode()}<p>${NA} — the daily plan hasn't been built yet; it appears after the next evening refresh (about 20:30 IST).</p>`; swModeWire(box); return; }
   const M = P.market, reg = M.regime, B = planBuild(P), ST = P.stats && P.stats.by, stale = (Date.now() - Date.parse(P.asOf + 'T15:30:00+05:30')) / 864e5 > 4;
   const ix = M.indices || [], vix = ix.find(x => /VIX/.test(x.name)), oi = M.fiiOI;
@@ -106,23 +130,26 @@ async function renderPlan(box) {
       <tr><th>Stop-loss${swq('stoploss')}</th><th>Technical</th><th><b>Structural ✔</b></th><th>Conservative</th><th>Risk / share</th></tr><tr><td></td><td>${inr2(pl.stops.tech)}</td><td><b class="dn">${inr2(pl.SL)}</b></td><td>${inr2(pl.stops.cons)}</td><td>${inr2(pl.R)} <small class="dn">(${pl.Rpct}%)</small></td></tr>
       <tr><th>Targets${swq('rmult')}</th><th>T1 (2R)</th><th>T2 (3R)</th><th>T3 (4R)</th><th>T4 (6R)</th></tr><tr><td><small class="mut">chance*</small></td><td class="up">${inr2(pl.T1)}<br><small>${pr ? pctS(pr.T1) : ''}</small></td><td class="up">${inr2(pl.T2)}<br><small>${pr ? pctS(pr.T2) : ''}</small></td><td class="up">${inr2(pl.T3)}<br><small>${pr ? pctS(pr.T3) : ''}</small></td><td class="up">${inr2(pl.T4)}<br><small>${pr ? pctS(pr.T4) : ''}</small></td></tr></table></div>
      <p style="margin:6px 0 4px;font-size:14px"><b>Wrong if${swq('invalid')}:</b> ${esc(pl.inval)}. <span class="mut">Expected holding: ${pr && pr.days ? `about ${pr.days} sessions to T1, up to 8 weeks for the rest` : '3 days to 8 weeks'}.</span></p>
-     <p style="margin:4px 0 0"><button class="btn" data-pllog="${esc(b.s)}">📒 Log as my trade</button> <small class="mut">Buy ${b.q} share${b.q === 1 ? '' : 's'} = ${inr(b.cost)}, max loss ${inr(b.risk)} <span title="the limit that set the quantity">(set by ${esc(b.bind)})</span></small></p></div>`; };
+     ${(() => { const r = plRef(); if (!r) return ''; const x = r.bySetup && r.bySetup[b.setup], c = r.byConf && r.byConf[plConfBand(b.conf)];
+       return `<p class="mut" style="margin:4px 0;font-size:13px">🧪 History test: ${x ? `${PL_SET[b.setup].replace(/^\S+ /, '').toLowerCase()} trades ${x.n}, won ${pctS(x.win)}, ${sgn(x.avgR, 2)}R each` : 'no comparable trades'}${c ? ` · confidence ${plConfBand(b.conf)}: ${c.n} trades, ${sgn(c.avgR, 2)}R each` : ''} (after costs).</p>`; })()}
+     <p style="margin:4px 0 0"><button class="btn" data-pllog="${esc(b.s)}">📒 Log as my trade</button> <small class="mut">Buy ${b.q} share${b.q === 1 ? '' : 's'} = ${inr(b.cost)}, max loss ${inr(b.risk)} + charges ≈ ${inr(b.fees)} <span title="the limit that set the quantity">(set by ${esc(b.bind)})</span></small></p></div>`; };
   const S3 = `<h2 style="margin:14px 0 6px">3 · Top ranked opportunities</h2>${B.picks.length ? B.picks.map(pick).join('') : '<p class="mut">None today.</p>'}
     ${B.skipped.length ? `<details class="how"><summary>${B.skipped.length} more passed the rules but are not in the portfolio</summary><ul style="padding-left:18px">${B.skipped.map(([b, w]) => `<li><a href="#" data-s="${esc(b.s)}">${esc(plSym(b.s))}</a> ${plGrade(b.grade)} ${PL_SET[b.setup]} · buy above ${inr2(b.plan.E)}, stop ${inr2(b.plan.SL)} — <span class="mut">${esc(w)}</span></li>`).join('')}</ul></details>` : ''}`;
 
   const S4 = B.picks.length ? `<div class="card"><h2>4 · Position sizing${swq('possize')}</h2><p class="mut" style="font-size:13px;margin:0 0 6px">Quantity = risk amount ÷ (entry − stop), then cut to fit the per-stock, exposure and total-risk limits.</p>
-    <div class="tw"><table class="pt" id="plsz"><tr><th style="text-align:left">#</th><th>Entry</th><th>Stop</th><th>Risk/share</th><th>Qty</th><th>Capital</th><th>% of capital</th><th>Max loss</th></tr>
-    ${B.picks.map((b, i) => `<tr><td style="text-align:left">${i + 1}. ${esc(plSym(b.s))}</td><td>${inr2(b.plan.E)}</td><td>${inr2(b.plan.SL)}</td><td>${inr2(b.plan.R)}</td><td><b>${b.q}</b></td><td>${inr(b.cost)}</td><td>${(b.cost / B.cap * 100).toFixed(1)}%</td><td class="dn">${inr(b.risk)}</td></tr>`).join('')}</table></div></div>` : '';
+    <div class="tw"><table class="pt" id="plsz"><tr><th style="text-align:left">#</th><th>Entry</th><th>Stop</th><th>Risk/share</th><th>Qty</th><th>Capital</th><th>% of capital</th><th>Max loss</th><th>Charges${swq('charges')}</th></tr>
+    ${B.picks.map((b, i) => `<tr><td style="text-align:left">${i + 1}. ${esc(plSym(b.s))}</td><td>${inr2(b.plan.E)}</td><td>${inr2(b.plan.SL)}</td><td>${inr2(b.plan.R)}</td><td><b>${b.q}</b></td><td>${inr(b.cost)}</td><td>${(b.cost / B.cap * 100).toFixed(1)}%</td><td class="dn">${inr(b.risk)}</td><td>${inr(b.fees)} <small class="mut">(${Math.round(b.feesR * 100)}% of risk)</small></td></tr>`).join('')}</table></div>
+    <p class="mut" style="font-size:12.5px;margin:4px 0 0">Charges = STT, stamp duty, exchange and SEBI fees, GST and the DP charge (₹15.93 per stock per selling day), buying once and selling in two halves. Your brokerage per order: <label>₹ <input type="number" id="pl-brk" min="0" max="100" step="1" value="${+SWF.brk || 0}" style="width:60px;padding:4px;border:1px solid var(--line);border-radius:6px"></label> (₹0 for delivery at most discount brokers). A trade whose charges would eat more than 15% of its risk is skipped.</p></div>` : '';
 
   const newInv = B.picks.reduce((s, b) => s + b.cost, 0), newRisk = B.picks.reduce((s, b) => s + b.risk, 0);
   const rT1 = B.picks.reduce((s, b) => s + b.q * (b.plan.T1 - b.plan.E), 0), rT2 = B.picks.reduce((s, b) => s + b.q * (b.plan.T2 - b.plan.E), 0);
-  const avgR = ST && ST.all ? ST.all.avgR : null;
+  const fees = B.picks.reduce((s, b) => s + b.fees, 0), avgR = plRef() ? plRef().trades.avgR : ST && ST.all ? ST.all.avgR : null;
   const S5 = `<div class="card"><h2>5 · Risk dashboard${B.picks.length ? ' <span class="mut">(if every order fills)</span>' : ''}</h2><div class="kv">
     <div><span>Total capital</span><b>${inr(B.cap)}</b></div><div><span>Invested${B.nOpen ? ' (incl. open trades)' : ''}</span><b>${inr(B.inv)}</b></div><div><span>Cash remaining</span><b>${inr(B.cap - B.inv)}</b></div>
     <div><span>Portfolio exposure</span><b>${(B.inv / Math.max(1, B.cap) * 100).toFixed(1)}%</b> <small class="mut">cap ${reg.exposure}%</small></div><div><span>Total risk</span><b class="dn">${inr(B.risk)}</b> <small class="mut">${(B.risk / Math.max(1, B.cap) * 100).toFixed(2)}% (limit ${SWF.maxRisk}%)</small></div>
     <div><span>Worst case${swq('gaprisk')}</span><b class="dn">≈ ${inr(B.risk * 1.5)}</b> <small class="mut">if stocks gap through their stops</small></div>
-    ${B.picks.length ? `<div><span>Reward at T1 / T2</span><b class="up">${inr(rT1)} / ${inr(rT2)}</b></div><div><span>Reward : risk</span><b>${(rT1 / Math.max(1, newRisk)).toFixed(1)} : 1 at T1</b></div>
-    ${isNum(avgR) ? `<div><span>History-based expectation${swq('expectancy')}</span><b>${sgn(avgR, 2)}R per trade ≈ ${inr(avgR * newRisk)}</b> <small class="mut">on average, not a promise</small></div>` : ''}` : ''}</div></div>`;
+    ${B.picks.length ? `<div><span>Charges (buy + sell)${swq('charges')}</span><b>≈ ${inr(fees)}</b> <small class="mut">${(fees / Math.max(1, newRisk) * 100).toFixed(0)}% of the risk</small></div><div><span>Reward at T1 / T2 after charges</span><b class="up">${inr(rT1 - fees)} / ${inr(rT2 - fees)}</b></div><div><span>Reward : risk</span><b>${((rT1 - fees) / Math.max(1, newRisk)).toFixed(1)} : 1 at T1</b></div>
+    ${isNum(avgR) ? `<div><span>History test, per trade after charges${swq('expectancy')}</span><b class="${avgR > 0 ? 'up' : 'dn'}">${sgn(avgR, 2)}R ≈ ${inr(avgR * newRisk)} on these trades</b> <small class="mut">average, not a promise — see 🧪 Evidence check</small></div>` : ''}` : ''}</div></div>`;
 
   const gttL = E => '₹' + r2s(Math.round(E * 1.005 / 0.05) * 0.05);
   const W = P.watch.filter(w => !B.picks.some(b => b.s === w.s)).slice(0, 15), AV = P.avoid.slice(0, 15);
@@ -172,10 +199,11 @@ async function renderPlan(box) {
 
   box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;width:110px}#plix td,#plix th,#plsz td,#plsz th,#plbuy td,#plbuy th,.plk td,.plk th{text-align:right}#plmg td{text-align:right}</style>
     <p style="margin:0 0 6px">Your daily plan${swq('regime')} from the close of <b>${swDate(P.asOf)}</b> — for <b>${swDate(P.next)}</b>. <span class="mut">Rebuilt every evening after the official closing prices.</span>${stale ? ' <span class="doubt" style="text-decoration:none">⚠ more than 4 days old</span>' : ''}</p>
-    ${plBar()}${S1}${S2}${S3}${S4}${S5}${S6}${S7}${S8}${S9}${SW_DISC}</div>`;
+    ${plBar()}${plEvidence()}${S1}${S2}${S3}${S4}${S5}${S6}${S7}${S8}${S9}${SW_DISC}</div>`;
   swModeWire(box);
   const re = () => { swSave(); const y = window.scrollY; renderPlan(box).then(() => window.scrollTo(0, y)); };
   plBarWire(box, re);
+  const bk = box.querySelector('#pl-brk'); if (bk) bk.onchange = e => { SWF.brk = Math.max(0, Math.min(100, +e.target.value || 0)); swSave(); re(); };
   box.querySelectorAll('[data-pllog]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.pllog); if (p) tradeDialog(null, p, () => { SWF.mode = 'trades'; swSave(); renderSwing(box); }); });
 }
 
@@ -399,5 +427,6 @@ if (typeof GL !== 'undefined') Object.assign(GL, {
   fiioi: ['FII index-futures positions', 'NSE publishes every evening how many Nifty / Bank Nifty futures contracts foreign investors (FIIs) hold long (betting on a rise) and short (betting on a fall). The long share shows their positioning.', 'FIIs 31% long, 69% short → they are mostly positioned for a fall.', 'Rising long share with the market = rally backed by big money. A rally while FIIs stay short can reverse when they cover or add shorts.'],
   maxpos: ['Maximum positions', 'How many stocks to hold at once for your capital, so each position is big enough to matter but no single stock can hurt you badly: under ₹50k → 3, ₹50k–2L → 5, ₹2L–10L → 8, above → 10.', '₹50,000 → up to 5 positions of about ₹7,000–12,500.', 'Good: a few well-chosen trades. Bad: 15 tiny positions you can\'t follow.'],
   portrisk: ['Total (portfolio) risk', 'What you would lose if every open trade hit its stop at the same time. Kept at most 5% of capital, so even a bad week is survivable.', '5 trades each risking 1% → 5% total risk.', 'Good: 2–5%. Bad: above 10% — one market fall can wipe out months of gains.'],
+  charges: ['Trading charges', 'What a delivery trade costs besides the share price: STT 0.1% on buying and on selling, stamp duty 0.015% on buying, small exchange and SEBI fees with GST, and a DP charge (about ₹16) each day you sell a stock from your demat account — plus brokerage if your broker charges it.', 'Buy and sell ₹10,000 of shares in one go: about ₹12 + ₹26 = ₹38. Sell in two halves on different days: one more DP charge, about ₹54 in all.', 'They matter most for small positions: ₹54 on a trade risking ₹300 is 18% of the risk. The plan skips trades where charges eat more than 15% of the risk.'],
   breadth: ['Market breadth', 'How many stocks are taking part in a market move, for example the share of stocks above their 50-day average. An index can rise on a few big stocks while most stocks fall.', 'Nifty +12% in a month but only 54% of stocks above their 50 EMA → narrow rally.', 'Good: above 60–65% and rising. Bad: index up while breadth falls — the rally is thin.'],
 });

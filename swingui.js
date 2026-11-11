@@ -30,17 +30,7 @@ const SWG = [['grp', 'Group by sector'], ['one', 'Best one per sector'], ['list'
 let SECMAP = null;
 // Yahoo's sectors are too broad to mean "moves together" (Consumer Cyclical = auto parts + online retail + hotels + textiles),
 // so group by business theme built from the industry; the sector is the fallback
-const SWTHEME = [['Pharma & biotech', /Drug Manufacturers|Biotechnology|Pharmaceutical/], ['Hospitals & health services', /Medical|Health Information|Diagnostics|Healthcare Plans/],
-  ['Auto & auto parts', /^Auto|Recreational Vehicles/], ['Textiles & apparel', /Textile|Apparel Manufacturing|Footwear/], ['Retail & e-commerce', /Retail|Department Stores/], ['Jewellery & luxury', /Luxury/],
-  ['Hotels, travel & leisure', /Lodging|Resorts|Travel|Leisure|Restaurants|Gambling/], ['Media & entertainment', /Entertainment|Broadcasting|Publishing|Advertising|Electronic Gaming/],
-  ['Metals & mining', /Steel|Copper|Aluminum|Industrial Metals|Gold|Silver|Precious Metals|Coal|Mining/], ['Chemicals & fertilisers', /Chemical|Agricultural Inputs/],
-  ['Cement & building materials', /Building Materials|Building Products/], ['Paper & packaging', /Paper|Packaging|Lumber/], ['Oil, gas & fuels', /Oil & Gas/], ['Power & utilities', /^Utilities/],
-  ['Banks', /^Banks/], ['NBFCs & lenders', /Credit Services|Mortgage Finance|Financial Conglomerates/], ['Brokers, AMCs & exchanges', /Capital Markets|Asset Management|Financial Data/], ['Insurance', /Insurance/],
-  ['IT services & software', /Information Technology|Software/], ['Electronics & semiconductors', /Semiconductor|Electronic|Computer Hardware|Scientific & Technical|Communication Equipment/], ['Telecom', /Telecom/],
-  ['Defence & aerospace', /Aerospace|Defense/], ['Capital goods & engineering', /Electrical Equipment|Industrial Machinery|Metal Fabrication|Farm & Heavy|Industrial Distribution|Tools|Pollution/],
-  ['Construction & infrastructure', /Engineering & Construction|Infrastructure Operations|Construction/],
-  ['Logistics & shipping', /Marine Shipping|Trucking|Freight|Railroads|Airlines|Airports|Logistics/], ['Real estate', /Real Estate|REIT/],
-  ['FMCG & food', /Packaged Foods|Household|Personal Products|Beverages|Tobacco|Confectioners|Farm Products|Food Distribution|Grocery/]];
+const SWTHEME = PlanPort.THEMES;   // shared with the history test and the paper portfolio (planport.js)
 const swSec = r => { if (!SECMAP && SUMMARY && SUMMARY.rows && SUMMARY.rows.length) SECMAP = Object.fromEntries(SUMMARY.rows.map(x => [x.s, [x.sec || '', x.ind || '']]));
   const m = SECMAP && SECMAP[r.s], sec0 = r.sec || (m && m[0]) || '', ind = (m && m[1]) || r.ind || '', th = SWTHEME.find(t => t[1].test(ind));
   return { sec: th ? th[0] : sec0, ind }; };
