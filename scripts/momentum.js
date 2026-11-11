@@ -26,18 +26,14 @@
 //                    52-week high, relative strength and earnings growth; promoter pledge > 20% is penalised.
 // Writes momentum.json (list for the app's Swing tab → Earnings momentum).
 const fs = require('fs'), path = require('path');
+const I = require('../indicators.js');
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const IST = 19800, DAY = 86400, now = Math.floor(Date.now() / 1000);
 const istDate = t => new Date((t + IST) * 1000).toISOString().slice(0, 10);
 const r2 = v => Math.round(v * 100) / 100, r1 = v => Math.round(v * 10) / 10;
 const tickUp = v => Math.ceil(v / 0.05 - 1e-9) * 0.05, tickDn = v => Math.floor(v / 0.05 + 1e-9) * 0.05;
 const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
-const sma = (a, n) => a.length >= n ? avg(a.slice(-n)) : null;
-function ema(a, n) { const k = 2 / (n + 1); let e = null; for (const x of a) e = e === null ? x : x * k + e * (1 - k); return e; }
-function rsi(c, n = 14) { if (c.length <= n) return null; let g = 0, l = 0; for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; } g /= n; l /= n;
-  for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; } return l === 0 ? 100 : 100 - 100 / (1 + g / l); }
-function atr(b, n = 14) { if (b.length <= n) return null; const tr = b.slice(1).map((x, i) => Math.max(x[2] - x[3], Math.abs(x[2] - b[i][4]), Math.abs(x[3] - b[i][4])));
-  let a = avg(tr.slice(0, n)); for (let i = n; i < tr.length; i++) a = (a * (n - 1) + tr[i]) / n; return a; }
+const sma = I.sma, ema = I.ema, rsi = I.rsi, atr = I.atr;
 const RULES = { qg: 25, g5: 24, roce: 15, hi: 0.85, vol: 5e5 };
 const EXCL = /^(Financial Services|Real Estate)$/i;
 
@@ -69,7 +65,7 @@ function chart(d) {
   const last = hist[hist.length - 1];
   if (istDate(b[b.length - 1][0]) < istDate(last[0])) b = b.concat([[last[0], last[1], last[1], last[1], last[1], 0]]);
   const n = b.length, C = last[1], H = b.map(x => x[2]), L = b.map(x => x[3]), V = b.map(x => x[5]);
-  const e20 = ema(c.slice(-120), 20), s50 = sma(c, 50), s200 = sma(c, 200), R = rsi(c.slice(-120)), A = atr(b.slice(-40));
+  const e20 = ema(c, 20), s50 = sma(c, 50), s200 = sma(c, 200), R = rsi(c), A = atr(b.slice(-40));
   const hi52 = Math.max(...c.slice(-250), ...H.slice(-250), ...(Array.isArray(d.hl52) && d.hl52[0] > 0 ? [d.hl52[0]] : [])),   // + full-year intraday high (build_data.py hl52)
        vol21 = avg(V.slice(-22, -1).filter(v => v > 0)), vol50 = avg(V.slice(-51, -1).filter(v => v > 0)), vol5 = avg(V.slice(-5).filter(v => v > 0));
   const depth = (a, z) => { a = Math.max(0, a); if (z - a < 3) return null; const hh = Math.max(...H.slice(a, z)), ll = Math.min(...L.slice(a, z)); return 100 * (hh - ll) / hh; };

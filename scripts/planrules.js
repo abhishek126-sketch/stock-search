@@ -27,14 +27,12 @@ const RULES = {
 const REGIMES = { A: ['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
 const maxPositions = cap => cap < 50000 ? 3 : cap <= 200000 ? 5 : cap <= 1000000 ? 8 : 10;
 
+const I = require('../indicators.js');
+const emaS = I.emaSeries, rsiS = I.rsiSeries, atrW = I.atr;
 const r2 = v => Math.round(v * 100) / 100;
 const tickUp = v => Math.ceil(v / 0.05 - 1e-9) * 0.05, tickDn = v => Math.floor(v / 0.05 + 1e-9) * 0.05;
 const tk = v => r2(Math.round(v / 0.05) * 0.05);
 const inrS = v => '₹' + Number(tk(v)).toLocaleString('en-IN', { maximumFractionDigits: 2 });   // ₹1,288.8 (Indian grouping) in the plan's own text
-function emaS(a, n) { const k = 2 / (n + 1), o = new Array(a.length).fill(null); if (a.length < n) return o; let e = a.slice(0, n).reduce((s, x) => s + x, 0) / n; o[n - 1] = e; for (let i = n; i < a.length; i++) { e = a[i] * k + e * (1 - k); o[i] = e; } return o; }
-function rsiS(a, n = 14) { const o = new Array(a.length).fill(null); if (a.length <= n) return o; let g = 0, l = 0; for (let i = 1; i <= n; i++) { const d = a[i] - a[i - 1]; d > 0 ? g += d : l -= d; } g /= n; l /= n; o[n] = l ? 100 - 100 / (1 + g / l) : 100;
-  for (let i = n + 1; i < a.length; i++) { const d = a[i] - a[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; o[i] = l ? 100 - 100 / (1 + g / l) : 100; } return o; }
-function atrW(b, n = 14) { if (b.length <= n) return null; const tr = b.slice(1).map((x, i) => Math.max(x[2] - x[3], Math.abs(x[2] - b[i][4]), Math.abs(x[3] - b[i][4]))); let a = tr.slice(0, n).reduce((s, x) => s + x, 0) / n; for (let i = n; i < tr.length; i++) a = (a * (n - 1) + tr[i]) / n; return a; }
 const ret = (a, n) => a.length > n && a[a.length - 1 - n] > 0 ? a[a.length - 1] / a[a.length - 1 - n] - 1 : null;
 const pc1 = v => (v * 100).toFixed(1);
 // higher highs AND higher lows: last two 3-bar pivots on closes over ~60 sessions

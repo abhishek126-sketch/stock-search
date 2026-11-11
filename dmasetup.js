@@ -21,6 +21,8 @@
  * Output: plain JSON (see `screenDmaSetups`). On a problem: { ok: false, error: CODE, message, ... }, never a throw.
  */
 (function (root) {
+  const I = typeof module !== 'undefined' && module.exports ? require('./indicators.js') : root.IND;
+  const smaSeries = I.smaSeries;
   const DEFAULTS = { volLookback: 50, volMultiple: 1.5, crossLookback: 60, staleDays: 7, minValidVol: 0.8 };
   const DAY = 864e5;
 
@@ -48,16 +50,6 @@
     }
     const out = [...byDay.values()].sort((a, b) => a.t - b.t);
     return { rows: out, dropped, duplicates: rows.length - dropped - out.length };
-  }
-
-  /** Simple moving average series: sma[i] = mean of closes[i-n+1..i], null until n values exist. O(length). */
-  function smaSeries(values, n) {
-    const out = new Array(values.length).fill(null); let sum = 0;
-    for (let i = 0; i < values.length; i++) {
-      sum += values[i]; if (i >= n) sum -= values[i - n];
-      if (i >= n - 1) out[i] = sum / n;
-    }
-    return out;
   }
 
   /** Average volume of the `lookback` sessions before the last one (valid volumes only). */
