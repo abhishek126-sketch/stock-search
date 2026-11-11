@@ -22,7 +22,7 @@ const SW_RULES = () => `<ul style="margin:4px 0;padding-left:18px">
   <li><b>Position size${swq('possize')}:</b> quantity = (capital × risk %) ÷ (entry − stop), so a stop-out costs about your chosen risk %${swq('riskpct')}.</li></ul>`;
 const SW_DISC = `<div class="disc" style="margin-top:8px"><b>Educational tool, not a recommendation.</b> These levels come from fixed technical rules applied to official closing prices; they don't know news, order flow or your situation. Gaps at the open can skip past a stop. Check the chart yourself, use a stop-loss, risk only a small part of your capital per trade, and consult a SEBI-registered adviser before trading.</div>`;
 
-const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum'], ['dma', '📊 DMA setups']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'trend') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['plan', '🧭 Daily plan'], ['trend', '📈 Trend setups'], ['mom', '🚀 Earnings momentum'], ['dma', '📊 DMA setups'], ['trades', '📒 My trades']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode || 'plan') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const swModeWire = box => box.querySelectorAll('[data-swmode]').forEach(b => b.onclick = () => { SWF.mode = b.dataset.swmode; swSave(); renderSwing(box); });
 
 // ===== Sector grouping: stocks from one sector tend to move together, so several setups in it are really one bet =====
@@ -63,6 +63,8 @@ function swGroup(rows, trFn, ncol) {
 }
 
 async function renderSwing(box) {
+  if ((SWF.mode || 'plan') === 'plan' && typeof renderPlan === 'function') return renderPlan(box);
+  if (SWF.mode === 'trades' && typeof renderTrades === 'function') return renderTrades(box);
   if (SWF.mode === 'mom') return renderMomentum(box);
   if (SWF.mode === 'dma') return renderDma(box);
   if (!SUMMARY || !SUMMARY.rows.length) { box.innerHTML = `${swMode()}<p>${NA} — summary data could not be loaded.</p>`; swModeWire(box); return; }

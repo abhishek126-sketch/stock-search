@@ -19,6 +19,8 @@ jobs:
         run: bash scripts/test_alerts.sh
       - name: DMA setups unit tests
         run: node scripts/test_dmasetup.js
+      - name: Daily plan rule tests
+        run: node scripts/test_plan.js
       - name: JavaScript syntax (app and scripts)
         run: for f in *.js scripts/*.js; do node --check "$f" || exit 1; done
       - name: App files changed -> service-worker cache version bumped
