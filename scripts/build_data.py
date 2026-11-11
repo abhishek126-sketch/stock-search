@@ -666,6 +666,22 @@ def fetch_etf(sym, name, _):
     d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     return d
 
+KEPT = []
+def keep_newer_bars(d, ob):
+    """Yahoo's daily candles can lag a session: at 00:38 IST on 12 Nov 2026 the 11 Nov candle was missing for ~4,400
+    stocks, so apply_exchange_close() added the official close as a flat zero-volume bar and the real candle (open, high,
+    low, volume) from the 19:00 run was lost - wrong ranges, volume ratios and swing levels. Keep the newer real candles
+    and closes from the previous file instead; the official close is then applied on top of them as usual."""
+    if not isinstance(d, dict) or not ob: return 0
+    po, ph = ob
+    oh = d.get('ohlc') or []; last = oh[-1][0] if oh else 0
+    add = [b for b in po if isinstance(b, list) and len(b) > 5 and b[0] > last + 43200 and b[5] and b[2] > b[3]]
+    if oh and add: d['ohlc'] = (oh + add)[-80:]
+    h = d.get('hist') or []; lh = h[-1][0] if h else 0
+    addh = [x for x in ph if isinstance(x, list) and len(x) > 1 and x[0] > lh + 43200]
+    if h and addh: d['hist'] = h + addh
+    return len(add)
+
 def main():
     os.makedirs(os.path.join(OUT, 's'), exist_ok=True)
     print('crumb', bool(crumb()))
@@ -677,14 +693,17 @@ def main():
     docs, fails = {}, []
     def job(x):
         try:
+            pf = os.path.join(OUT, 's', x[0] + '.json'); prev = None
+            try: prev = json.load(open(pf)) if os.path.exists(pf) else None
+            except Exception: prev = None
+            ob = (list(prev.get('ohlc') or []), list(prev.get('hist') or [])) if isinstance(prev, dict) else None   # before fetch() replaces them
             if CAP.get(x[0]) in ('Penny', 'Other'):  # penny / non-index: full fundamentals at most once a day, otherwise price history only
-                pf = os.path.join(OUT, 's', x[0] + '.json'); prev = None
-                try: prev = json.load(open(pf)) if os.path.exists(pf) else None
-                except Exception: prev = None
                 docs[x[0]] = fetch(*x, prev=prev if prev and prev.get('fund') is not None and now0 - prev.get('fetched', 0) < 20 * 3600 else None)
             else: docs[x[0]] = (fetch_etf if CAP.get(x[0], '').startswith('ETF') else fetch)(*x)
+            if keep_newer_bars(docs[x[0]], ob): KEPT.append(x[0])
         except Exception as e: fails.append(x[0]); print('fail', x[0], e)
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
+    print('newer daily bars kept from the previous run (Yahoo lagging a session):', len(KEPT), KEPT[:10])
     nfix = sum(fix_stale_price(d) for d in docs.values()); print('stale Yahoo prices replaced by latest daily close:', nfix)
     try: nse_day, nse_n = apply_exchange_close(docs, 'NSE')
     except Exception as e: nse_day, nse_n = None, 0; print('NSE close step failed (prices stay Yahoo):', e)
