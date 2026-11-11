@@ -4,6 +4,9 @@
 // EMA is seeded with the SMA of the first N values, then k = 2/(N+1). RSI and ATR use Wilder's smoothing.
 // Relative strength is O'Neil's weighted 3/6/12-month return, ranked 1–99 inside one market (build_data.py).
 // Bars for ATR are [time, open, high, low, close, volume].
+// Wrapped in its own scope: in the browser it only adds window.IND. Top-level function names here (sma, rsi…)
+// would clash with app.js's `const sma = IND.sma …` and stop app.js from loading (SyntaxError, 12 Nov 2026).
+(function () {
 
 function sma(values, n, end) {
   const z = end == null ? values.length : end;
@@ -116,3 +119,4 @@ function rsRanks(rows) {
 const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound };
 if (typeof module !== 'undefined' && module.exports) module.exports = API;
 if (typeof window !== 'undefined') window.IND = API;
+})();
