@@ -17,7 +17,7 @@ const P = require('./planrules.js'), PP = require('../planport.js'), SE = requir
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data'), CACHE = process.env.BT_CACHE || null;
 const FILE = path.join(OUT, 'backtest.json'), now = Math.floor(Date.now() / 1000), IST = 19800;
 const CAPITALS = [30000, 100000, 500000];
-const BT_V = 2;   // output format; 2 = byClose (signal-day close location). A new format or new costs rebuild at once.
+const BT_V = 3;   // output format / rules; 2 = byClose (signal-day close location), 3 = top-quarter close rule on. A new format or new costs rebuild at once.
 const ist = t => new Date((t + IST) * 1000).toISOString().slice(0, 10);
 const r2 = v => Math.round(v * 100) / 100;
 const med = a => { const b = a.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };

@@ -23,7 +23,9 @@ const RULES = {
   minRR: 2,
   buyGrades: ['A+', 'A'], minSetupScore: 75,
   stopMinAtr: 1, stopMaxAtr: 2.5, stopMaxPct: 8,
-  minCloseLoc: null,    // signal-day candle: buy only if it closed at least this % up the day's range (null = off)
+  minCloseLoc: 75,      // signal-day candle: buy only if it closed at least this % up the day's range (null = off).
+                        // On since 13 Nov 2026: full history test (869 stocks, Groww costs) ₹1L −2.4% → +10.8% a year,
+                        // −0.02R → +0.21R per trade, held in 2023-24 and 2025-26; a ≥50% line did not help.
   maxUpperWick: null,   // … and its upper wick is at most this % of the range (null = off)
 };
 const REGIMES = { A: ['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
@@ -187,11 +189,13 @@ function evaluate(d, row, x, ctx) {
   // wide stops (over 5% of the price) cost 3 points per extra %: same rupee risk, but the stock needs a bigger move
   const wide = plan ? Math.max(0, plan.Rpct - 5) * 3 : 0;
   const conf = Math.max(0, Math.min(100, Math.round(0.3 * ts + 0.3 * ss + 0.25 * (ctx.regimeScore ?? 50) + 15 * Math.min(1, p2 / 0.45) - 5 * warn.length - wide - (rrWhy ? 20 : 0))));
-  const buy = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > RULES.minSetupScore && !rrWhy
-    && (RULES.minCloseLoc == null || (S.cdl && S.cdl.cl >= RULES.minCloseLoc)) && (RULES.maxUpperWick == null || (S.cdl && S.cdl.uw <= RULES.maxUpperWick));
+  const ok0 = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > RULES.minSetupScore && !rrWhy;
+  const candleOk = (RULES.minCloseLoc == null || (S.cdl && S.cdl.cl >= RULES.minCloseLoc)) && (RULES.maxUpperWick == null || (S.cdl && S.cdl.uw <= RULES.maxUpperWick));
+  const buy = ok0 && candleOk;
   // what to wait for (watchlist)
   let wait = '';
-  if (!buy) wait = rrWhy ? `wait for a close above the 52-week high ${inrS(hi52)}`
+  if (!buy) wait = ok0 && !candleOk ? `passes every other rule, but the day closed ${S.cdl ? `at ${S.cdl.cl}% of its range` : 'without a range'}${RULES.maxUpperWick != null && S.cdl && S.cdl.uw > RULES.maxUpperWick ? ` with a ${S.cdl.uw}% upper wick` : ''} — wait for a day that closes in the top quarter (≥ ${RULES.minCloseLoc}%) of its range`
+    : rrWhy ? `wait for a close above the 52-week high ${inrS(hi52)}`
     : ext20 > 3 ? `wait for a pullback towards the 20 EMA ${inrS(e20)} and a green candle`
     : setup === 'early' ? `early trend — wait for higher highs and the 50 EMA rising above the 200 EMA`
     : offHi > -0.05 ? `wait for a breakout above ${inrS(Math.max(hi20, hi52))} on volume ≥ 1.5× normal`
