@@ -67,6 +67,56 @@ main{padding-bottom:max(12px,env(safe-area-inset-bottom))}html,body{overflow-x:h
 .dqbox{background:#fee2e2;border:1px solid #fca5a5;color:#7f1d1d;border-radius:10px;padding:8px 12px;margin:8px 0;font-size:13px}.dqbox ul{margin:4px 0 0;padding-left:18px}.dqbox li{margin:3px 0}
 @media(max-width:520px){header{padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}.hrow{gap:5px}header h1{font-size:16px;overflow:hidden;text-overflow:ellipsis}header button{padding:7px 8px}#homeBtn{margin-right:0}.bl{display:none}.px{font-size:26px}main{padding:10px 8px}.card{padding:12px}#live{padding:0 8px}.scen{gap:5px}.sc{padding:8px 4px}}
 @media(max-width:340px){header h1{font-size:0}header h1::before{content:"📈";font-size:18px}}
+/* ===== colour + readability theme (13 Nov 2026): Inter (bundled, works offline), 16 px text, darker greys,
+   aligned digits, colour-coded cards / tables / tiles / chips. Overrides the rules above. ===== */
+@font-face{font-family:'Inter';src:url(vendor/fonts/inter-latin-wght.woff2) format('woff2');font-weight:100 900;font-style:normal;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+:root{--bg:#f3f5fb;--ink:#111827;--mut:#4b5563;--line:#e5e7eb;--pri:#0f766e;--pri2:#4338ca;--up:#15803d;--dn:#c81e1e;--grad:linear-gradient(120deg,#0f766e 0%,#0e7490 48%,#4338ca 100%)}
+body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  background:radial-gradient(900px 360px at 0 -60px,#ccfbf1 0,transparent 70%) no-repeat,radial-gradient(900px 360px at 100% -60px,#e0e7ff 0,transparent 70%) no-repeat,var(--bg)}
+a{color:#1d4ed8}a:hover{color:#312e81}
+header{background:var(--grad);box-shadow:0 4px 18px #312e8133}
+header h1{font-weight:800;letter-spacing:-.01em}
+header button{background:#ffffff26;font-weight:600}header button:hover{background:#ffffff40}
+#q{box-shadow:0 4px 14px #0f172a22;font-family:inherit}
+#sug div:hover,#sug div.act{background:#eef2ff}
+.mut{color:var(--mut);font-size:13.5px}.src{color:var(--mut);font-size:12.5px}
+/* cards: a coloured top strip and heading, cycling through six colours */
+.card{--ac:#14b8a6;--ah:#0f766e;border-radius:16px;border-top:4px solid var(--ac);box-shadow:0 1px 2px #0f172a0f,0 6px 18px #0f172a0b}
+.card:nth-child(6n+2){--ac:#6366f1;--ah:#4338ca}.card:nth-child(6n+3){--ac:#f59e0b;--ah:#b45309}.card:nth-child(6n+4){--ac:#ec4899;--ah:#be185d}
+.card:nth-child(6n+5){--ac:#0ea5e9;--ah:#0369a1}.card:nth-child(6n+6){--ac:#8b5cf6;--ah:#6d28d9}
+.card h2{color:var(--ah);font-size:17px;font-weight:750;letter-spacing:-.005em}h3{font-size:15px;color:#1f2937}
+.card.disc{--ac:#f59e0b;background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #fcd34d;border-top:4px solid #f59e0b}
+/* price + change */
+.px{font-size:32px;font-weight:800;letter-spacing:-.015em;font-variant-numeric:tabular-nums}
+.chg{display:inline-block;padding:2px 10px;border-radius:999px;font-size:15px}.chg.up{background:#dcfce7}.chg.dn{background:#fee2e2}
+/* tabs, chips, buttons */
+.tabs button{background:#f1f5f9;border:1px solid transparent;color:#1f2937;font-weight:600;font-size:14px;padding:6px 14px;font-family:inherit}
+.tabs button:hover{background:#e0e7ff}.tabs button.on{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 2px 8px #4338ca40}
+.chips button{border:0;font-weight:600;font-family:inherit;background:#ccfbf1;color:#115e59}
+.chips button:nth-child(5n+2){background:#e0e7ff;color:#3730a3}.chips button:nth-child(5n+3){background:#fef3c7;color:#92400e}
+.chips button:nth-child(5n+4){background:#fce7f3;color:#9d174d}.chips button:nth-child(5n+5){background:#dcfce7;color:#166534}
+.btn{background:var(--grad);font-weight:600;font-family:inherit;box-shadow:0 2px 6px #0f766e33}.btn:hover{filter:brightness(1.08)}
+.btn.sec{background:#eef2ff;color:#3730a3;box-shadow:none}.btn.sec:hover{background:#e0e7ff;filter:none}
+input,select,textarea{font-family:inherit}
+/* tables: tinted header row, striped rows, aligned digits */
+table{font-size:14px;font-variant-numeric:tabular-nums}
+th{background:#eef2ff;color:#312e81;font-weight:700;border-bottom:2px solid #c7d2fe}
+td{border-bottom-color:#eef0f4}
+table tr:nth-child(even):not(.hl):not(.rk) td{background:#f8fafc}
+.pt tr[data-s]:hover td,.pt tr[data-sector]:hover td{background:#ecfeff}
+/* key-number tiles: five tints */
+.kv div{background:#f0fdfa;border-left:3px solid #5eead4}.kv div:nth-child(5n+2){background:#eef2ff;border-color:#a5b4fc}
+.kv div:nth-child(5n+3){background:#fffbeb;border-color:#fcd34d}.kv div:nth-child(5n+4){background:#fdf2f8;border-color:#f9a8d4}.kv div:nth-child(5n+5){background:#f0f9ff;border-color:#7dd3fc}
+.kv b{font-size:16px;font-variant-numeric:tabular-nums}.kv span{font-size:12.5px;color:#4b5563}
+/* small things */
+.gq{background:#e0e7ff;color:#4338ca}.gq:hover{background:#4338ca;color:#fff}
+.navc a{background:#ccfbf1;color:#115e59;font-weight:600}.navc a:nth-child(5n+2){background:#e0e7ff;color:#3730a3}.navc a:nth-child(5n+3){background:#fef3c7;color:#92400e}
+.navc a:nth-child(5n+4){background:#fce7f3;color:#9d174d}.navc a:nth-child(5n+5){background:#e0f2fe;color:#075985}
+.how summary{color:#4338ca;font-weight:600}.rn,.csL{background:var(--grad)}
+.fullan{border-color:#6366f1;background:linear-gradient(135deg,#eef2ff,#f5f3ff)}
+.bar{background:#e5e7eb}
+dialog{border-top:5px solid #6366f1}
+@media(max-width:520px){.px{font-size:28px}.card h2{font-size:16px}}
 </style></head>
 <body>
 <header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts" onclick="showAlerts()">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
