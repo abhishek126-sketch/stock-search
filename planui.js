@@ -54,13 +54,32 @@ const trRem = t => t.qty - (t.sold || []).reduce((s, x) => s + x.q, 0);
 const trOpen = () => TR().trades.filter(t => !t.exit && trRem(t) > 0);
 
 // ---------- portfolio construction (capital-dependent, so done here) ----------
-function planBuild(P) {
+// ov: what-if overrides {cash, riskPct, maxRisk} (the small-capital helper); normally your saved settings
+function planBuild(P, ov = {}) {
   plDef();
-  const cap = +SWF.cash || 0, reg = P.market.regime, open = trOpen();
-  const B = PlanPort.buildPortfolio(P.buy.map(b => ({ ...b, theme: swSec(b).sec })), { capital: cap, riskPct: SWF.riskPct, maxRisk: SWF.maxRisk, posPct: SWF.posPct, exposure: reg.exposure,
+  const cap = +(ov.cash ?? SWF.cash) || 0, reg = P.market.regime, open = trOpen();
+  const B = PlanPort.buildPortfolio(P.buy.map(b => ({ ...b, theme: swSec(b).sec })), { capital: cap, riskPct: ov.riskPct ?? SWF.riskPct, maxRisk: ov.maxRisk ?? SWF.maxRisk, posPct: SWF.posPct, exposure: reg.exposure,
     open: open.map(t => ({ s: t.s, theme: swSec({ s: t.s }).sec, qty: trRem(t), entry: t.entry, sl: t.sl })), costs: plCosts() });
   B.skipped = B.skipped.map(([b, w]) => [b, w === 'already held' ? 'already in 📒 My trades' : w]);
   return { ...B, reg };
+}
+// small-capital helper: trades skipped because the broker's fixed charges are too big for the risk → show what would
+// unlock one (a higher risk % or more capital, found by re-running the same portfolio rules) and let you choose
+function plSmallCap(P, B) {
+  const hit = B.skipped.filter(([, w]) => /^charges ≈/.test(w)); if (!hit.length) return '';
+  const n0 = B.picks.length, r0 = +SWF.riskPct, m = /₹([\d,]+) would eat (\d+)% of the ₹([\d,]+)/.exec(hit[0][1]) || [];
+  let r = null; for (let x = Math.round(r0 * 10) + 1; x <= 30; x++) { const v = x / 10; if (planBuild(P, { riskPct: v, maxRisk: Math.max(+SWF.maxRisk, v) }).picks.length > n0) { r = v; break; } }
+  let c = null; const c0 = Math.ceil(B.cap / 5000) * 5000; for (let k = 1; k <= 200; k++) { const v = c0 + k * 5000; if (planBuild(P, { cash: v }).picks.length > n0) { c = v; break; } }
+  const lose = v => inr(B.cap * v / 100), plural = hit.length === 1 ? '' : 's';
+  return `<div style="border:1px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:8px 12px;margin-top:8px;font-size:14px">
+    <p style="margin:0 0 4px"><b>⚠ ${n0 ? `${hit.length} more trade${plural} skipped: your capital is small for` : 'Your capital is small for'} ${esc(plCosts().label)} charges at ${r0}% risk.</b>
+     ${m[1] ? `A trade here costs about ₹${m[1]} in charges (buy + two sells) — ${m[2]}% of the ₹${m[3]} you would risk.` : ''} Above 15%, charges make a trade lose money over time, so the plan skips it.</p>
+    <ul style="margin:4px 0;padding-left:18px">
+     ${r ? `<li>Risk <b>${r}%</b> a trade (${lose(r)}) — <button class="btn sec" data-plrisk="${r}" style="padding:3px 8px;font-size:13px">Use ${r}% risk</button><br><small class="mut">A losing trade then costs about ${lose(r)} instead of ${inr(B.riskAmt)}${r > 2 ? `; five losers in a row — normal with a 40% win rate — would cost about ${inr(B.cap * r * 5 / 100)} (${(r * 5).toFixed(0)}%)` : ''}.</small></li>`
+       : `<li>Even 3% risk a trade wouldn't fit: the per-stock (${SWF.posPct}%) or exposure limit stops the position first.</li>`}
+     ${c ? `<li>Or trade about <b>${inr(c)}</b> of capital at ${r0}% risk.</li>` : ''}
+     <li>Or keep ${r0}% and follow the plan on paper until the capital grows — 🧪 the paper portfolio shows how it does.</li></ul>
+    <p class="mut" style="font-size:12.5px;margin:2px 0 0">Your choice — change risk or capital any time in 💰 Your capital above.${r0 > 1 ? ` You are at ${r0}% now; the plan's tested default is 1%.` : ''}</p></div>`;
 }
 // history test (scripts/backtest.js → backtest.json) and paper portfolio (scripts/track.js → track.json)
 let PLBT = null, PLTR = null;
@@ -151,7 +170,7 @@ async function renderPlan(box) {
      <li>Ideal size per position about <b>${inr(allocLo)}–${inr(allocHi)}</b>, never more than ${SWF.posPct}% (${inr(B.posCap)}) in one stock.</li>
      ${B.nOpen ? `<li>Already in 📒 My trades: ${B.nOpen} open (${inr(B.openInv)} invested, ${inr(B.openRisk)} at risk) — counted against these limits.</li>` : ''}</ul>
     ${B.picks.length ? `<p><b>${B.picks.length} new trade${B.picks.length === 1 ? '' : 's'}</b> qualify for ${swDate(P.next)}${B.picks.length < 3 && reg.exposure <= 50 ? ' — few on purpose: the market is not giving many clean setups' : ''}.</p>`
-      : `<p style="font-size:16px"><b>🟡 NO TRADE for ${swDate(P.next)}.</b> No stock passes every rule${P.buy.length ? ' within your limits' : ''}. Cash is a position — waiting costs nothing.</p>`}</div>`;
+      : `<p style="font-size:16px"><b>🟡 NO TRADE for ${swDate(P.next)}.</b> No stock passes every rule${P.buy.length ? ' within your limits' : ''}. Cash is a position — waiting costs nothing.</p>`}${plSmallCap(P, B)}</div>`;
 
   const prob = pr => pr ? `${pctS(pr.T1)} / ${pctS(pr.T2)} / ${pctS(pr.T3)} / ${pctS(pr.T4)}` : '–';
   const pick = (b, i) => { const pl = b.plan, pr = pl.prob;
@@ -239,6 +258,7 @@ async function renderPlan(box) {
   swModeWire(box);
   const re = () => { swSave(); const y = window.scrollY; renderPlan(box).then(() => window.scrollTo(0, y)); };
   plBarWire(box, re);
+  box.querySelectorAll('[data-plrisk]').forEach(b => b.onclick = () => { SWF.riskPct = +b.dataset.plrisk; if (SWF.maxRisk < SWF.riskPct) SWF.maxRisk = SWF.riskPct; swSave(); re(); });
   box.querySelectorAll('[data-plcopy]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.plcopy); if (p) plCopy(plTicket(p), b); });
   const ca = box.querySelector('#plcopyall'); if (ca) ca.onclick = () => plCopy(`GTT orders for ${swDate(P.next)} — capital ${inr(B.cap)}, risk ${inr(B.riskAmt)} a trade, ${plCosts().label} charges (plan from the close of ${swDate(P.asOf)})\n\n` + B.picks.map((b, i) => `#${i + 1} ` + plTicket(b)).join('\n\n'), ca);
   box.querySelectorAll('[data-pllog]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.pllog); if (p) tradeDialog(null, p, () => { SWF.mode = 'trades'; swSave(); renderSwing(box); }); });
