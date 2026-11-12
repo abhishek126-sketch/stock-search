@@ -116,7 +116,20 @@ function rsRanks(rows) {
   return out;
 }
 
-const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound };
+// Shape of one daily candle [t, o, h, l, c, v], all as % of the day's range: cl = where it closed (0 = at the low,
+// 100 = at the high), body = |close − open|, uw / lw = upper / lower wick; up = closed at or above the open.
+// `close` overrides the bar's close (the official close can be newer than the bar). null when there was no range.
+function candle(bar, close) {
+  if (!bar) return null;
+  const o = bar[1], c = close != null && isFinite(close) ? close : bar[4];
+  if (!(o > 0) || !(c > 0)) return null;
+  const h = Math.max(bar[2], o, c), l = Math.min(bar[3], o, c), r = h - l;
+  if (!(r > 0)) return null;
+  const pc = x => Math.round(x / r * 100);
+  return { cl: pc(c - l), body: pc(Math.abs(c - o)), uw: pc(h - Math.max(o, c)), lw: pc(Math.min(o, c) - l), up: c >= o };
+}
+
+const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound, candle };
 if (typeof module !== 'undefined' && module.exports) module.exports = API;
 if (typeof window !== 'undefined') window.IND = API;
 })();

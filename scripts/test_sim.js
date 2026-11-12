@@ -6,9 +6,18 @@ const PP = require('../planport.js'), SE = require('./simengine.js');
 let fail = 0; const ok = (c, m) => { if (!c) { fail++; console.log('FAIL', m); } else console.log('ok  ', m); };
 const near = (a, b, e = 0.01) => Math.abs(a - b) <= e;
 
-// costs: ₹10,000 buy = STT 10 + stamp 1.5 + exch/sebi 0.31 + GST 0.06 ≈ 11.87; sell adds the DP charge instead of stamp
-ok(near(PP.buyCost(10000), 11.87, 0.05), 'buy cost of ₹10,000 ≈ ₹11.87 (' + PP.buyCost(10000).toFixed(2) + ')');
-ok(near(PP.sellCost(10000), 10.37 + 15.93, 0.05), 'sell cost of ₹10,000 ≈ ₹26.30 incl. DP (' + PP.sellCost(10000).toFixed(2) + ')');
+// costs, Zerodha: ₹10,000 buy = STT 10 + stamp 1.5 + exch/sebi 0.31 + GST 0.06 ≈ 11.87; sell adds the DP charge instead of stamp
+const ZE = PP.BROKERS.zerodha, GR = PP.BROKERS.groww;
+ok(near(PP.buyCost(10000, ZE), 11.87, 0.05), 'Zerodha buy cost of ₹10,000 ≈ ₹11.87 (' + PP.buyCost(10000, ZE).toFixed(2) + ')');
+ok(near(PP.sellCost(10000, ZE), 10.37 + 15.93, 0.05), 'Zerodha sell cost of ₹10,000 ≈ ₹26.30 incl. DP (' + PP.sellCost(10000, ZE).toFixed(2) + ')');
+// Groww: brokerage 0.1% (min ₹5, max ₹20) + GST; ₹10,000 buy = 10 + 1.5 + 0.33 + 10 + GST 1.86 ≈ 23.69; sell = 10 + 0.33 + 10 + 1.86 + DP 23.60 ≈ 45.79
+ok(near(PP.buyCost(10000, GR), 23.69, 0.05), 'Groww buy cost of ₹10,000 ≈ ₹23.69 (' + PP.buyCost(10000, GR).toFixed(2) + ')');
+ok(near(PP.sellCost(10000, GR), 45.79, 0.05), 'Groww sell cost of ₹10,000 ≈ ₹45.79 (' + PP.sellCost(10000, GR).toFixed(2) + ')');
+ok(PP.brokerage(2000, GR) === 5 && PP.brokerage(50000, GR) === 20 && near(PP.brokerage(12000, GR), 12), 'Groww brokerage floor ₹5, cap ₹20, else 0.1%');
+ok(PP.COSTS === GR && PP.costsFor('zerodha') === ZE && PP.costsFor('other', 20).brk === 20 && PP.brokerage(1e6, PP.costsFor('other', 20)) === 20, 'default = Groww; "other" = flat brokerage');
+const IND = require('../indicators.js'), cd = IND.candle([0, 102, 110, 100, 108, 1]);
+ok(cd && cd.cl === 80 && cd.body === 60 && cd.uw === 20 && cd.lw === 20 && cd.up, 'candle: close location 80%, body 60%, wicks 20/20 (' + JSON.stringify(cd) + ')');
+ok(IND.candle([0, 100, 100, 100, 100, 0]) === null && IND.candle([0, 100, 101, 99, 100, 1], 98).cl === 0, 'candle: no range → null; official close overrides the bar');
 ok(PP.maxPositions(30000) === 3 && PP.maxPositions(100000) === 5, 'positions by capital');
 
 // portfolio: risk 1% of ₹1L = ₹1,000; R ₹50 → 20 shares; one per theme; exposure cap; cost check

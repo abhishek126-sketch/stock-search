@@ -20,7 +20,7 @@ function advance(B, day, bars, ind) {
     let q = o.q; while (q > 0 && q * px + PP.buyCost(q * px, costs) > B.cash) q--;
     if (!q) { B.missed++; continue; }
     const f = PP.buyCost(q * px, costs); B.cash -= q * px + f; B.fees += f; B.filled++;
-    const p = { s: o.s, theme: o.theme, setup: o.setup, grade: o.grade, conf: o.conf, regime: o.regime, d0: day, plannedE: o.E, entry: px, qty: q, rem: q, sl: o.SL, sl0: o.SL, R0: px - o.SL, T1: o.T1, T3: o.T3, half: false, best: px, days: 0, fees: f, sells: [], last: px };
+    const p = { s: o.s, theme: o.theme, setup: o.setup, grade: o.grade, conf: o.conf, regime: o.regime, cl: o.cl, d0: day, plannedE: o.E, entry: px, qty: q, rem: q, sl: o.SL, sl0: o.SL, R0: px - o.SL, T1: o.T1, T3: o.T3, half: false, best: px, days: 0, fees: f, sells: [], last: px };
     // the entry day: only what happened after the entry counts (buy at px, then the rest of the bar)
     exitTrade(p, PP.manageDay(p, [bar[0], px, bar[2], bar[3], bar[4], bar[5]], ind[o.s]));
     p.last = bar[4]; (p.rem > 0 ? B.open : done).push(p);
@@ -35,7 +35,7 @@ function advance(B, day, bars, ind) {
   }
   for (const p of done) {
     const gross = p.sells.reduce((s, x) => s + x[1] * (x[2] - p.entry), 0), net = gross - p.fees, risk = p.qty * p.R0;
-    B.closed.push({ s: p.s, setup: p.setup, grade: p.grade, conf: p.conf, regime: p.regime, theme: p.theme, d0: p.d0, d1: day, days: p.days, entry: r2(p.entry), plannedE: p.plannedE, qty: p.qty, sl0: p.sl0,
+    B.closed.push({ s: p.s, setup: p.setup, grade: p.grade, conf: p.conf, regime: p.regime, cl: p.cl, theme: p.theme, d0: p.d0, d1: day, days: p.days, entry: r2(p.entry), plannedE: p.plannedE, qty: p.qty, sl0: p.sl0,
       gross: r2(gross), fees: r2(p.fees), net: r2(net), R: r2(net / risk), Rg: r2(gross / risk), exit: p.sells[p.sells.length - 1][3], sells: p.sells });
   }
   // 3. mark to the close
@@ -46,7 +46,7 @@ function placeOrders(B, plan, o = {}) {
   const eq = B.curve.length ? B.curve[B.curve.length - 1][1] : B.cash;
   const res = PP.buildPortfolio(plan.buy, { capital: eq, riskPct: o.riskPct ?? 1, maxRisk: o.maxRisk ?? 5, posPct: o.posPct ?? 25, exposure: plan.exposure,
     open: B.open.map(p => ({ s: p.s, theme: p.theme, qty: p.rem, entry: p.entry, sl: p.sl })), costs: B.opts.costs || PP.COSTS, maxCostR: o.maxCostR });
-  B.pending = res.picks.map(b => ({ s: b.s, theme: b.theme, setup: b.setup, grade: b.grade, conf: b.conf, regime: plan.cls, E: b.plan.E, SL: b.plan.SL, T1: b.plan.T1, T3: b.plan.T3, q: b.q }));
+  B.pending = res.picks.map(b => ({ s: b.s, theme: b.theme, setup: b.setup, grade: b.grade, conf: b.conf, regime: plan.cls, cl: b.cdl ? b.cdl.cl : null, E: b.plan.E, SL: b.plan.SL, T1: b.plan.T1, T3: b.plan.T3, q: b.q }));
   return res;
 }
 
@@ -63,9 +63,11 @@ function tradeStats(T) {
 function summarize(B) {
   const c = B.curve, T = B.closed, by = f => { const g = {}; for (const t of T) { const k = f(t); if (k != null) (g[k] = g[k] || []).push(t); } return Object.fromEntries(Object.entries(g).map(([k, a]) => [k, tradeStats(a)])); };
   const confBand = t => t.conf == null ? null : t.conf < 55 ? '<55' : t.conf < 60 ? '55-59' : t.conf < 65 ? '60-64' : t.conf < 70 ? '65-69' : t.conf < 75 ? '70-74' : '75+';
+  // where the signal-day candle closed in its range: top quarter / upper half / lower half (does a strong close help?)
+  const clBand = t => t.cl == null ? null : t.cl >= 75 ? 'hi' : t.cl >= 50 ? 'mid' : 'lo';
   const ex = c.length ? c.map(([d, v], i) => 0) : [];
   return { capital: B.capital, end: c.length ? c[c.length - 1][1] : B.capital, ret: c.length ? r2((c[c.length - 1][1] / B.capital - 1) * 100) : 0, cagr: cagr(c) == null ? null : r2(cagr(c) * 100), maxDD: r2(maxDD(c) * 100),
-    trades: tradeStats(T), filled: B.filled, missed: B.missed, fees: Math.round(B.fees), bySetup: by(t => t.setup), byGrade: by(t => t.grade), byConf: by(confBand), byRegime: by(t => t.regime),
+    trades: tradeStats(T), filled: B.filled, missed: B.missed, fees: Math.round(B.fees), bySetup: by(t => t.setup), byGrade: by(t => t.grade), byConf: by(confBand), byRegime: by(t => t.regime), byClose: by(clBand),
     byExit: by(t => t.exit.replace(/ \(.*/, '')), open: B.open.length };
 }
 module.exports = { newBook, advance, placeOrders, summarize, tradeStats, maxDD, cagr, equity };

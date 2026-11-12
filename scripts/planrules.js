@@ -88,7 +88,8 @@ function evaluate(d, row, x, ctx) {
   const rs = row.rs, mcap = row.mcap || 0, sym = row.s.replace(/\.NS$/, '');
   const S = { s: row.s, n: row.n, cap: row.cap, sec: row.sec || d.sector || '', ind: row.ind || d.industry || '', p: r2(p), chg: r2((p / c[n - 1] - 1) * 100),
     e20: tk(e20), e50: tk(e50), e200: tk(e200), rsi: Math.round(rsi), atr: r2(atr), atrp: r2(atrp), rs, vr: vr && r2(vr), tovCr: Math.round(tov / 1e7), mcapCr: Math.round(mcap / 1e7),
-    hi52: r2(hi52), offHi: r2((p / hi52 - 1) * 100), r1m: r2(ret(c, 21) * 100), r3m: r2(r3m * 100), ext20: r2(ext20), pe: row.pe && r2(row.pe), roce: row.roce, pp: row.pp, dp: row.dp, dpA: row.dpA };
+    hi52: r2(hi52), offHi: r2((p / hi52 - 1) * 100), r1m: r2(ret(c, 21) * 100), r3m: r2(r3m * 100), ext20: r2(ext20), pe: row.pe && r2(row.pe), roce: row.roce, pp: row.pp, dp: row.dp, dpA: row.dpA,
+    cdl: I.candle(bar, p) };   // shape of the signal-day candle (close location, body, wicks) — shown, and measured in the history test
   // ---- 1. hard rejects (the framework's list, plus exchange surveillance) ----
   const why = [], code = [];
   const rej = (k, t) => { code.push(k); why.push(t); };

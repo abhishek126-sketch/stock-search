@@ -25,11 +25,13 @@ function indOn(s, day) {
 }
 function planOrders(plan) {
   return { exposure: plan.market.regime.exposure, cls: plan.market.regime.cls,
-    buy: (plan.buy || []).map(b => ({ s: b.s, plan: b.plan, conf: b.conf, theme: PP.themeOf(b.ind, b.sec), setup: b.setup, grade: b.grade })) };
+    buy: (plan.buy || []).map(b => ({ s: b.s, plan: b.plan, conf: b.conf, theme: PP.themeOf(b.ind, b.sec), setup: b.setup, grade: b.grade, cdl: b.cdl })) };
 }
 function main() {
   const plan = readJ('plan.json'); if (!plan || !plan.asOf || !plan.market) { console.log('track: no plan - skipped'); return; }
   const D = plan.asOf; let st = readJ('track.json');
+  // the book keeps its cost table: always use today's (switched from Zerodha-style ₹0 brokerage to Groww on 13 Nov 2026)
+  if (st) for (const bk of [st.book, st.prev && st.prev.book]) if (bk && bk.opts) bk.opts.costs = PP.COSTS;
   if (!st || !st.book) {
     const B = SE.newBook(START_CAPITAL, { costs: PP.COSTS }); B.curve.push([D, START_CAPITAL]);
     SE.placeOrders(B, planOrders(plan), OPTS);

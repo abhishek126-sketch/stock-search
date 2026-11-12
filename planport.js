@@ -3,11 +3,22 @@
 // 1. Indian delivery-trade costs  2. building the portfolio from the plan's buy list  3. managing a trade day by day.
 // One copy of these rules, so the plan you see, the history test and the paper portfolio can't drift apart.
 (function (root) {
-  // ---- 1. costs of a delivery (CNC) trade, NSE, 2026 rates. brk = brokerage per executed order (₹0 at most discount
-  //         brokers for delivery, ₹20 at some); dp = depository charge per stock per day you sell (₹13.5 + GST at Zerodha).
-  const COSTS = { brk: 0, dp: 15.93, stt: 0.001, stamp: 0.00015, exch: 0.0000297, sebi: 0.000001, gst: 0.18 };
-  function buyCost(value, c = COSTS) { const b = c.brk || 0, ex = value * (c.exch + c.sebi); return value * (c.stt + c.stamp) + ex + b + c.gst * (b + ex); }
-  function sellCost(value, c = COSTS) { const b = c.brk || 0, ex = value * (c.exch + c.sebi); return value * c.stt + ex + b + c.gst * (b + ex) + (c.dp || 0); }
+  // ---- 1. costs of a delivery (CNC) trade on NSE. Brokerage per executed order is either a % with a floor and a cap
+  //         (brkPct / brkMin / brkMax) or a flat ₹ (brk). dp = depository charge per stock per day you sell, GST included.
+  //         Groww (groww.in/pricing, checked 12 Nov 2026): brokerage 0.1% per order, min ₹5, max ₹20; DP ₹3.5 CDSL + ₹16.5
+  //         Groww per sell + 18% GST = ₹23.60; NSE transaction 0.00307% + IPFT 0.0001%; SEBI 0.0001%; STT 0.1% both sides;
+  //         stamp 0.015% on buying. (Paying from a UPI-mandate balance costs 1% brokerage at Groww — not modelled.)
+  //         Zerodha: ₹0 delivery brokerage, DP ₹13.5 + GST = ₹15.93, NSE transaction 0.00297%.
+  const BROKERS = {
+    groww: { label: 'Groww', brkPct: 0.001, brkMin: 5, brkMax: 20, dp: 23.6, stt: 0.001, stamp: 0.00015, exch: 0.0000307, ipft: 0.000001, sebi: 0.000001, gst: 0.18 },
+    zerodha: { label: 'Zerodha', brk: 0, dp: 15.93, stt: 0.001, stamp: 0.00015, exch: 0.0000297, sebi: 0.000001, gst: 0.18 },
+  };
+  const COSTS = BROKERS.groww;   // the history test and the paper portfolio use the owner's broker
+  // 'other' = Zerodha's statutory rates with your own flat brokerage per order
+  const costsFor = (broker, brk) => broker === 'other' ? { ...BROKERS.zerodha, label: 'Other', brk: Math.max(0, +brk || 0) } : BROKERS[broker] || COSTS;
+  const brokerage = (value, c) => c.brkPct ? Math.min(c.brkMax ?? Infinity, Math.max(c.brkMin || 0, value * c.brkPct)) : (c.brk || 0);
+  function buyCost(value, c = COSTS) { const b = brokerage(value, c), ex = value * (c.exch + c.sebi + (c.ipft || 0)); return value * (c.stt + c.stamp) + ex + b + c.gst * (b + ex); }
+  function sellCost(value, c = COSTS) { const b = brokerage(value, c), ex = value * (c.exch + c.sebi + (c.ipft || 0)); return value * c.stt + ex + b + c.gst * (b + ex) + (c.dp || 0); }
   // estimated round trip for sizing: buy q at E, sell half at T1 and half later near T1 (two selling days)
   function tripCost(q, E, T1, c = COSTS) { const h = Math.floor(q / 2); return buyCost(q * E, c) + (h ? sellCost(h * T1, c) + sellCost((q - h) * T1, c) : sellCost(q * T1, c)); }
 
@@ -78,6 +89,6 @@
     ['FMCG & food', /Packaged Foods|Household|Personal Products|Beverages|Tobacco|Confectioners|Farm Products|Food Distribution|Grocery/]];
   const themeOf = (ind, sec) => { const t = THEMES.find(x => x[1].test(ind || '')); return t ? t[0] : (sec || ''); };
 
-  const API = { COSTS, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf };
+  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PlanPort = API;
 })(typeof self !== 'undefined' ? self : this);
