@@ -70,4 +70,17 @@ t('relative strength ranks 1 to 99 inside each market, with half-even rounding',
   assert.strictEqual(I.rsScore({ r3m: 0.1, r6m: null, r1y: 0.5 }), 0.4 * 0.1 + 0.2 * 0.1 + 0.4 * 0.5);
 });
 
+t('Weinstein stage from weekly closes: rising 2, falling 4, flat after a rise 3, flat after a fall 1', () => {
+  // daily closes, 5 trading days a week from Mon 2 Jan 2023 (IST), price path given per week
+  const days = weeks => { const h = []; let t = Date.UTC(2023, 0, 2, 4) / 1000; weeks.forEach(p => { for (let k = 0; k < 5; k++) h.push([t + k * 86400, p]); t += 7 * 86400; }); return h; };
+  const ramp = (a, b, n) => Array.from({ length: n }, (_, i) => a + (b - a) * i / (n - 1));
+  assert.strictEqual(I.weinstein(days(ramp(100, 200, 60))).stage, 2);
+  assert.strictEqual(I.weinstein(days(ramp(200, 100, 60))).stage, 4);
+  assert.strictEqual(I.weinstein(days([...ramp(100, 200, 40), ...Array(40).fill(200)])).stage, 3);
+  assert.strictEqual(I.weinstein(days([...ramp(200, 100, 40), ...Array(40).fill(100)])).stage, 1);
+  const pb = I.weinstein(days([...ramp(100, 200, 60), 165])); assert.strictEqual(pb.stage, 2); assert.ok(/tested/.test(pb.note));
+  assert.strictEqual(I.weinstein(days(ramp(100, 200, 30))), null);   // under 40 weeks
+  const w = I.weinstein(days(ramp(100, 200, 60))); assert.strictEqual(w.weeks, 60); assert.ok(w.slope4w > 1 && w.dist > 0);
+});
+
 console.log(pass + ' passed');

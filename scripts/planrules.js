@@ -23,6 +23,8 @@ const RULES = {
   minRR: 2,
   buyGrades: ['A+', 'A'], minSetupScore: 75,
   stopMinAtr: 1, stopMaxAtr: 2.5, stopMaxPct: 8,
+  minCloseLoc: null,    // signal-day candle: buy only if it closed at least this % up the day's range (null = off)
+  maxUpperWick: null,   // … and its upper wick is at most this % of the range (null = off)
 };
 const REGIMES = { A: ['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
 const maxPositions = cap => cap < 50000 ? 3 : cap <= 200000 ? 5 : cap <= 1000000 ? 8 : 10;
@@ -185,7 +187,8 @@ function evaluate(d, row, x, ctx) {
   // wide stops (over 5% of the price) cost 3 points per extra %: same rupee risk, but the stock needs a bigger move
   const wide = plan ? Math.max(0, plan.Rpct - 5) * 3 : 0;
   const conf = Math.max(0, Math.min(100, Math.round(0.3 * ts + 0.3 * ss + 0.25 * (ctx.regimeScore ?? 50) + 15 * Math.min(1, p2 / 0.45) - 5 * warn.length - wide - (rrWhy ? 20 : 0))));
-  const buy = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > RULES.minSetupScore && !rrWhy;
+  const buy = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > RULES.minSetupScore && !rrWhy
+    && (RULES.minCloseLoc == null || (S.cdl && S.cdl.cl >= RULES.minCloseLoc)) && (RULES.maxUpperWick == null || (S.cdl && S.cdl.uw <= RULES.maxUpperWick));
   // what to wait for (watchlist)
   let wait = '';
   if (!buy) wait = rrWhy ? `wait for a close above the 52-week high ${inrS(hi52)}`

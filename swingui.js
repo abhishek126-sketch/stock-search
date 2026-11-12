@@ -224,3 +224,25 @@ function swingCard(d) {
    ${SW_DISC}</div>`;
 }
 const r2s = v => (Math.round(v * 100) / 100).toLocaleString('en-IN');
+
+// ===== Weinstein stage (indicators.js weinstein): one plain label on every stock page, under the chart =====
+const WST = {
+  1: ['Stage 1 · Basing', '#a16207', '#fef9c3', 'Moving sideways after a fall: buyers and sellers are in balance. Not a buy yet — wait for a breakout above the range with the 30-week line turning up.'],
+  2: ['Stage 2 · Advancing', '#15803d', '#dcfce7', 'Rising above a rising 30-week line — the only stage Weinstein buys in. Swing setups here have the trend behind them.'],
+  3: ['Stage 3 · Topping', '#c2410c', '#ffedd5', 'The rise has stalled and the 30-week line has gone flat. No new buys; tighten the stops on shares you hold.'],
+  4: ['Stage 4 · Declining', '#b91c1c', '#fee2e2', 'Falling below a falling 30-week line. Avoid — dips keep getting cheaper. Don\'t buy a stock just because it is down a lot.'],
+};
+function stageCard(d) {
+  if (!d || typeof IND === 'undefined' || !IND.weinstein) return '';
+  const head = `<h2>🪜 Weinstein stage${swq('wstage')}</h2>`, w = IND.weinstein(d.hist);
+  if (!w) return `<div class="card nogq" id="wstage">${head}<p class="mut">Needs at least 40 weeks of price history.</p></div>`;
+  const s = WST[w.stage], pm = v => (v > 0 ? '+' : '') + v;
+  return `<div class="card nogq" id="wstage">${head}
+    <p style="margin:0 0 6px"><span class="tag" style="margin-left:0;font-weight:700;background:${s[2]};color:${s[1]}">${s[0]}</span>${w.note ? ` <span class="mut">— ${esc(w.note)}</span>` : ''}</p>
+    <p style="font-size:14px;margin:0 0 4px">${s[3]}</p>
+    <p class="mut" style="font-size:13px;margin:0">Last weekly close ${pm(w.dist)}% vs the 30-week average (${r2s(w.ma30w)}), which ${w.slope4w > 1 ? 'is rising' : w.slope4w < -1 ? 'is falling' : 'is flat'} (${pm(w.slope4w)}% in 4 weeks).</p>
+    <p class="src">Weekly closes and a 30-week simple average — Stan Weinstein's method. A trend label, not a recommendation.</p></div>`;
+}
+if (typeof GL !== 'undefined') Object.assign(GL, {
+  wstage: ['Weinstein stage', 'Stan Weinstein\'s four phases of a stock, read from weekly prices and the 30-week average: 1 basing (sideways after a fall), 2 advancing (above a rising average), 3 topping (the rise stalls and the average goes flat), 4 declining (below a falling average).', 'Price ₹520, 30-week average ₹470 and up 3% in the last month → Stage 2.', 'Good: Stage 2 — the trend is on your side. Bad: buying in Stage 4 because a stock "looks cheap" — it usually gets cheaper.'],
+});

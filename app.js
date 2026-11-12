@@ -429,6 +429,7 @@ function render() {
     <div class="mut" id="tip">&nbsp;</div><svg id="chart"></svg><div class="mut" id="rchg"></div></div>
    ${d.etf ? etfKeyCard(d, k) : KEYCARD}
   </div>
+  ${typeof stageCard === 'function' ? stageCard(d) : ''}
   ${typeof autoSection === 'function' ? autoSection(d, k, A, RPT.R) : ''}
   ${typeof corpPlaceholder === 'function' ? corpPlaceholder(d) : ''}
   ${d.etf ? '' : QUARTCARD}

@@ -129,7 +129,33 @@ function candle(bar, close) {
   return { cl: pc(c - l), body: pc(Math.abs(c - o)), uw: pc(h - Math.max(o, c)), lw: pc(Math.min(o, c) - l), up: c >= o };
 }
 
-const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound, candle };
+// Stan Weinstein's stage (Secrets for Profiting in Bull and Bear Markets, 1988) from WEEKLY closes and the
+// 30-week simple average. hist = [[unix seconds, close], …] daily. The 30-week line is "rising" / "falling" when it
+// moved more than 1% over the last 4 weeks, otherwise flat; a flat line is a top (3) after a rise of more than 3%
+// over the 22 weeks before, else a base (1) — unless the price is more than 5% below it (still declining, 4).
+//   2 advancing: above a rising line · 4 declining: below a falling line · 3 topping / 1 basing: flat line
+//   below a rising line = stage 2 being tested · above a falling line = a possible base (stage 1), not an uptrend yet
+function weinstein(hist) {
+  const W = []; let key = null;
+  for (const h of hist || []) {
+    const t = h[0], c = h[1]; if (!(c > 0)) continue;
+    const day = Math.floor((t + 19800) / 86400), wk = day - ((day + 3) % 7);   // Monday of that week (IST)
+    if (wk === key) W[W.length - 1] = c; else { W.push(c); key = wk; }
+  }
+  if (W.length < 40) return null;
+  const ma = smaSeries(W, 30), n = W.length - 1, m = ma[n], m4 = ma[n - 4], m26 = ma[Math.max(29, n - 26)];
+  const slope = (m / m4 - 1) * 100, prior = (m4 / m26 - 1) * 100, p = W[n], above = p >= m;
+  const rising = slope > 1, falling = slope < -1;
+  let stage, note = '';
+  if (rising) { stage = 2; if (!above) note = 'below a still-rising 30-week line — the uptrend is being tested'; }
+  else if (falling) { stage = above ? 1 : 4; if (above) note = 'back above a still-falling 30-week line — a possible base, not an uptrend yet'; }
+  else if (p < m * 0.95) { stage = 4; note = 'the 30-week line is flattening, but the price is still well below it'; }
+  else { stage = prior > 3 ? 3 : 1; if (stage === 1 && p > m * 1.05) note = 'pushing above its base — stage 2 starts when the 30-week line turns up'; }
+  const r1 = x => Math.round(x * 10) / 10;
+  return { stage, note, ma30w: Math.round(m * 100) / 100, slope4w: r1(slope), dist: r1((p / m - 1) * 100), weeks: W.length };
+}
+
+const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound, candle, weinstein };
 if (typeof module !== 'undefined' && module.exports) module.exports = API;
 if (typeof window !== 'undefined') window.IND = API;
 })();
