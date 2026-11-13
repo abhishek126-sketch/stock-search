@@ -50,14 +50,14 @@ NTFY_BASE=http://127.0.0.1:8799/ python3 "$R/scripts/alerts.py" check > out3.txt
 ALERTS_KEY=ssk1_wrong_key_wrong_key_wrong python3 "$R/scripts/alerts.py" check > out4.txt 2>&1 && fail "wrong key accepted"
 [ "$(git ls-remote remote.git refs/heads/alerts | cut -f1)" = "$head" ] || fail "wrong key changed the branch"
 # 5) 💎 value alerts (data/value.json: [fairValue, methods, quality, overall, strong]): a per-stock alert at fair value
-#    − 10% and a scan over strong stocks at − 20%. SBIN 700 <= 1000 × 0.9 fires; COAL 760 > 1000 × 0.8 is not in the
+#    − 10% and a scan over strong stocks at − 20%. SBIN 700 <= 1000 × 0.9 fires; COAL 850 > 1000 × 0.8 is not in the
 #    scan zone, PFC 300 <= 500 × 0.8 is (one push); SBIN and WEAK are not strong (left out of the scan even though cheap;
 #    a per-stock alert still fires for a stock that is not on the strong list).
 (cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
 inc=$(echo '{"alerts":[{"id":"v1","s":"SBIN.NS","type":"value","v":10,"ver":5},{"id":"v2","s":"*","type":"valueScan","v":20,"ver":5}]}' | node "$R/scripts/alertbox.js" enc)
 ALERTS_IN="$inc" python3 "$R/scripts/alerts.py" save > out5.txt
 (cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
-echo '{"q":{"SBIN.NS":[700,710],"COAL.NS":[760,750],"PFC.NS":[300,310],"WEAK.NS":[10,11]}}' > data/quotes.json
+echo '{"q":{"SBIN.NS":[700,710],"COAL.NS":[850,840],"PFC.NS":[300,310],"WEAK.NS":[10,11]}}' > data/quotes.json
 echo '{"built":1,"s":{"SBIN.NS":[1000,6,60,50,0],"COAL.NS":[1000,6,90,70,1],"PFC.NS":[500,5,85,75,1],"WEAK.NS":[100,4,40,30,0]}}' > data/value.json
 : > ntfy_paths.txt
 NTFY_BASE=http://127.0.0.1:8799/ python3 "$R/scripts/alerts.py" check > out6.txt
