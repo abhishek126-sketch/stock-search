@@ -167,7 +167,7 @@ async function renderPlan(box) {
      <li>Up to <b>${B.nMax} positions</b>${swq('maxpos')} for ${inr(B.cap)} (rule: under ₹50k → 3, ₹50k–2L → 5, ₹2L–10L → 8, above → 10).</li>
      <li>${esc(reg.label)} market → invest at most <b>${reg.exposure}%</b> = <b>${inr(B.expCap)}</b>; keep the rest in cash.</li>
      <li>Risk per trade <b>${inr(B.riskAmt)}</b> (${SWF.riskPct}%); all open trades together at most <b>${inr(B.maxRiskAmt)}</b> (${SWF.maxRisk}%).</li>
-     <li>Ideal size per position about <b>${inr(allocLo)}–${inr(allocHi)}</b>, never more than ${SWF.posPct}% (${inr(B.posCap)}) in one stock.</li>
+     <li>Ideal size per position about <b>${inr(allocLo) === inr(allocHi) ? inr(allocLo) : inr(allocLo) + '–' + inr(allocHi)}</b>, never more than ${SWF.posPct}% (${inr(B.posCap)}) in one stock.</li>
      ${B.nOpen ? `<li>Already in 📒 My trades: ${B.nOpen} open (${inr(B.openInv)} invested, ${inr(B.openRisk)} at risk) — counted against these limits.</li>` : ''}</ul>
     ${B.picks.length ? `<p><b>${B.picks.length} new trade${B.picks.length === 1 ? '' : 's'}</b> qualify for ${swDate(P.next)}${B.picks.length < 3 && reg.exposure <= 50 ? ' — few on purpose: the market is not giving many clean setups' : ''}.</p>`
       : `<p style="font-size:16px"><b>🟡 NO TRADE for ${swDate(P.next)}.</b> No stock passes every rule${P.buy.length ? ' within your limits' : ''}. Cash is a position — waiting costs nothing.</p>`}${plSmallCap(P, B)}</div>`;

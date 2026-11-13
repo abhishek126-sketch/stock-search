@@ -46,6 +46,9 @@ function srcLine(d) {
   if (isEx(d.priceSrc) && c && c.st !== 'mm') return d.yTime && istDay(d.yTime) === istDay(c.t)
     ? `<div class="mut"><span class="up">✔</span> Price is ${what} (market closed)${c.st === 'ok' ? ` · Yahoo Finance agreed within 1% (${fmtP(d.yPrice, ccy)})` : ''}.</div>`
     : `<div class="mut">Price is ${what} (${fmtP(c.p, ccy)}). Yahoo Finance's latest price is older${d.yTime ? ' (' + dPlain(istDay(d.yTime)) + ')' : ''}, so ${c.src}'s is shown.</div>`;
+  // no cross-check row (NSE SME / some BSE stocks), but the refresh already set the exchange's official close for this session
+  if ((!c || !c.st) && d.exClose && isEx(d.exClose.ex) && istDay(d.priceTime) === d.exClose.day)
+    return `<div class="mut"><span class="up">✔</span> Price is ${d.exClose.ex}'s official closing price for ${dPlain(d.exClose.day)}.</div>`;
   if (!c || !c.st) return `<div class="mut">Price from Yahoo Finance. ${us ? (CHECK && CHECK.fh && CHECK.fh.mode === 'no-key' ? 'Not double-checked (US price check is off until a Finnhub key is added).' : 'Not double-checked yet — US stocks are checked a few at a time.') : 'Not double-checked yet.'}</div>`;
   if (c.st === 'ok') return `<div class="mut">Price from Yahoo Finance · <span class="up">✔ matches</span> ${what} (${fmtP(c.p, ccy)}).</div>`;
   const yq = QUOTES && QUOTES.q && QUOTES.q[d.symbol], frozen = yq && isNum(yq[2]) && Date.now() / 1000 - yq[2] > 20 * DAY;

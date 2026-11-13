@@ -21,7 +21,10 @@ function doubtsFor(d, k) {
   const D = {}, c = d.currency, P = d.price, add = (f, why) => { D[f] = D[f] ? D[f] + ' ' + why : why; }, ck = d.check;
   // price: Yahoo frozen/stale, sources disagree, or no recent trade
   const yq = typeof QUOTES !== 'undefined' && QUOTES && QUOTES.q && QUOTES.q[d.symbol];
-  const frozen = d.staleFixed || (yq && isNum(yq[2]) && Date.now() / 1000 - yq[2] > 20 * DAY);
+  // not doubtful when the price is the exchange's official close for its own session (the refresh applied it on top of a
+  // frozen Yahoo quote - DIGIKORE.NS SME, 13 Nov 2026: ₹33.00 = NSE close, flagged red as "frozen")
+  const exOk = d.exClose && d.exClose.day && isNum(d.priceTime) && dqDay(d.priceTime) === d.exClose.day;
+  const frozen = !exOk && (d.staleFixed || (yq && isNum(yq[2]) && Date.now() / 1000 - yq[2] > 20 * DAY));
   if (frozen) add('price', `Yahoo Finance's 'current price' is frozen${yq && isNum(yq[0]) ? ` at ${fmtP(yq[0], c)} from ${dqDate(yq[2])}` : ' at an old value'}, so ${ck && dqEx(ck.src) ? ck.src + "'s official close" : 'the latest daily close'} is shown instead.`);
   else if (ck && ck.st === 'mm' && isNum(ck.d)) add('price', `Sources disagree: Yahoo Finance ${fmtP(dqEx(d.priceSrc) ? d.yPrice : d.price, c)} vs ${ck.src} ${fmtP(ck.p, c)} (${(ck.d * 100).toFixed(1)}% apart).`);
   else if (dqEx(d.priceSrc) && d.yTime && ck && dqDay(d.yTime) !== dqDay(ck.t)) add('price', `Yahoo Finance's price was out of date (${dqDate(d.yTime)}); ${ck.src}'s official close is shown instead.`);

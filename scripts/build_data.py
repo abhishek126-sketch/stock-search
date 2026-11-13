@@ -137,7 +137,7 @@ def penny(have):  # penny stocks + every other NSE mainboard (EQUITY_L) and acti
             try: c, v = float(r['CLOSE_PRICE']), int(float(r['TTL_TRD_QNTY'] or 0))
             except ValueError: continue
             sym = r['SYMBOL'] + '.NS'
-            if v <= 0 or sym in PENNY: continue
+            if v <= 0 or sym in PENNY or sym in ETFMETA: continue   # ETFs trade in series EQ too - never penny stocks
             if c >= 50 and r['SERIES'] not in ('EQ', 'BE', 'BZ'): continue  # SME boards only as penny (unchanged)
             if c >= 50:  # not an index member and not penny: still cover it (new IPOs, non-index stocks) as 'Other'
                 if sym not in have: have.add(sym); CAP[sym] = 'Other'; out.append((sym, nm or r['SYMBOL'], '')); no += 1
@@ -148,6 +148,9 @@ def penny(have):  # penny stocks + every other NSE mainboard (EQUITY_L) and acti
         nb, nob = 0, 0
         for r in csv.DictReader(io.StringIO(raw)):
             if r.get('FinInstrmTp') != 'STK' or r.get('SctySrs') not in BSE_GRP or r.get('ISIN') in nse_isin: continue
+            # mutual-fund units (ISIN INF...: ETFs, segregated portfolios) are not shares: 206 were listed as BSE "stocks"
+            # (Penny / Other), many duplicating NSE ETFs (BANKBEES.BO), with the penny warning (13 Nov 2026)
+            if (r.get('ISIN') or '').startswith('INF'): continue
             try: c, v = float(r['ClsPric']), int(float(r['TtlTradgVol'] or 0))
             except ValueError: continue
             sym = r['TckrSymb'].strip() + '.BO'
@@ -557,6 +560,18 @@ def fx_rate(a, b):
         except Exception as e: print('fx fail', a, b, e); FX[(a, b)] = None
     return FX[(a, b)]
 
+# When Yahoo has no sector, the index list's own name is used - put it on Yahoo's 11 sectors so lists and the Sectors
+# view don't split one sector in two (13 Nov 2026: REITs EMBASSY / BIRET under NSE's "Realty" next to "Real Estate";
+# FISV under the S&P list's "Financials").
+YSEC = {'Automobile and Auto Components': 'Consumer Cyclical', 'Capital Goods': 'Industrials', 'Chemicals': 'Basic Materials',
+        'Construction': 'Industrials', 'Construction Materials': 'Basic Materials', 'Consumer Durables': 'Consumer Cyclical',
+        'Consumer Services': 'Consumer Cyclical', 'Diversified': 'Industrials', 'Fast Moving Consumer Goods': 'Consumer Defensive',
+        'Forest Materials': 'Basic Materials', 'Information Technology': 'Technology', 'Media Entertainment & Publication': 'Communication Services',
+        'Metals & Mining': 'Basic Materials', 'Oil Gas & Consumable Fuels': 'Energy', 'Power': 'Utilities', 'Realty': 'Real Estate',
+        'Services': 'Industrials', 'Telecommunication': 'Communication Services', 'Textiles': 'Consumer Cyclical',
+        'Financials': 'Financial Services', 'Health Care': 'Healthcare', 'Consumer Discretionary': 'Consumer Cyclical',
+        'Consumer Staples': 'Consumer Defensive', 'Materials': 'Basic Materials'}
+
 def fetch(sym, name, sector, prev=None):
     q = urllib.parse.quote(sym)
     ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
@@ -600,7 +615,7 @@ def fetch(sym, name, sector, prev=None):
         else:
             fund = {t: v for t, v in fund.items() if t.startswith('trailing')}; fx = {'from': fc, 'to': pc, 'rate': None}
     an = analysts(q); pr = PROFILE.get(q) or {}
-    d = {'symbol': sym, 'name': m.get('longName') or m.get('shortName') or name, 'sector': pr.get('sector') or sector, 'industry': pr.get('industry'),
+    d = {'symbol': sym, 'name': m.get('longName') or m.get('shortName') or name, 'sector': pr.get('sector') or YSEC.get(sector, sector), 'industry': pr.get('industry'),
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
          'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'hl52': hl52, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
@@ -832,7 +847,9 @@ def main():
             if et.get('aum'): K[s]['mcap'] = et['aum']
             K[s].update({'er': et.get('er'), 'prem': et.get('prem')})
         else: d['canslim'] = canslim(d, K[s], mkt, rsr); d['metrics'] = K[s]
-        pm = PENNY.get(s) or ({} if not (s.endswith(('.NS', '.BO')) and isinstance(d.get('price'), (int, float)) and d['price'] < 50 and not et) else {'src': 'NSE' if s.endswith('.NS') else 'BSE'})
+        # never an ETF: NSE's closing file lists ETFs in series EQ, so 163 ETFs under ₹50 (NV20, GOLDBEES-type units) were
+        # tagged "Penny" with the penny-stock warning (13 Nov 2026)
+        pm = (None if et else PENNY.get(s)) or ({} if not (s.endswith(('.NS', '.BO')) and isinstance(d.get('price'), (int, float)) and d['price'] < 50 and not et) else {'src': 'NSE' if s.endswith('.NS') else 'BSE'})
         d['penny'] = {**pm, 'surv': SURV.get(s) or SURV.get(pm.get('isin') or '-')} if pm else None
         if s in BSEX: d['bse'] = BSEX[s]
         with open(os.path.join(OUT, 's', s + '.json'), 'w') as fh: json.dump(d, fh, separators=(',', ':'))
