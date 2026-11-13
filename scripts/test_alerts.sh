@@ -49,4 +49,40 @@ NTFY_BASE=http://127.0.0.1:8799/ python3 "$R/scripts/alerts.py" check > out3.txt
 # 4) wrong key -> refuses, file untouched
 ALERTS_KEY=ssk1_wrong_key_wrong_key_wrong python3 "$R/scripts/alerts.py" check > out4.txt 2>&1 && fail "wrong key accepted"
 [ "$(git ls-remote remote.git refs/heads/alerts | cut -f1)" = "$head" ] || fail "wrong key changed the branch"
+# 5) 💎 value alerts (data/value.json: [fairValue, methods, quality, overall, strong]): a per-stock alert at fair value
+#    − 10% and a scan over strong stocks at − 20%. SBIN 700 <= 1000 × 0.9 fires; COAL 760 > 1000 × 0.8 is not in the
+#    scan zone, PFC 300 <= 500 × 0.8 is (one push); SBIN and WEAK are not strong (left out of the scan even though cheap;
+#    a per-stock alert still fires for a stock that is not on the strong list).
+(cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
+inc=$(echo '{"alerts":[{"id":"v1","s":"SBIN.NS","type":"value","v":10,"ver":5},{"id":"v2","s":"*","type":"valueScan","v":20,"ver":5}]}' | node "$R/scripts/alertbox.js" enc)
+ALERTS_IN="$inc" python3 "$R/scripts/alerts.py" save > out5.txt
+(cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
+echo '{"q":{"SBIN.NS":[700,710],"COAL.NS":[760,750],"PFC.NS":[300,310],"WEAK.NS":[10,11]}}' > data/quotes.json
+echo '{"built":1,"s":{"SBIN.NS":[1000,6,60,50,0],"COAL.NS":[1000,6,90,70,1],"PFC.NS":[500,5,85,75,1],"WEAK.NS":[100,4,40,30,0]}}' > data/value.json
+: > ntfy_paths.txt
+NTFY_BASE=http://127.0.0.1:8799/ python3 "$R/scripts/alerts.py" check > out6.txt
+[ "$(wc -l < ntfy_paths.txt)" = 2 ] || fail "value check sent $(wc -l < ntfy_paths.txt) pushes, expected 2 (SBIN value + scan)"
+git clone -q --branch alerts remote.git v3
+node "$R/scripts/alertbox.js" dec < v3/alerts.json | python3 -c "
+import json, sys; d = {a['id']: a for a in json.load(sys.stdin)['alerts']}
+assert d['v1']['trig'] and d['v1']['trigP'] == 700, d['v1']
+assert d['v2']['zone'] == ['PFC.NS'] and not d['v2'].get('trig'), d['v2']"
+# 6) next check: PFC still in the zone, COAL now drops in -> one push (only COAL is new); PFC at 410 (> 400 but within 3%) stays in
+(cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
+echo '{"q":{"SBIN.NS":[690,700],"COAL.NS":[790,800],"PFC.NS":[410,400],"WEAK.NS":[10,11]}}' > data/quotes.json
+: > ntfy_paths.txt
+NTFY_BASE=http://127.0.0.1:8799/ python3 "$R/scripts/alerts.py" check > out7.txt
+[ "$(wc -l < ntfy_paths.txt)" = 1 ] || fail "second scan sent $(wc -l < ntfy_paths.txt) pushes, expected 1 (COAL only)"
+git clone -q --branch alerts remote.git v4
+node "$R/scripts/alertbox.js" dec < v4/alerts.json | python3 -c "
+import json, sys; d = {a['id']: a for a in json.load(sys.stdin)['alerts']}
+assert d['v2']['zone'] == ['COAL.NS', 'PFC.NS'], d['v2']"
+# 7) the app re-saves its list (unchanged alert versions) -> the scan zone survives the merge
+(cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
+ALERTS_IN="$inc" python3 "$R/scripts/alerts.py" save > out8.txt
+git clone -q --branch alerts remote.git v5
+node "$R/scripts/alertbox.js" dec < v5/alerts.json | python3 -c "
+import json, sys; d = {a['id']: a for a in json.load(sys.stdin)['alerts']}
+assert d['v2']['zone'] == ['COAL.NS', 'PFC.NS'] and d['v1']['trig'], d"
+grep -q 'SBIN\|PFC\|COAL' out5.txt out6.txt out7.txt out8.txt && fail "value-alert details printed to the log"
 echo "alerts self-test: all passed"

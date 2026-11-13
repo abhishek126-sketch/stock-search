@@ -15,7 +15,22 @@ function parseAmount(s) {
   else if (/^\d{1,3}(,\d{2,3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, ''); // Indian or international digit grouping
   return /^(\d+\.?\d*|\.\d+)$/.test(s) ? parseFloat(s) : NaN;
 }
-const AT = { above: 'Price ≥', below: 'Price ≤', chgUp: 'Day change ≥ +', chgDn: 'Day change ≤ −' };
+const AT = { above: 'Price ≥', below: 'Price ≤', chgUp: 'Day change ≥ +', chgDn: 'Day change ≤ −', value: '💎 At fair value', valueScan: '💎 Any strong stock at fair value' };
+// 💎 value alerts (14 Nov 2026): data/value.json from scripts/valuegen.js (nightly, the app's own ivCompute + scoreRow):
+// { built, rule, s: { SYM: [fairValue, methods, quality, overall, strong 0/1] } }. 'value' = one stock reaches fair value
+// minus a margin of safety (v = 0/10/20/30 %); 'valueScan' (s = '*') = any strong stock does (server keeps the zone list).
+let VALUE = null;
+async function loadValue() { if (VALUE) return VALUE; try { VALUE = await getJSON(DATA + 'value.json'); } catch { VALUE = { s: {}, missing: true }; } return VALUE; }
+const MOS_OPTS = [0, 10, 20, 30];
+const fvOf = s => VALUE && VALUE.s && VALUE.s[s];
+const mosTxt = m => +m ? `fair value − ${+m}% margin of safety` : 'fair value (no margin of safety)';
+// strong stocks now at or below fair value − m%, with the price used (live quote / exchange close, else last close)
+function valueZone(m) {
+  if (!VALUE || !VALUE.s || typeof SUMMARY === 'undefined' || !SUMMARY) return [];
+  const R = new Map(SUMMARY.rows.map(r => [r.s, r])), out = [];
+  for (const [s, v] of Object.entries(VALUE.s)) { if (!v[4]) continue; const [p] = curPrice(s), px = isNum(p) ? p : R.get(s) && R.get(s).p; if (isNum(px) && px <= v[0] * (1 - m / 100)) out.push([s, px, v]); }
+  return out.sort((a, b) => a[1] / a[2][0] - b[1] / b[2][0]);
+}
 const newTopic = () => 'stocksearch-' + Array.from(crypto.getRandomValues(new Uint8Array(16)), b => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
 function AL() { const a = LS.get('alerts', null) || { topic: null, alerts: [] }; if (!a.topic) { a.topic = newTopic(); LS.set('alerts', a); } return a; }
 // ---- private mode: key, derived topic, AES-GCM box {v:2, iv, ct} (base64) ----
@@ -51,7 +66,8 @@ async function alertsPull() {
     }
     const loc = AL(), byId = Object.fromEntries((srv.alerts || []).map(a => [a.id, a]));
     if (!LS.get('alerts', null) || (!loc.alerts.length && !LS.get('alertsSaved', 0))) { const ad = { topic: srv.topic || loc.topic, alerts: srv.alerts || [] }; LS.set('alerts', ad); return ad; }  // first run on this device: adopt
-    loc.alerts.forEach(a => { const s = byId[a.id]; if (s && s.trig && (a.ver || 0) <= s.trig) { a.trig = s.trig; a.trigP = s.trigP; } });
+    loc.alerts.forEach(a => { const s = byId[a.id]; if (s && s.trig && (a.ver || 0) <= s.trig) { a.trig = s.trig; a.trigP = s.trigP; }
+      if (s && s.zone && (a.ver || 0) <= (s.zt || 0)) { a.zone = s.zone; a.zt = s.zt; } });   // value scan: stocks the server has in the zone
     LS.set('alerts', loc); AL_SYNC = srv.updated ? 'Synced with repo copy (updated ' + new Date(srv.updated * 1000).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) + ')' : ''; return loc;
   } catch { AL_SYNC = 'Repo copy not created yet'; return AL(); }
 }
@@ -69,15 +85,21 @@ function curPrice(s) {
   const q = QUOTES && QUOTES.q && QUOTES.q[s]; if (!q) return [];
   return typeof prefQuote === 'function' ? prefQuote(s, q[0], q[1], q[2]) : q;
 }
-function hitAlert(a, p, pc) { const v = +a.v, chg = pc ? (p / pc - 1) * 100 : null; return a.type === 'above' ? p >= v : a.type === 'below' ? p <= v : a.type === 'chgUp' ? chg != null && chg >= v : chg != null && chg <= -Math.abs(v); }
-const alDesc = a => `${AT[a.type]}${a.type.startsWith('chg') ? a.v + '%' : ' ' + fmtP(+a.v, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD')}`;
+function hitAlert(a, p, pc) { const v = +a.v, chg = pc ? (p / pc - 1) * 100 : null;
+  if (a.type === 'value') { const f = fvOf(a.s); return !!f && p <= f[0] * (1 - v / 100); }
+  if (a.type === 'valueScan') return false;   // checked by the server (it keeps the list of stocks already in the zone)
+  return a.type === 'above' ? p >= v : a.type === 'below' ? p <= v : a.type === 'chgUp' ? chg != null && chg >= v : chg != null && chg <= -Math.abs(v); }
+const alDesc = a => {
+  if (a.type === 'value') { const f = fvOf(a.s); return `💎 Price ≤ ${mosTxt(a.v)}${f ? ` = ${fmtP(f[0] * (1 - a.v / 100), 'INR')} <small class="mut">(fair value ${fmtP(f[0], 'INR')})</small>` : ''}`; }
+  if (a.type === 'valueScan') return `💎 Any strong Indian stock ≤ ${mosTxt(a.v)}`;
+  return `${AT[a.type]}${a.type.startsWith('chg') ? a.v + '%' : ' ' + fmtP(+a.v, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD')}`; };
 // in-app notifications when the app is open (once per alert version)
 function alertsLocalCheck() {
   const seen = LS.get('alertSeen', {}); let ch = false;
   AL().alerts.forEach(a => {
-    const key = a.id + ':' + (a.ver || 0); if (seen[key]) return;
+    const key = a.id + ':' + (a.ver || 0); if (seen[key] || a.type === 'valueScan') return;
     const [p, pc] = curPrice(a.s); const fired = a.trig || (isNum(p) && hitAlert(a, p, pc)); if (!fired) return;
-    seen[key] = Date.now(); ch = true; const msg = `${a.s.replace(/\.(NS|BO)$/, '')}: ${alDesc(a)} — now ${fmtP(isNum(p) ? p : a.trigP, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD').replace(/<[^>]+>/g, '')}`;
+    seen[key] = Date.now(); ch = true; const msg = `${a.s.replace(/\.(NS|BO)$/, '')}: ${alDesc(a).replace(/<[^>]+>/g, "")} — now ${fmtP(isNum(p) ? p : a.trigP, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD').replace(/<[^>]+>/g, '')}`;
     try { if ('Notification' in window && Notification.permission === 'granted') { const n = new Notification('🔔 Price alert', { body: msg, icon: 'icon.svg', tag: key }); n.onclick = () => { focus(); openSym(a.s); }; } } catch { }
     setStatus('🔔 ' + esc(msg));
   });
@@ -101,11 +123,62 @@ function alertDialog(sym, id) {
     setTimeout(() => { d.close(); if (location.hash === '#alerts') showAlerts(); }, 1600);
   };
 }
+// 💎 one stock: notify when its price reaches fair value minus the chosen margin of safety
+async function valueDialog(sym, id) {
+  await loadValue(); const A = AL(), a = A.alerts.find(x => x.id === id) || { s: sym, type: 'value', v: 0 }, d = $('#alDlg'), f = fvOf(a.s);
+  const [p0] = curPrice(a.s), p = isNum(p0) ? p0 : CUR && CUR.symbol === a.s ? CUR.price : null, nm = esc(a.s.replace(/\.(NS|BO)$/, ''));
+  const opt = m => { const t = f && f[0] * (1 - m / 100); return `<option value="${m}" ${+a.v === m ? 'selected' : ''}>${m ? `Fair value − ${m}% margin of safety` : 'At fair value (no margin)'}${t ? ' → ' + fmtP(t, 'INR').replace(/<[^>]+>/g, '') + (isNum(p) ? (p <= t ? ' (already there — notifies at the next check)' : ` (needs a ${((1 - t / p) * 100).toFixed(0)}% fall)`) : '') : ''}</option>`; };
+  d.innerHTML = `<h2 style="margin-top:0">💎 Value alert — ${nm}</h2>
+  ${f ? `<p>Fair value <b>${fmtP(f[0], 'INR')}</b> <span class="mut">(median of ${f[1]} valuation methods, from the last full refresh — the same figure as this stock's 💡 Intrinsic value section with default assumptions)</span><br>
+    Now ${isNum(p) ? fmtP(p, 'INR') + ` → <b class="${p <= f[0] ? 'up' : 'dn'}">${p <= f[0] ? ((1 - p / f[0]) * 100).toFixed(0) + '% below' : ((p / f[0] - 1) * 100).toFixed(0) + '% above'}</b> fair value` : 'n/a'}<br>
+    Quality ${f[2] ?? '–'} · Overall ${f[3] ?? '–'} · ${f[4] ? '<span class="up">✔ on the strong list</span>' : '<span class="mut">not on the strong list</span>'}</p>`
+    : `<p class="doubt" style="text-decoration:none">No fair value for this stock yet — it needs positive earnings or cash flow and at least one valuation method (or the next nightly refresh).</p>`}
+  <label class="mut">Notify me when the price is at or below</label><select id="vaM" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);font-size:15px;margin-bottom:8px">${MOS_OPTS.map(opt).join('')}</select>
+  <label class="mut" style="display:block;margin-top:8px">Note (optional)</label><input type="text" id="vaN" value="${esc(a.note || '')}" maxlength="80">
+  <p class="mut" style="font-size:12px">The fair value is recalculated every night (new results, prices of peers), so the alert price moves with it. A margin of safety leaves room for the valuation being wrong. Fires once; re-arm it on the 🔔 Alerts page.</p>
+  <p class="mut" id="alMsg"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="alX">Cancel</button><button class="btn" id="alS" ${f ? '' : 'disabled'}>Save value alert</button></div>`;
+  d.showModal(); $('#alX').onclick = () => d.close();
+  $('#alS').onclick = () => saveAlert(d, { id: a.id, s: a.s, type: 'value', v: +$('#vaM').value, note: $('#vaN').value.trim() || null });
+}
+// 💎 every strong Indian stock: one alert, a push whenever a strong stock newly enters the zone
+async function scanDialog(id) {
+  await Promise.all([loadValue(), typeof ensureSummary === 'function' ? ensureSummary() : null]); if (!QUOTES) await loadQuotes(false);
+  const A = AL(), a = A.alerts.find(x => x.id === id) || A.alerts.find(x => x.type === 'valueScan') || { s: '*', type: 'valueScan', v: 20 }, d = $('#alDlg');
+  const nStrong = VALUE && VALUE.s ? Object.values(VALUE.s).filter(v => v[4]).length : 0;
+  d.innerHTML = `<h2 style="margin-top:0">💎 Value scan — all strong Indian stocks</h2>
+  <p class="mut">${nStrong ? `${nStrong} stocks are on the strong list` : 'The strong list appears after the next nightly refresh'}: ${esc((VALUE && VALUE.rule) || 'Quality ≥ 70 · Overall ≥ 60 · profitable · low pledge · not under surveillance · market cap ≥ ₹1,000 Cr')}.</p>
+  <label class="mut">Notify me when any of them is at or below</label><select id="vaM" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);font-size:15px;margin-bottom:8px">${MOS_OPTS.map(m => `<option value="${m}" ${+a.v === m ? 'selected' : ''}>${m ? `Fair value − ${m}% margin of safety` : 'At fair value (no margin)'} — ${valueZone(m).length} there now</option>`).join('')}</select>
+  <label class="mut" style="display:block;margin-top:8px">Note (optional)</label><input type="text" id="vaN" value="${esc(a.note || '')}" maxlength="80">
+  <p class="mut" style="font-size:12px">The first check sends the stocks already in the zone; after that you hear only about stocks that newly enter it (a stock leaves the zone once it is 3% above the line, so a price hovering at the line doesn't notify again and again). See the list any time: 🎯 Score filter → 💎 Near fair value.</p>
+  <p class="mut" id="alMsg"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="alX">Cancel</button><button class="btn" id="alS">Save value scan</button></div>`;
+  d.showModal(); $('#alX').onclick = () => d.close();
+  $('#alS').onclick = () => saveAlert(d, { id: a.id, s: '*', type: 'valueScan', v: +$('#vaM').value, note: $('#vaN').value.trim() || null });
+}
+// #value (the value-scan push opens it): home → 🎯 Score filter showing strong stocks at or below fair value − m%
+function openValueList(m) {
+  const sc = AL().alerts.find(a => a.type === 'valueScan');
+  if (typeof SCDEF !== 'undefined') { SCF = Object.assign({}, SCDEF, { mk: 'IN', min: {}, fv: String(m ?? (sc ? +sc.v : 0)), strongOnly: true, sort: ['mos', -1] }); scSave(); SCN = 50; }
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  goHome(true); LISTTAB = 'sc'; document.querySelectorAll('#ltabs button').forEach(x => x.classList.toggle('on', x.dataset.t === 'sc')); renderLists('sc');
+  const l = document.getElementById('lists'); if (l) setTimeout(() => window.scrollTo(0, l.getBoundingClientRect().top + window.scrollY - 120), 300);
+}
+async function saveAlert(d, x) {
+  const A2 = AL(), n = { ...x, id: x.id || Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ver: Math.floor(Date.now() / 1000), trig: null, trigP: null };
+  A2.alerts = A2.alerts.filter(y => y.id !== n.id).concat(n); LS.set('alerts', A2);
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+  $('#alS').disabled = true; $('#alMsg').textContent = 'Saving…'; const m = await alertsPush(); $('#alMsg').textContent = m; $('#alS').disabled = false;
+  setTimeout(() => { d.close(); if (location.hash === '#alerts') showAlerts(); }, 1600);
+}
 async function showAlerts() {
   const v = $('#view'); $('#home').hidden = true; v.hidden = false; CUR = null; updFav(); navTo('#alerts');
-  v.innerHTML = '<div class="card"><p class="mut">Loading alerts…</p></div>'; await alertsPull(); if (!QUOTES) await loadQuotes(false);
+  v.innerHTML = '<div class="card"><p class="mut">Loading alerts…</p></div>'; await Promise.all([alertsPull(), loadValue(), typeof ensureSummary === 'function' ? ensureSummary() : null]); if (!QUOTES) await loadQuotes(false);
   const A = AL(), topic = await alertsTopic(), url = topic ? 'https://ntfy.sh/' + topic : '';
+  const scan = A.alerts.find(a => a.type === 'valueScan');
   const row = a => { const ccy = a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD', [p] = curPrice(a.s);
+    if (a.type === 'valueScan') { const z = valueZone(+a.v);
+      return `<tr><td>💎 <b>All strong stocks</b>${a.note ? `<br><small class="mut">${esc(a.note)}</small>` : ''}</td><td>${alDesc(a)}</td><td>${z.length} in the zone</td>
+      <td><span class="mut">Watching — a push for each stock that enters${a.zone ? ` (${a.zone.length} notified so far)` : ''}</span></td>
+      <td><button class="btn sec" data-edit="${a.id}" style="padding:3px 8px;font-size:12px">Edit</button> <button class="btn sec" data-del="${a.id}" style="padding:3px 8px;font-size:12px">Delete</button></td></tr>`; }
     return `<tr><td><a href="#" data-s="${esc(a.s)}">${esc(a.s.replace(/\.(NS|BO)$/, ''))}</a>${a.note ? `<br><small class="mut">${esc(a.note)}</small>` : ''}</td><td>${alDesc(a)}</td><td>${isNum(p) ? fmtP(p, ccy) : '–'}</td>
     <td>${a.trig ? `<span style="color:var(--warn)">🔔 Triggered ${new Date(a.trig * 1000).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })}${a.trigP ? ' @ ' + fmtP(a.trigP, ccy) : ''}</span><br><button class="btn sec" data-rearm="${a.id}" style="padding:3px 8px;font-size:12px">Re-arm</button>` : '<span class="up">● Armed</span>'}</td>
     <td><button class="btn sec" data-edit="${a.id}" style="padding:3px 8px;font-size:12px">Edit</button> <button class="btn sec" data-del="${a.id}" style="padding:3px 8px;font-size:12px">Delete</button></td></tr>`; };
@@ -113,6 +186,9 @@ async function showAlerts() {
   ${A.alerts.length ? `<div class="tw"><table class="pt"><tr><th>Stock</th><th>Condition</th><th>Now</th><th>Status</th><th></th></tr>${A.alerts.map(row).join('')}</table></div>` : '<p class="mut">No alerts yet. Open any stock and tap <b>🔔 Set alert</b>.</p>'}
   <p class="mut" id="alStat">${esc(AL_SYNC)}</p>
   <p class="src">Checked by the server every ~5 min in market hours (every 3 h otherwise) against the latest quotes; each alert fires once until you re-arm it. While the app is open you also get an in-app notification.</p></div>
+  <div class="card"><h2>💎 Value alerts</h2>
+  <p class="mut">Fundamentally strong Indian stocks whose price comes down to their fair value — with or without a margin of safety. For one stock: open it and tap <b>💎 Value alert</b>. For all of them at once:</p>
+  <p><button class="btn${scan ? ' sec' : ''}" id="alScan">${scan ? 'Edit the value scan' : '💎 Set up the value scan'}</button> <a href="#" id="alScanList">See the list now (${valueZone(scan ? +scan.v : 0).length} at ${scan ? mosTxt(scan.v) : 'fair value'})</a></p></div>
   ${privCard()}
   <div class="card"><h2>📲 Push notifications (ntfy)</h2>
   ${topic ? `<p>Your private topic: <code style="word-break:break-all" id="alTopic">${esc(topic)}</code> <button class="btn sec" id="alCopyT" style="padding:3px 8px;font-size:12px">Copy topic</button></p>
@@ -124,7 +200,10 @@ async function showAlerts() {
   const save = async () => { $('#alStat').textContent = 'Saving…'; const m = await alertsPush(); showAlerts().then(() => $('#alStat').textContent = m); };
   v.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { if (!confirm('Delete this alert?')) return; const X = AL(); X.alerts = X.alerts.filter(a => a.id !== b.dataset.del); LS.set('alerts', X); save(); });
   v.querySelectorAll('[data-rearm]').forEach(b => b.onclick = () => { const X = AL(), a = X.alerts.find(a => a.id === b.dataset.rearm); a.trig = a.trigP = null; a.ver = Math.floor(Date.now() / 1000); LS.set('alerts', X); save(); });
-  v.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => alertDialog(null, b.dataset.edit));
+  v.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => { const x = AL().alerts.find(a => a.id === b.dataset.edit); if (!x) return;
+    x.type === 'valueScan' ? scanDialog(x.id) : x.type === 'value' ? valueDialog(x.s, x.id) : alertDialog(null, x.id); });
+  $('#alScan').onclick = () => scanDialog(scan && scan.id);
+  $('#alScanList').onclick = e => { e.preventDefault(); openValueList(scan ? +scan.v : 0); };
   const ct = $('#alCopyT'); if (ct) ct.onclick = async () => { try { await navigator.clipboard.writeText(topic); ct.textContent = 'Copied'; } catch { ct.textContent = 'Select it by hand'; } };
   if ($('#alTest')) $('#alTest').onclick = async () => { try { await fetch(url, { method: 'POST', body: 'Test from Stock Search — push notifications are working.' }); $('#alStat').textContent = '✔ Test push sent to your topic.'; } catch (e) { $('#alStat').textContent = 'Test failed: ' + e.message; } };
   const pb = $('#alPerm'); if (pb) pb.onclick = () => Notification.requestPermission().then(() => showAlerts());
@@ -170,5 +249,5 @@ function privWire() {
 }
 // hooks: refresh check after every quotes load; stock-page button
 const _loadQuotesA = loadQuotes; loadQuotes = async f => { await _loadQuotesA(f); alertsLocalCheck(); };
-alertsPull().then(alertsLocalCheck);
-document.addEventListener('click', e => { const b = e.target.closest('#alBtn'); if (b && CUR) alertDialog(CUR.symbol); });
+Promise.all([alertsPull(), loadValue()]).then(alertsLocalCheck);
+document.addEventListener('click', e => { const b = e.target.closest('#alBtn'); if (b && CUR) alertDialog(CUR.symbol); const vb = e.target.closest('#valBtn'); if (vb && CUR) valueDialog(CUR.symbol); });

@@ -49,6 +49,9 @@ jobs:
       - name: NSE delivery % and corporate actions
         if: env.SKIP != '1'
         run: node scripts/nsedaily.js || echo 'nse daily extras skipped'
+      - name: Fair value + strong list for the 💎 value alerts (app's own ext.js / score.js)
+        if: env.SKIP != '1'
+        run: node scripts/valuegen.js || echo 'value scan skipped'
       - name: Swing-trade setups (from official closing prices)
         if: env.SKIP != '1'
         run: node scripts/swing.js || echo 'swing setups skipped'

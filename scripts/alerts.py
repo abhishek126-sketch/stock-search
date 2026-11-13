@@ -34,7 +34,10 @@ def merge_save(inc, cur):
     for a in inc.get('alerts', [])[:200]:
         o = old.get(a.get('id'))
         if o and o.get('trig') and (a.get('ver') or 0) <= o['trig']: a['trig'], a['trigP'] = o['trig'], o.get('trigP')
-        out.append({k: a.get(k) for k in ('id', 's', 'type', 'v', 'note', 'ver', 'trig', 'trigP')})
+        n = {k: a.get(k) for k in ('id', 's', 'type', 'v', 'note', 'ver', 'trig', 'trigP')}
+        # value-scan state (stocks already in the zone) is the server's: kept unless the app edited the alert after it
+        if o and o.get('zone') is not None and (a.get('ver') or 0) <= (o.get('zt') or 0): n['zone'], n['zt'] = o['zone'], o.get('zt')
+        out.append(n)
     if KEY: return {'alerts': out, 'updated': now}                  # private mode: the topic comes from the key
     return {'topic': inc['topic'] if 'topic' in inc else cur.get('topic'), 'alerts': out, 'updated': now}
 def publish(mutate, msg):
@@ -76,29 +79,67 @@ def hit(a, p, pc):
     v = float(a['v']); chg = (p / pc - 1) * 100 if pc else None
     return {'above': p >= v, 'below': p <= v, 'chgUp': chg is not None and chg >= v, 'chgDn': chg is not None and chg <= -abs(v)}.get(a['type'], False), chg
 DESC = {'above': 'rose above', 'below': 'fell below', 'chgUp': 'day change ≥ +', 'chgDn': 'day change ≤ −'}
+APP = 'https://abhishek126-sketch.github.io/stock-search/'
+def push(topic, title, body, tags, click):
+    urllib.request.urlopen(urllib.request.Request(NTFY + topic, data=body.encode(), headers={
+        'Title': title, 'Tags': tags, 'Click': click, 'Priority': 'high'}), timeout=15).read()
 def check():
     Q = json.load(open('data/quotes.json'))['q']
     C = json.load(open('data/check.json')) if os.path.exists('data/check.json') else {}
+    # 💎 value alerts: fair value per Indian stock from data/value.json (scripts/valuegen.js, nightly) -
+    # [fairValue, methods, quality, overall, strong]. 'value' = one stock; 'valueScan' (s = '*') = every strong stock.
+    V = {}
+    try: V = json.load(open('data/value.json')).get('s') or {}
+    except Exception: pass
     def mutate(cur):
-        topic, fired = topic_of(cur), 0
+        topic, fired, changed = topic_of(cur), 0, 0
         for a in cur.get('alerts', []):
+            t = a.get('type')
+            if t == 'valueScan':
+                if not V: continue
+                m = float(a['v']); zone = {}; prev = set(a.get('zone') or []); keep = []
+                for s, v in V.items():
+                    if not v[4]: continue
+                    p, _, _ = price(s, Q, C); tgt = v[0] * (1 - m / 100)
+                    if p is None: (keep.append(s) if s in prev else None); continue      # no quote now: membership unchanged
+                    # enters at the target, leaves only 3% above it - no repeat pushes for a price hovering at the line
+                    if p <= tgt or (s in prev and p <= tgt * 1.03): zone[s] = (p, v[0])
+                new = [s for s in zone if s not in prev]
+                new.sort(key=lambda s: zone[s][0] / zone[s][1])
+                if new and topic:
+                    lines = [f"{s.replace('.NS', '').replace('.BO', '')} ₹{zone[s][0]:,.2f} — {(1 - zone[s][0] / zone[s][1]) * 100:.0f}% below fair value ₹{zone[s][1]:,.0f}" for s in new[:12]]
+                    more = f"\n…and {len(new) - 12} more" if len(new) > 12 else ''
+                    head = f"{len(new)} strong stock{'s' if len(new) > 1 else ''} now at fair value{' − ' + str(int(m)) + '%' if m else ''} or lower ({len(zone)} in the zone in all):"
+                    try: push(topic, '💎 Value scan', head + '\n' + '\n'.join(lines) + more + (f"\n— {a['note']}" if a.get('note') else ''), 'gem', APP + '#value')
+                    except Exception as e: print('ntfy push failed:', type(e).__name__); continue
+                    fired += 1
+                members = sorted(set(zone) | set(keep))
+                if members != sorted(prev): a['zone'], a['zt'] = members[:400], now; changed += 1
+                continue
             if a.get('trig'): continue
             p, pc, src = price(a['s'], Q, C)
             if p is None: continue
-            ok, chg = hit(a, p, pc)
-            if not ok: continue
             name = a['s'].replace('.NS', '').replace('.BO', ''); ccy = '₹' if a['s'].endswith(('.NS', '.BO')) else '$'
-            cond = f"{DESC[a['type']]}{a['v']}%" if a['type'].startswith('chg') else f"{DESC[a['type']]} {ccy}{a['v']}"
-            body = f"{name} {cond}: now {ccy}{p:,.2f} ({chg:+.2f}% today, {src})" + (f" — {a['note']}" if a.get('note') else '')
+            if t == 'value':
+                v = V.get(a['s'])
+                if not v: continue
+                tgt = v[0] * (1 - float(a['v']) / 100)
+                if p > tgt: continue
+                body = (f"{name} ₹{p:,.2f} is at its fair-value zone: fair value ₹{v[0]:,.2f}" + (f" − {float(a['v']):g}% margin of safety = ₹{tgt:,.2f}" if float(a['v']) else '')
+                        + f" ({v[1]} methods; quality {v[2]}, overall {v[3]}{'' if v[4] else ' — no longer on the strong list'})" + (f" — {a['note']}" if a.get('note') else ''))
+                title, tags = f'💎 Value alert: {name}', 'gem'
+            else:
+                ok, chg = hit(a, p, pc)
+                if not ok: continue
+                cond = f"{DESC[t]}{a['v']}%" if t.startswith('chg') else f"{DESC[t]} {ccy}{a['v']}"
+                body = f"{name} {cond}: now {ccy}{p:,.2f} ({chg:+.2f}% today, {src})" + (f" — {a['note']}" if a.get('note') else '')
+                title, tags = f'Price alert: {name}', 'chart_with_upwards_trend' if t in ('above', 'chgUp') else 'chart_with_downwards_trend'
             if topic:
-                try:
-                    urllib.request.urlopen(urllib.request.Request(NTFY + topic, data=body.encode(), headers={
-                        'Title': f'Price alert: {name}', 'Tags': 'chart_with_upwards_trend' if a['type'] in ('above', 'chgUp') else 'chart_with_downwards_trend',
-                        'Click': 'https://abhishek126-sketch.github.io/stock-search/#' + a['s'], 'Priority': 'high'}), timeout=15).read()
+                try: push(topic, title, body, tags, APP + '#' + a['s'])
                 except Exception as e: print('ntfy push failed:', type(e).__name__); continue  # retry next run
             a['trig'], a['trigP'] = now, round(p, 4); fired += 1
-        if fired: print('alerts fired:', fired)   # no symbols / prices / notes: the job logs are public
-        return cur if fired else None
+        if fired or changed: print('alerts fired:', fired, '| scan zones updated:', changed)   # no symbols / prices / notes: the job logs are public
+        return cur if fired or changed else None
     publish(mutate, 'Alerts triggered')
 if __name__ == '__main__':
     if sys.argv[1] == 'save':

@@ -55,7 +55,9 @@ function scoreRows() {
 }
 // pro = minimum promoter holding %, pl = maximum pledge % ('' any, '0' none), proUp = promoter stake not cut by 1+ pt in a year
 // fiiT = FII holding trend over ~1 year: '' any, 'inc' (+0.5 pt or more), 'dec' (−0.5 pt or more), 'flat'
-const SCDEF = { mk: 'IN', cap: 'All', sec: '', min: {}, sort: ['ov', -1], q: '', pro: 0, pl: '', proUp: false, fiiT: '' };
+const SCDEF = { mk: 'IN', cap: 'All', sec: '', min: {}, sort: ['ov', -1], q: '', pro: 0, pl: '', proUp: false, fiiT: '', fv: '', strongOnly: false };
+// 💎 fair value (value.json via alerts.js loadValue): fv = '' any | '0' at or below fair value | '10' / '20' / '30' that % below; strongOnly = the value-alert strong list
+const FV_OPTS = [['', 'Fair value: any'], ['0', 'At or below fair value'], ['10', '≥ 10% below fair value'], ['20', '≥ 20% below fair value'], ['30', '≥ 30% below fair value']];
 const FII_OPTS = [['', 'FII trend: any'], ['inc', 'FII increasing ▲'], ['dec', 'FII decreasing ▼'], ['flat', 'FII flat']];
 const fiiTrend = r => !isNum(r.fiiCh) ? '' : r.fiiCh >= 0.5 ? 'inc' : r.fiiCh <= -0.5 ? 'dec' : 'flat';
 let SCF = Object.assign({}, SCDEF, LS.get('scf', {})), SCN = 50;
@@ -67,7 +69,8 @@ const SCPRESETS = [
   ['⚖️ GARP', { l: 65 }, ['l', -1]],
   ['🚀 Momentum', { m: 80, c: 55 }, ['m', -1]],
   ['🛡️ Promoter-backed', { q: 50 }, ['proV', -1], { pro: 50, pl: '5', proUp: true }, 'IN'],
-  ['🌍 FIIs buying', { q: 50 }, ['fiiCh', -1], { fiiT: 'inc' }, 'IN']];
+  ['🌍 FIIs buying', { q: 50 }, ['fiiCh', -1], { fiiT: 'inc' }, 'IN'],
+  ['💎 Near fair value', {}, ['mos', -1], { fv: '0', strongOnly: true }, 'IN']];
 const PRO_OPTS = [0, 25, 40, 50, 60, 70, 75], PL_OPTS = [['', 'Pledge: any'], ['0', 'Pledge: none'], ['5', 'Pledge ≤ 5%'], ['10', 'Pledge ≤ 10%'], ['25', 'Pledge ≤ 25%']];
 // which scores rest on which doubtful field (for red marking in the table)
 const SC_USES = { pe: ['v', 'l', 'ov'], pb: ['v', 'ov'], r1y: ['m', 'c', 'ov'], roe: ['q', 'ov'], p: ['v', 'l', 'm', 'ov'] };
@@ -107,13 +110,19 @@ async function renderScores(box) {
   const act = Object.entries(SCF.min).filter(([, v]) => v > 0);
   rows = rows.filter(r => act.every(([k, v]) => isNum(r[k]) && r[k] >= v));
   // promoter holding & pledge filters (India only; stocks without the data are left out when a filter is set)
-  const india = mk === 'IN', nPro = india ? (SCF.pro > 0) + (SCF.pl !== '') + !!SCF.proUp + !!SCF.fiiT : 0;
+  const india = mk === 'IN', nPro = india ? (SCF.pro > 0) + (SCF.pl !== '') + !!SCF.proUp + !!SCF.fiiT + (SCF.fv !== '') + !!SCF.strongOnly : 0;
   const nFii = india ? inMk.filter(r => isNum(r.fiiCh)).length : 0;
   if (india) {
     if (SCF.fiiT) rows = rows.filter(r => fiiTrend(r) === SCF.fiiT);
     if (SCF.pro > 0) rows = rows.filter(r => isNum(r.proV) && r.proV >= SCF.pro);
     if (SCF.pl !== '') rows = rows.filter(r => isNum(r.plV) && r.plV <= +SCF.pl);
     if (SCF.proUp) rows = rows.filter(r => isNum(r.proCh) && r.proCh > -1);
+    // fair value and margin of safety on the latest price (live quote / exchange close), from the nightly value.json
+    if (typeof loadValue === 'function' && !VALUE) loadValue().then(() => { if (document.getElementById('sct')) renderScores(box); });
+    if (typeof VALUE !== 'undefined' && VALUE && VALUE.s) for (const r of inMk) { const f = VALUE.s[r.s], px = typeof curPrice === 'function' && isNum(curPrice(r.s)[0]) ? curPrice(r.s)[0] : r.p;
+      r.fvV = f ? f[0] : undefined; r.strong = f ? f[4] : 0; r.mos = f && isNum(px) ? (1 - px / f[0]) * 100 : undefined; }
+    if (SCF.strongOnly) rows = rows.filter(r => r.strong);
+    if (SCF.fv !== '') rows = rows.filter(r => isNum(r.mos) && r.mos >= +SCF.fv);
   }
   if (typeof CORPCOV !== 'undefined' && CORPCOV === null && india) { CORPCOV = {}; getJSON(DATA + 'corp/coverage.json').then(c => { CORPCOV = c; if (document.getElementById('sct')) renderScores(box); }).catch(() => { }); }
   const plSus = typeof pledgeSuspect === 'function' && pledgeSuspect();
@@ -132,15 +141,19 @@ async function renderScores(box) {
   <select id="scpl" aria-label="Maximum promoter pledge">${PL_OPTS.map(([v, l]) => `<option value="${v}" ${SCF.pl === v ? 'selected' : ''}>${l}</option>`).join('')}</select>${sgq('pledge')}
   <select id="scfii" aria-label="FII holding trend">${FII_OPTS.map(([v, l]) => `<option value="${v}" ${SCF.fiiT === v ? 'selected' : ''}>${l}</option>`).join('')}</select>${sgq('fiitrend')}
   <label class="mut" style="font-size:13px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="scup" ${SCF.proUp ? 'checked' : ''}> Promoter stake not cut (by 1+ pt in a year)</label></div>
+  <div class="scbar"><select id="scfv" aria-label="Price vs fair value">${FV_OPTS.map(([v, l]) => `<option value="${v}" ${SCF.fv === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+  <label class="mut" style="font-size:13px;display:flex;align-items:center;gap:4px" title="${esc((typeof VALUE !== 'undefined' && VALUE && VALUE.rule) || '')}"><input type="checkbox" id="scstr" ${SCF.strongOnly ? 'checked' : ''}> Fundamentally strong only</label>
+  ${typeof scanDialog === 'function' && (SCF.fv !== '' || SCF.strongOnly) ? `<button class="btn sec" id="scScan" style="padding:4px 10px">💎 Notify me when a new stock joins</button>` : ''}</div>
+  ${(SCF.fv !== '' || SCF.strongOnly) && typeof VALUE !== 'undefined' && VALUE && VALUE.rule ? `<p class="mut" style="margin:4px 0;font-size:12px">Fair value = median of the stock page's valuation methods (DCF, Graham number and growth formula, sector P/E, earnings power, dividends, justified P/B) at default assumptions, recalculated nightly. Strong = ${esc(VALUE.rule)}. A fair value is an estimate — check the 💡 Intrinsic value section before acting.</p>` : ''}
   ${SCF.fiiT && nFii < 200 ? `<p class="mut" style="margin:4px 0">FII trend is available for ${nFii.toLocaleString()} stocks so far — it is read from each company's quarterly shareholding filing and fills in over the next few days.</p>` : ''}
   ${plSus && SCF.pl !== '' ? `<p class="doubt" style="text-decoration:none;margin:4px 0">⚠ Pledge data is uncertain right now: NSE returned "no pledge" for every company in the latest update, so the pledge filter may let pledged companies through.</p>` : ''}` : ''}
   <p class="mut" style="margin:6px 0 0">Minimum scores (0–100)${sgq('qsc')}. Drag right to tighten. Hover or long-press a name to see how it's scored.</p>
   <div class="scg">${SCORES.map(slider).join('')}</div>
   ${SCF.cap === 'Penny' && typeof PENNYWARN !== 'undefined' ? PENNYWARN : ''}
   <p><b>${rows.length.toLocaleString()}</b> of ${inMk.length.toLocaleString()} stocks match${act.length + nPro ? ` (${act.length + nPro} filter${act.length + nPro > 1 ? 's' : ''})` : ''}.</p>
-  <div class="tw"><table class="pt" id="sct"><tr>${th('n', 'Stock')}${SCORES.map(([k, l]) => th(k, l)).join('')}${th('pe', 'P/E')}${india ? th('proV', 'Promoter %' + sgq('promoter')) + th('plV', 'Pledge %' + sgq('pledge')) + th('fiiCh', 'FII % (trend)' + sgq('fiitrend')) : ''}</tr>${shown.map(r => { const W = typeof rowDoubts === 'function' ? rowDoubts(r) : {}, bad = scDoubt(W);
+  <div class="tw"><table class="pt" id="sct"><tr>${th('n', 'Stock')}${SCORES.map(([k, l]) => th(k, l)).join('')}${th('pe', 'P/E')}${india ? th('proV', 'Promoter %' + sgq('promoter')) + th('plV', 'Pledge %' + sgq('pledge')) + th('fiiCh', 'FII % (trend)' + sgq('fiitrend')) + th('mos', 'Fair value (vs price)') : ''}</tr>${shown.map(r => { const W = typeof rowDoubts === 'function' ? rowDoubts(r) : {}, bad = scDoubt(W);
     const cell = k => isNum(r[k]) && bad[k] ? `<span class="doubt" title="${esc('Built on doubtful data: ' + bad[k].join('; '))}">${Math.round(r[k])} ⚠</span>` : scCell(r[k]);
-    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 30))}${typeof rowDoubtTag === 'function' ? rowDoubtTag(W) : ''}${r.sv ? ' ' + survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.sec ? ' · ' + esc(r.sec) : ''}</small></td>${SCORES.map(([k]) => `<td>${cell(k)}</td>`).join('')}<td>${W.pe ? `<span class="doubt" title="${esc(W.pe)}">${fx(r.pe)} ⚠</span>` : fx(r.pe)}</td>${india ? `<td>${proCell(r)}</td><td>${plCell(r, plSus)}</td><td>${fiiCell(r)}</td>` : ''}</tr>`; }).join('')}</table></div>
+    return `<tr data-s="${esc(r.s)}"><td class="nogq" style="white-space:normal">${esc((r.n || r.s).slice(0, 30))}${typeof rowDoubtTag === 'function' ? rowDoubtTag(W) : ''}${r.sv ? ' ' + survTag(r.sv) : ''}<br><small class="mut">${esc(r.s.replace(/\.(NS|BO)$/, ''))}${r.sec ? ' · ' + esc(r.sec) : ''}</small></td>${SCORES.map(([k]) => `<td>${cell(k)}</td>`).join('')}<td>${W.pe ? `<span class="doubt" title="${esc(W.pe)}">${fx(r.pe)} ⚠</span>` : fx(r.pe)}</td>${india ? `<td>${proCell(r)}</td><td>${plCell(r, plSus)}</td><td>${fiiCell(r)}</td><td>${isNum(r.fvV) ? `${fmtP(r.fvV, 'INR')}<br><small class="${r.mos >= 0 ? 'up' : 'dn'}">${r.mos >= 0 ? Math.round(r.mos) + '% below' : Math.round(-r.mos) + '% above'}</small>${r.strong ? ' 💎' : ''}` : '<span class="mut">–</span>'}</td>` : ''}</tr>`; }).join('')}</table></div>
   <p class="mut" style="font-size:12px"><span class="doubt">Red with ⚠</span>${sgq('doubt')} = built on data that looks inconsistent (unusual P/E or P/B, extreme 1-year return, ROE beyond ±100%, or Yahoo vs exchange price gap). Hover, or open the stock, to see why.</p>
   ${rows.length > shown.length ? `<p style="text-align:center"><button class="btn sec" id="scMore">Show ${Math.min(rows.length - shown.length, 200)} more</button></p>` : ''}
   <details class="how"><summary>How the scores work</summary><div class="mut">${SCORES.map(([, l, why]) => `<p><b>${l}:</b> ${why}</p>`).join('')}<p>Each criterion earns 0 → full points on a straight line between the "poor" and "good" values shown (poor → good). A score is only given when data covers at least 40% of its weight; missing data is left out, never guessed. A stock with no score for a filter you've set is excluded.</p><p>These <b>quick scores</b> use the one-line summary kept for every stock. The full report on a stock's page also uses cash flow, dividends, margin history, technicals and more, so its Buffett / Graham / Fisher / Lynch / composite numbers can differ.</p></div></details>
@@ -150,7 +163,7 @@ async function renderScores(box) {
   box.querySelectorAll('[data-sp]').forEach(b => b.onclick = () => {
     if (b.dataset.sp === 'reset') SCF = Object.assign({}, SCDEF, { mk: SCF.mk, min: {} });
     else { const p = SCPRESETS[+b.dataset.sp]; SCF.min = Object.fromEntries(Object.entries(p[1]).filter(([, v]) => v > 0)); SCF.sort = p[2];
-      Object.assign(SCF, { pro: 0, pl: '', proUp: false, fiiT: '' }, p[3] || {}); if (p[4]) SCF.mk = p[4]; }
+      Object.assign(SCF, { pro: 0, pl: '', proUp: false, fiiT: '', fv: '', strongOnly: false }, p[3] || {}); if (p[4]) SCF.mk = p[4]; }
     SCN = 50; scSave(); rerender();
   });
   box.querySelectorAll('[data-ss]').forEach(t => t.onclick = () => { const k = t.dataset.ss; SCF.sort = [k, SCF.sort[0] === k ? -SCF.sort[1] : (k === 'n' || k === 'pe' || k === 'plV' ? 1 : -1)]; scSave(); rerender(); });
@@ -165,6 +178,9 @@ async function renderScores(box) {
   const spl = box.querySelector('#scpl'); if (spl) spl.onchange = () => { SCF.pl = spl.value; keep(); };
   const su = box.querySelector('#scup'); if (su) su.onchange = () => { SCF.proUp = su.checked; keep(); };
   const sf = box.querySelector('#scfii'); if (sf) sf.onchange = () => { SCF.fiiT = sf.value; keep(); };
+  const sv = box.querySelector('#scfv'); if (sv) sv.onchange = () => { SCF.fv = sv.value; if (sv.value !== '' && SCF.sort[0] !== 'mos') SCF.sort = ['mos', -1]; keep(); };
+  const st = box.querySelector('#scstr'); if (st) st.onchange = () => { SCF.strongOnly = st.checked; keep(); };
+  const sn = box.querySelector('#scScan'); if (sn) sn.onclick = () => scanDialog();
   const qi = box.querySelector('#scq'); qi.oninput = () => { SCF.q = qi.value; clearTimeout(qi._t); qi._t = setTimeout(() => { const pos = qi.selectionStart; scSave(); rerender().then(() => { const n = box.querySelector('#scq'); n.focus(); n.setSelectionRange(pos, pos); }); }, 250); };
   const mb = box.querySelector('#scMore'); if (mb) mb.onclick = () => { SCN += 200; const y = window.scrollY; rerender().then(() => window.scrollTo(0, y)); };
 }
