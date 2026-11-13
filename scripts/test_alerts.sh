@@ -66,7 +66,7 @@ git clone -q --branch alerts remote.git v3
 node "$R/scripts/alertbox.js" dec < v3/alerts.json | python3 -c "
 import json, sys; d = {a['id']: a for a in json.load(sys.stdin)['alerts']}
 assert d['v1']['trig'] and d['v1']['trigP'] == 700, d['v1']
-assert d['v2']['zone'] == ['PFC.NS'] and not d['v2'].get('trig'), d['v2']"
+assert d['v2']['zone'] == ['PFC.NS'] and not d['v2'].get('trig'), d['v2']" || { echo '--- save output'; cat out5.txt; echo '--- check output'; cat out6.txt; echo '--- remote log'; git -C v3 log --oneline -3; fail "value alert state not saved after the check"; }
 # 6) next check: PFC still in the zone, COAL now drops in -> one push (only COAL is new); PFC at 410 (> 400 but within 3%) stays in
 (cd al && git fetch -q origin alerts && git reset -q --hard FETCH_HEAD)
 echo '{"q":{"SBIN.NS":[690,700],"COAL.NS":[790,800],"PFC.NS":[410,400],"WEAK.NS":[10,11]}}' > data/quotes.json
