@@ -656,9 +656,47 @@ def clean_etf_hist(hist, divs):
                 for x in divs:
                     if x[0] < t0: x[1] = x[1] / g
                 fx.append(['split', t0, round(g, 4)])
+            elif r >= 1.8: fx.append(['jump', hist[i][0], round(r, 3)])   # left for fix_etf_jumps() (peer check)
             i += 1
         else: fx.append(['tick', hist[i][0], b]); del hist[i]
     return fx
+
+def fix_etf_jumps(docs):
+    """A unit split on a day the underlying itself moved a lot is not a clean split factor: GROWWSLVR.NS 1:10 on 2 Feb 2026,
+    the day silver fell ~23% -> 322.49 to 22.25 (14.5x), so clean_etf_hist() leaves it. Here the ETF is compared with
+    sister ETFs on the same underlying (NSE list 'Underlying Key', e.g. SILVERBEES): its price relative to them (median of
+    5 sessions before / after) changes by the split factor alone - GROWWSLVR/SILVERBEES ~1.04 -> 0.1025 = 10x."""
+    ist = lambda t: time.strftime('%Y-%m-%d', time.gmtime(t + 19800))
+    grp = {}
+    for s, d in docs.items():
+        e = d.get('etf') if isinstance(d, dict) else None
+        if isinstance(e, dict) and e.get('underlying') and s.endswith('.NS'): grp.setdefault(e['underlying'].upper(), []).append(s)
+    med = lambda v: sorted(v)[len(v) // 2]
+    out = []
+    for s, d in docs.items():
+        jumps = d.pop('_jumps', None) if isinstance(d, dict) else None
+        if not jumps: continue
+        peers = [p for p in grp.get(((d.get('etf') or {}).get('underlying') or '').upper(), []) if p != s]
+        for t0 in jumps:
+            h = d['hist']; i = next((k for k, x in enumerate(h) if x[0] == t0), None)
+            if not i: continue
+            day = ist(t0); f = []
+            for p in peers:
+                ph = docs[p].get('hist') or []; pm = {ist(x[0]): x[1] for x in ph}
+                j = next((k for k, x in enumerate(ph) if ist(x[0]) == day), None)
+                if not j or not ph[j - 1][1] or not 1 / 1.8 < ph[j - 1][1] / ph[j][1] < 1.8: continue   # the peer must not jump itself
+                bef = [x[1] / pm[ist(x[0])] for x in h[max(0, i - 5):i] if pm.get(ist(x[0]))]
+                aft = [x[1] / pm[ist(x[0])] for x in h[i:i + 5] if pm.get(ist(x[0]))]
+                if len(bef) >= 3 and len(aft) >= 3 and med(aft) > 0: f.append(med(bef) / med(aft))
+            if not f: out.append([s, day, 'no peer']); continue
+            r = med(f); g = next((g for g in (2, 3, 4, 5, 10, 20, 25, 50, 100) if abs(r / g - 1) < 0.1), None)
+            if not g: out.append([s, day, 'peer ratio ' + str(round(r, 2))]); continue
+            for x in h[:i]: x[1] = round(x[1] / g, 4 if x[1] / g < 20 else 2)
+            for x in d.get('divs') or []:
+                if x[0] < t0: x[1] = x[1] / g
+            out.append([s, day, 'split', g, len(f)])
+    print('ETF splits checked against sister ETFs:', json.dumps(out)[:1000])
+    return out
 
 def fetch_etf(sym, name, _):
     q = urllib.parse.quote(sym)
@@ -669,6 +707,7 @@ def fetch_etf(sym, name, _):
     divs = [[int(k), v['amount']] for k, v in (ch.get('events', {}).get('dividends') or {}).items()]
     fx = clean_etf_hist(hist, divs)
     if fx: ETF_FIX.append([sym] + fx)
+    jumps = [x[1] for x in fx if x[0] == 'jump']
     if len(hist) < 2: raise ValueError('no price history after clean-up')
     # Yahoo's current price can be the same bad tick: then use the last good daily close (the official close goes on top later)
     if hist and isinstance(m.get('regularMarketPrice'), (int, float)) and m['regularMarketPrice'] > 0 and not 1 / 1.8 < m['regularMarketPrice'] / hist[-1][1] < 1.8:
@@ -719,6 +758,7 @@ def fetch_etf(sym, name, _):
          'hist': hist, 'divs': divs, 'fund': {}, 'vol': None, 'fx': None, 'profile': None, 'analyst': None, 'etf': e, 'cap': CAP.get(sym),
          'fetched': int(time.time()), 'source': 'Yahoo Finance (chart & fund profile)' + (', AMFI NAV' if sym.endswith('.NS') else '') + ', NSE ETF list'}
     d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
+    if jumps: d['_jumps'] = jumps   # checked against sister ETFs in fix_etf_jumps(), then removed
     return d
 
 KEPT = []
@@ -760,6 +800,10 @@ def main():
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
     print('newer daily bars kept from the previous run (Yahoo lagging a session):', len(KEPT), KEPT[:10])
     print('ETF price history fixed (unadjusted split / bad tick):', len(ETF_FIX), json.dumps(ETF_FIX[:15])[:1500])
+    try: fix_etf_jumps(docs)
+    except Exception as e:
+        print('ETF peer split check failed:', repr(e)[:160])
+        for d in docs.values(): d.pop('_jumps', None) if isinstance(d, dict) else None
     nfix = sum(fix_stale_price(d) for d in docs.values()); print('stale Yahoo prices replaced by latest daily close:', nfix)
     try: nse_day, nse_n = apply_exchange_close(docs, 'NSE')
     except Exception as e: nse_day, nse_n = None, 0; print('NSE close step failed (prices stay Yahoo):', e)
