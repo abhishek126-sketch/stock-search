@@ -32,6 +32,20 @@ now = int(time.time())
 stale = sorted(s for s, v in q.items() if v[2] and now - v[2] > 20 * 86400)
 for s in stale: del q[s]
 if stale: print('dropped', len(stale), 'stale quotes (> 20 days old):', stale[:20])
+# Yahoo sometimes sends a wild quote (NV20.NS ETF on 13 Nov 2026: 12,353.60 vs NSE close 14.55). Indian prices move at most
+# ~20% a day (circuit limits), so a quote outside 0.45x-2.2x of the last full refresh's price is dropped (the app then uses
+# the stock file's close) - except a fall by a split / bonus factor (2, 3, 4, 5, 10 ...), which is a real ex-date price.
+try: REF = {r['s']: r['p'] for r in json.load(open(os.path.join(OUT, 'summary.json')))['rows'] if isinstance(r.get('p'), (int, float)) and r['p'] > 0}
+except Exception: REF = {}
+SPLIT = (2, 3, 4, 5, 6, 10, 20, 25, 50, 100)
+def wild(s, p):
+    ref = REF.get(s)
+    if not ref or not s.endswith(('.NS', '.BO')) or not isinstance(p, (int, float)) or p <= 0: return False
+    r = p / ref
+    return not 0.45 < r < 2.2 and not any(abs(r * f - 1) < 0.15 for f in SPLIT)
+bad = sorted(s for s, v in q.items() if wild(s, v[0]))
+for s in bad: del q[s]
+if bad: print('dropped', len(bad), 'wild quotes (far from the last close):', bad[:20])
 json.dump({'built': now, 'q': q}, open(os.path.join(OUT, 'quotes.json'), 'w'), separators=(',', ':'))
 mp = os.path.join(OUT, 'meta.json'); meta = json.load(open(mp)) if os.path.exists(mp) else {}
 meta.update({'quotes': now, 'nQuotes': len(q)}); json.dump(meta, open(mp, 'w'))

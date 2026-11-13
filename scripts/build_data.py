@@ -325,7 +325,8 @@ def apply_exchange_close(docs, ex):
     t_close = int(dt.datetime.combine(day, dt.time(15, 30), ist).timestamp()); t_bar = int(dt.datetime.combine(day, dt.time(9, 15), ist).timestamp())
     n = moved = 0
     for s, d in docs.items():
-        if not s.endswith(sfx) or d.get('etf') or s[:-3] not in B: continue
+        # ETFs too (until 13 Nov 2026 they kept Yahoo's price: NV20.NS showed 12,353.60 vs NSE's 14.55)
+        if not s.endswith(sfx) or s[:-3] not in B: continue
         close, pcl = B[s[:-3]][:2]; xo, xh, xl, xv = (list(B[s[:-3]][2:6]) + [None] * 4)[:4]; h = d.get('hist') or []
         if not close or close <= 0: continue
         lastday = dt.datetime.fromtimestamp(h[-1][0], ist).date() if h else None
@@ -347,6 +348,11 @@ def apply_exchange_close(docs, ex):
         if isinstance(d.get('price'), (int, float)) and d['price'] and abs(d['price'] / close - 1) > 0.01: moved += 1
         d['price'], d['priceTime'] = close, t_close
         if pcl: d['prevClose'] = pcl
+        e = d.get('etf')
+        if isinstance(e, dict) and e.get('nav') and e.get('navDate') not in (None, 'Yahoo'):   # premium on the official close (same day as the NAV)
+            try:
+                if dt.datetime.strptime(e['navDate'], '%d-%b-%Y').date() == day: e['prem'] = close / e['nav'] - 1
+            except Exception: pass
         d['exClose'] = {'ex': ex, 'day': day.isoformat()}; n += 1
     print(ex, 'official close applied to', n, 'stocks for', day, '-', moved, 'of them differed from Yahoo by > 1%')
     return day.isoformat(), n
@@ -624,6 +630,36 @@ def amfi_nav():
         AMFI = A
     return AMFI
 
+ETF_FIX = []
+def clean_etf_hist(hist, divs):
+    """An ETF's daily closes never jump 1.8x / fall below 1/1.8 of the day before; when Yahoo's series does:
+    - the new level holds for the next days -> a unit split Yahoo did not adjust for (NV20.NS 1:10 in
+      Feb/Mar 2026: ~154 -> ~14.75 left in, so 6-month return showed +885%): earlier closes and dividends are divided by
+      the nearest split factor;
+    - it does not hold (or it is the last bar) -> a bad tick (NV20.NS 13 Nov 2026: 12,353.60 vs NSE close 14.55): dropped.
+    Returns the list of fixes made."""
+    rnd = lambda c: round(c, 4 if c < 20 else 2)
+    # unit splits only (price falls by the factor); a rise is left alone - ETFs hardly ever consolidate, and PVTBANK.NS's
+    # ₹10 zero-volume pre-listing bars (Jul 2026) would otherwise look like a 3:1 consolidation
+    SPL = (2, 3, 4, 5, 10, 20, 25, 50, 100)
+    fx, i = [], 1
+    while i < len(hist):
+        a, b = hist[i - 1][1], hist[i][1]
+        r = a / b if a and b and a > 0 and b > 0 else 1
+        if 1 / 1.8 < r < 1.8: i += 1; continue
+        nxt = [x[1] for x in hist[i + 1:i + 6]]
+        if nxt and all(v and abs(v / b - 1) < 0.25 for v in nxt):
+            g = next((g for g in SPL if abs(r / g - 1) < 0.15), None)
+            if g:
+                t0 = hist[i][0]
+                for x in hist[:i]: x[1] = rnd(x[1] / g)
+                for x in divs:
+                    if x[0] < t0: x[1] = x[1] / g
+                fx.append(['split', t0, round(g, 4)])
+            i += 1
+        else: fx.append(['tick', hist[i][0], b]); del hist[i]
+    return fx
+
 def fetch_etf(sym, name, _):
     q = urllib.parse.quote(sym)
     ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
@@ -631,6 +667,12 @@ def fetch_etf(sym, name, _):
     hist = [[t, round(c, 4 if (c or 0) < 20 else 2)] for t, c in zip(ts, cl) if c is not None]
     if len(hist) < 2: raise ValueError('no price history')
     divs = [[int(k), v['amount']] for k, v in (ch.get('events', {}).get('dividends') or {}).items()]
+    fx = clean_etf_hist(hist, divs)
+    if fx: ETF_FIX.append([sym] + fx)
+    if len(hist) < 2: raise ValueError('no price history after clean-up')
+    # Yahoo's current price can be the same bad tick: then use the last good daily close (the official close goes on top later)
+    if hist and isinstance(m.get('regularMarketPrice'), (int, float)) and m['regularMarketPrice'] > 0 and not 1 / 1.8 < m['regularMarketPrice'] / hist[-1][1] < 1.8:
+        m['regularMarketPrice'], m['regularMarketTime'] = hist[-1][1], hist[-1][0]
     vv = [v for v in vo if v is not None][-50:]
     e = dict(ETFMETA.get(sym) or {}); raw = lambda o, k: (o.get(k) or {}).get('raw') if isinstance(o.get(k), dict) else None
     c = crumb()
@@ -717,6 +759,7 @@ def main():
         except Exception as e: fails.append(x[0]); print('fail', x[0], e)
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
     print('newer daily bars kept from the previous run (Yahoo lagging a session):', len(KEPT), KEPT[:10])
+    print('ETF price history fixed (unadjusted split / bad tick):', len(ETF_FIX), json.dumps(ETF_FIX[:15])[:1500])
     nfix = sum(fix_stale_price(d) for d in docs.values()); print('stale Yahoo prices replaced by latest daily close:', nfix)
     try: nse_day, nse_n = apply_exchange_close(docs, 'NSE')
     except Exception as e: nse_day, nse_n = None, 0; print('NSE close step failed (prices stay Yahoo):', e)
