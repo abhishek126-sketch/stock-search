@@ -99,7 +99,7 @@ if nse['mode'] != 'live':
             if n == 0 and r.get('DATE1'):          # session date inside the file (a holiday's file holds the previous session)
                 try: day = dt.datetime.strptime(r['DATE1'], '%d-%b-%Y').date()
                 except ValueError: pass
-            if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST'): continue
+            if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST', 'RR', 'IV'): continue   # RR = REITs, IV = InvITs
             s = r['SYMBOL'] + '.NS'; y = Q.get(s)
             if not y: continue
             close, pcl = float(r['CLOSE_PRICE']), float(r['PREV_CLOSE'])

@@ -280,7 +280,7 @@ def nse_bhavcopy():
         for r in csv.DictReader(io.StringIO(raw), skipinitialspace=True):
             r = {k.strip(): (v or '').strip() for k, v in r.items() if k}
             if td is None: td = trade_date(r.get('DATE1'), '%d-%b-%Y')
-            if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST'): continue
+            if r.get('SERIES') not in ('EQ', 'BE', 'BZ', 'SM', 'ST', 'RR', 'IV'): continue   # RR = REITs, IV = InvITs (EMBASSY had a day-old Yahoo price, 13 Nov 2026)
             try: rows[r['SYMBOL']] = (float(r['CLOSE_PRICE']), float(r['PREV_CLOSE']), fnum(r.get('OPEN_PRICE')), fnum(r.get('HIGH_PRICE')), fnum(r.get('LOW_PRICE')), fnum(r.get('TTL_TRD_QNTY')))
             except (KeyError, ValueError): pass
         if len(rows) > 500: return td or day, rows
