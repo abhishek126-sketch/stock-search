@@ -10,14 +10,15 @@ function sTable(C) {  // C: [weight, score 0..1 | undefined]; needs >= 40% of th
   return Wa >= W * 0.4 ? av.reduce((s, c) => s + c[0] * c[1], 0) / Wa * 100 : undefined;
 }
 const SCORES = [
-  ['ov', 'Overall', 'Weighted mix of the scores below: Quality 25 · Growth 20 · GARP 20 · Value 15 · CANSLIM 10 · Momentum 10 (needs at least half of that weight to have data).'],
-  ['q', 'Quality', 'Buffett-style: ROE (8% → 18%), operating margin (8% → 20%), low debt (D/E 1.0 → 0.3), moat proxy (ROCE 10% → 25% or gross margin 20% → 45%; banks: ROE 10% → 17%).'],
+  ['ov', 'Overall', 'Weighted mix of the scores below: Quality 25 · Growth 20 · GARP 20 · Value 15 · CANSLIM 10 · Momentum 10 · Ownership 10 (needs at least half of that weight to have data).'],
+  ['q', 'Quality', 'Buffett-style: ROE (8% → 18%), operating margin (8% → 20%), low debt (D/E 1.0 → 0.3), moat proxy (ROCE 10% → 25% or gross margin 20% → 45%; banks: ROE 10% → 17%); earnings quality: operating cash flow vs EBITDA over 3 years (40% → 70%), other income as a share of profit before tax (35% → 20% or less), operating margin vs last year (−2 → +2 pts).'],
   ['v', 'Value', 'Graham-style: adequate size, low debt (D/E 1.0 → 0.5), P/E (25 → 15), P/E × P/B (45 → 22.5), profit growth (0 → 3%/yr).'],
   ['g', 'Growth', 'Fisher-style: revenue CAGR (0 → 15%/yr), profit CAGR (0 → 15%/yr), profit growing faster than sales (−5 → +2 pts).'],
   ['l', 'GARP', 'Lynch-style: PEG = P/E ÷ profit growth % (2 → 1), growth in the 20–40% sweet spot, debt (D/E 1.0 → 0.35), P/E not stretched (40 → 20).'],
   ['c', 'CANSLIM', "Share of CANSLIM letters passed (stocks with at least 5 of 7 letters checkable)."],
-  ['m', 'Momentum', 'Relative strength percentile (1–99) within the same market: 40% 3-month, 20% 6-month, 40% 1-year return.']];
-const SCW = { q: 25, g: 20, l: 20, v: 15, c: 10, m: 10 };
+  ['m', 'Momentum', 'Relative strength percentile (1–99) within the same market: 40% 3-month, 20% 6-month, 40% 1-year return.'],
+  ['o', 'Ownership', 'India: promoters + FIIs + DIIs together (50% → 70%), FII + DII change in the last quarter (−1 → +1 pt), promoter stake over a year (cut of 3 pts → steady), promoter pledge (20% → none). From NSE shareholding filings.']];
+const SCW = { q: 25, g: 20, l: 20, v: 15, c: 10, m: 10, o: 10 };
 let SCROWS = null, SCBUILT = -1;
 function scoreRow(r) {
   const fin = isFinD({ sector: r.sec, industry: r.ind }), india = mktOf(r.s) === 'IN', big = india ? 2e11 : 2e9;
@@ -26,7 +27,8 @@ function scoreRow(r) {
   // banks/financials: margins, debt and ROCE don't apply (as in the report), so Quality rests on ROE (consistency + moat proxy)
   o.q = fin ? sTable([[20, sLin(r.roe, 0.08, 0.18)], [10, sLin(r.roe, 0.1, 0.17)]])
     : sTable([[20, sLin(r.roe, 0.08, 0.18)], [15, sLin(r.om, 0.08, 0.2)], [15, sLin(de, 1, 0.3)],
-      [10, isNum(r.roce) || isNum(r.gm) ? Math.max(sLin(r.roce, 0.1, 0.25) || 0, sLin(r.gm, 0.2, 0.45) || 0) : undefined]]);
+      [10, isNum(r.roce) || isNum(r.gm) ? Math.max(sLin(r.roce, 0.1, 0.25) || 0, sLin(r.gm, 0.2, 0.45) || 0) : undefined],
+      [10, sLin(r.cfoE, 0.4, 0.7)], [10, sLin(r.oiP, 0.35, 0.2)], [5, sLin(r.omCh, -0.02, 0.02)]]);
   o.v = sTable([[12.5, sLin(r.mcap, big / 4, big)], [12.5, sLin(de, 1, 0.5)], [12.5, loss ? 0 : sLin(pe, 25, 15)],
     [12.5, loss ? 0 : isNum(pe) && r.pb > 0 ? sLin(pe * r.pb, 45, 22.5) : undefined], [12.5, sLin(r.niG, 0, 0.03)]]);
   o.g = sTable([[25, sLin(r.revG, 0, 0.15)], [15, sLin(r.niG, 0, 0.15)], [10, isNum(r.niG) && isNum(r.revG) ? sLin(r.niG - r.revG, -0.05, 0.02) : undefined]]);
@@ -36,6 +38,10 @@ function scoreRow(r) {
     [15, sLin(de, 1, 0.35)], [10, loss ? 0 : sLin(pe, 40, 20)]]);
   o.c = r.co >= 5 ? r.cs / r.co * 100 : undefined;
   o.m = isNum(r.rs) && (isNum(r.r3m) || isNum(r.r1y)) ? r.rs : undefined;
+  // ownership (India): strong hands together, institutions adding or cutting last quarter, promoter selling, pledge
+  const plg = isNum(r.pp) ? r.pp : r.plz ? 0 : undefined;
+  o.strong = isNum(r.pro) && isNum(r.fii) && isNum(r.dii) ? r.pro + r.fii + r.dii : undefined;
+  o.o = india ? sTable([[35, sLin(o.strong, 50, 70)], [30, sLin(r.instQ, -1, 1)], [20, sLin(r.proCh, -3, 0)], [15, sLin(plg, 20, 0)]]) : undefined;
   const parts = Object.keys(SCW).filter(k => isNum(o[k])), pw = parts.reduce((s, k) => s + SCW[k], 0);
   o.ov = pw >= 50 ? parts.reduce((s, k) => s + o[k] * SCW[k], 0) / pw : undefined;
   // promoter holding (NSE shareholding pattern; Yahoo "insiders" as an approximation when that's missing, e.g. BSE-only) and pledge

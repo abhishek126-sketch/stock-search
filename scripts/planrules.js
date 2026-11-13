@@ -27,6 +27,21 @@ const RULES = {
                         // On since 13 Nov 2026: full history test (869 stocks, Groww costs) ₹1L −2.4% → +10.8% a year,
                         // −0.02R → +0.21R per trade, held in 2023-24 and 2025-26; a ≥50% line did not help.
   maxUpperWick: null,   // … and its upper wick is at most this % of the range (null = off)
+  // ---- candidates from the strategy audit (14 Nov 2026), each off (null / false) until the history test shows it helps ----
+  // Full history test, 995 stocks, Jan 2023 – Nov 2026, Groww costs, CAGR at ₹1L / ₹5L: today's rules 10.8% / 14.2%.
+  // Each switched on alone: 50 EMA rising 8.7 / 13.2 · 200 EMA rising 10.8 / 14.2 (no effect) · ≥1.3× 52w low 11.3 / 10.1 ·
+  // ≥0.75× 52w high 10.3 / 14.2 · whole Minervini template 10.4 / 8.9 · max 10% over 20 EMA 10.7 / 14.2 · max 8% 7.6 / 10.1 ·
+  // breakout volume 1.5× 10.4 / 12.0 · pullback volume dry-up 0.85× 8.0 / 7.1 · above 20-day VWAP 7.1 / 11.0 ·
+  // setup score > 80 in weak markets 10.2 / 12.4 · green candle 4.6 / 9.7 · stop cap 7% (stopMaxPct) 7.6 / 12.1. None kept.
+  needE50Up: false,     // Minervini template: 50 EMA higher than 20 sessions ago
+  needE200Up: false,    // … and the 200 EMA higher than 20 sessions ago (not rolling over into Stage 3)
+  minOverLow52: null,   // price at least this many times the 52-week low (Minervini: 1.30)
+  minOfHigh52: null,    // price at least this share of the 52-week high (Minervini: 0.75)
+  boVol: 1.3,           // breakout day volume vs its 50-day average (audit asked 1.4–1.5)
+  pbVolDry: null,       // pullback: average volume of the last 5 sessions at most this × the 50-day average (audit: 0.85)
+  needVwap20: false,    // close above the 20-session volume-weighted average price
+  weakRegimeScore: null,// in a market scored below 65 (Neutral or worse) the setup score must exceed this (audit: 80)
+  needGreen: false,     // signal day closes above its open
 };
 const REGIMES = { A: ['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
 const maxPositions = cap => cap < 50000 ? 3 : cap <= 200000 ? 5 : cap <= 1000000 ? 8 : 10;
@@ -108,6 +123,16 @@ function evaluate(d, row, x, ctx) {
   if (vr > RULES.pumpVr && r5 > RULES.pumpR5) rej('pump', `pump-and-dump pattern (volume ${vr.toFixed(1)}× normal with +${r5.toFixed(0)}% in 5 sessions)`);
   const sv = (x && x.surv) || row.sv; if (sv) rej('surv', `under exchange surveillance (${sv})`);
   if (row.pp > 50) rej('pledge', `promoters have pledged ${row.pp}% of their shares — a forced sale can crash the price`);
+  // strategy-audit candidates (off unless switched on in RULES)
+  const lo52 = Math.min(...c.slice(-250), ...(Array.isArray(d.hl52) && d.hl52[1] > 0 ? [d.hl52[1]] : []));
+  const tmpl = [];
+  if (RULES.needE50Up && !(e50 > E50[n - 20])) tmpl.push('50 EMA not rising');
+  if (RULES.needE200Up && !(e200 > E200[n - 20])) tmpl.push('200 EMA not rising');
+  if (RULES.minOverLow52 && !(p >= RULES.minOverLow52 * lo52)) tmpl.push(`only ${pc1(p / lo52 - 1)}% above the 52-week low`);
+  if (RULES.minOfHigh52 && !(p >= RULES.minOfHigh52 * hi52)) tmpl.push(`${pc1(1 - p / hi52)}% below the 52-week high`);
+  if (tmpl.length) rej('tmpl', 'trend template: ' + tmpl.join(', '));
+  if (RULES.needVwap20) { const w = b.slice(-20), vs = w.reduce((s, x) => s + x[5], 0), vw = vs > 0 ? w.reduce((s, x) => s + (x[2] + x[3] + x[4]) / 3 * x[5], 0) / vs : null;
+    if (vw && p < vw) rej('vwap', `below its 20-session VWAP ${inrS(vw)} — recent buyers are on average at a loss`); }
   // ---- warnings (shown, lower the confidence) ----
   const warn = [];
   const ed = ((d.profile && d.profile.earnDates) || []).find(t => t > ctx.now - 86400 && t < ctx.now + 7 * 86400);
@@ -117,6 +142,13 @@ function evaluate(d, row, x, ctx) {
   const aud = x && (x.ann || []).find(a => (a.g || []).includes('auditor') && Date.parse(a.d) > (ctx.now - 120 * 86400) * 1000);
   if (aud) warn.push(`auditor change filed ${aud.d}`);
   if (row.pe > 150) warn.push(`very expensive: P/E ${Math.round(row.pe)}`);
+  // fundamental notes from the strategy audit: shown, but they don't lower the confidence (past fundamentals aren't kept,
+  // so the history test can't measure them)
+  const nWarn = warn.length;
+  if (row.oiP > 0.2) warn.push(`${Math.round(row.oiP * 100)}% of last year's profit before tax was other income, not the business`);
+  if (row.cfoE != null && row.cfoE < 0.5) warn.push(`weak cash conversion: operating cash flow only ${Math.round(row.cfoE * 100)}% of EBITDA (3 years)`);
+  if (row.proCh <= -3) warn.push(`promoters cut their stake by ${(-row.proCh).toFixed(1)} pts in a year`);
+  if (row.instQ <= -2) warn.push(`FIIs + DIIs sold ${(-row.instQ).toFixed(1)} pts of the company last quarter`);
   if (code.length) return { ...S, pass: false, code, why, warn };
 
   // ---- 2. trend grade ----
@@ -133,8 +165,8 @@ function evaluate(d, row, x, ctx) {
 
   // ---- 3. setup ----
   let setup = 'none', ss = 0, det = {}, sw = [];
-  const isBO = p >= hi20 && bRng <= 14 && vr >= 1.3;
-  const isPB = ext20 > -3.5 && ext20 < 2.5 && e20 > e50 && rsi >= 40 && rsi <= 60 && hi20 / p - 1 > 0.03;
+  const isBO = p >= hi20 && bRng <= 14 && vr >= RULES.boVol;
+  const isPB = ext20 > -3.5 && ext20 < 2.5 && e20 > e50 && rsi >= 40 && rsi <= 60 && hi20 / p - 1 > 0.03 && (RULES.pbVolDry == null || (v50 && v5 <= RULES.pbVolDry * v50));
   const isTC = !isBO && hl && ext20 >= 0 && ext20 <= 8 && rsi >= 55 && rsi <= 70;
   const crossAgo = (() => { for (let k = 1; k <= 15; k++) if (E20[n - k] <= E50[n - k]) return k; return null; })();
   if (isBO) {
@@ -188,8 +220,9 @@ function evaluate(d, row, x, ctx) {
   const p2 = plan && plan.prob ? plan.prob.T1 : 0.37;
   // wide stops (over 5% of the price) cost 3 points per extra %: same rupee risk, but the stock needs a bigger move
   const wide = plan ? Math.max(0, plan.Rpct - 5) * 3 : 0;
-  const conf = Math.max(0, Math.min(100, Math.round(0.3 * ts + 0.3 * ss + 0.25 * (ctx.regimeScore ?? 50) + 15 * Math.min(1, p2 / 0.45) - 5 * warn.length - wide - (rrWhy ? 20 : 0))));
-  const ok0 = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > RULES.minSetupScore && !rrWhy;
+  const conf = Math.max(0, Math.min(100, Math.round(0.3 * ts + 0.3 * ss + 0.25 * (ctx.regimeScore ?? 50) + 15 * Math.min(1, p2 / 0.45) - 5 * nWarn - wide - (rrWhy ? 20 : 0))));
+  const minSS = RULES.weakRegimeScore != null && (ctx.regimeScore ?? 100) < 65 ? Math.max(RULES.minSetupScore, RULES.weakRegimeScore) : RULES.minSetupScore;
+  const ok0 = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > minSS && !rrWhy && (!RULES.needGreen || p > o);
   const candleOk = (RULES.minCloseLoc == null || (S.cdl && S.cdl.cl >= RULES.minCloseLoc)) && (RULES.maxUpperWick == null || (S.cdl && S.cdl.uw <= RULES.maxUpperWick));
   const buy = ok0 && candleOk;
   // what to wait for (watchlist)

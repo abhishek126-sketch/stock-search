@@ -39,6 +39,13 @@ function buildReport(d, k, A) {
   R.fcf = last(fcfA) ? last(fcfA)[1] : undefined; R.fcfAllPos = fcfA.length ? fcfA.every(x => x[1] > 0) : undefined;
   R.ocfNi = ocfA.length && ni.length ? (n => ocfA.slice(-n).reduce((s, x) => s + x[1], 0) / ni.slice(-n).reduce((s, x) => s + x[1], 0))(Math.min(3, ocfA.length, ni.length)) : undefined;
   R.rd = last(rdA) && rev.length && last(rev)[1] > 0 ? last(rdA)[1] / last(rev)[1] : undefined;
+  // earnings quality (same rules as build_data.py metrics: cfoE / oiP / omCh)
+  { const eb = Object.fromEntries(L('annualEBITDA')), oc = Object.fromEntries(ocfA), ys = Object.keys(eb).filter(y => y in oc).sort().slice(-3), se = ys.reduce((s, y) => s + eb[y], 0);
+    R.cfoE = ys.length >= 2 && se > 0 ? ys.reduce((s, y) => s + oc[y], 0) / se : undefined; R.cfoEn = ys.length;
+    const pbt = last(L('annualPretaxIncome')), ii = Object.fromEntries(L('annualInterestIncomeNonOperating')), oo = Object.fromEntries(L('annualOtherNonOperatingIncomeExpenses'));
+    R.oiP = pbt && pbt[1] > 0 && (pbt[0] in ii || pbt[0] in oo) ? (Math.max(0, ii[pbt[0]] || 0) + Math.max(0, oo[pbt[0]] || 0)) / pbt[1] : undefined; R.oiFY = pbt && pbt[0];
+    const oi = Object.fromEntries(L('annualOperatingIncome')), rv = Object.fromEntries(rev), yy = Object.keys(oi).filter(y => rv[y] > 0).sort();
+    R.omCh = yy.length >= 2 ? oi[yy[yy.length - 1]] / rv[yy[yy.length - 1]] - oi[yy[yy.length - 2]] / rv[yy[yy.length - 2]] : undefined; }
   R.capexOcf = last(capA) && last(ocfA) && last(ocfA)[1] > 0 ? Math.abs(last(capA)[1]) / last(ocfA)[1] : undefined;
   const now = Date.now() / 1000, divs = d.divs || []; R.dps = divs.filter(x => x[0] >= now - 365 * DAY).reduce((s, x) => s + x[1], 0);
   R.divYears = [1, 2, 3, 4].filter(y => divs.some(x => x[0] < now - (y - 1) * 365 * DAY && x[0] >= now - y * 365 * DAY)).length;
@@ -309,6 +316,9 @@ function fullReport(d, k, A) {
   C('Interest coverage ≥ 3×', R.fin ? 'na' : isNum(R.icov) ? R.icov >= 3 : undefined, R.fin ? 'n/m' : isNum(R.icov) ? R.icov.toFixed(1) + '×' : undefined);
   C('Positive free cash flow (latest FY)', R.fin ? 'na' : isNum(R.fcf) ? R.fcf > 0 : undefined, R.fin ? 'n/m' : isNum(R.fcf) ? fmtBig(R.fcf, c) : undefined);
   C('Cash flow backs profits (OCF ≥ 80% of profit, 3y)', R.fin ? 'na' : isNum(R.ocfNi) ? R.ocfNi >= 0.8 : undefined, R.fin ? 'n/m' : isNum(R.ocfNi) ? (R.ocfNi * 100).toFixed(0) + '%' : undefined);
+  C('Cash conversion (OCF ≥ 70% of EBITDA)', R.fin ? 'na' : isNum(R.cfoE) ? R.cfoE >= 0.7 : undefined, R.fin ? 'n/m' : isNum(R.cfoE) ? (R.cfoE * 100).toFixed(0) + `% (${R.cfoEn}y)` : undefined);
+  C('Profit not propped up by other income (≤ 20% of PBT)', R.fin ? 'na' : isNum(R.oiP) ? R.oiP <= 0.2 : undefined, R.fin ? 'n/m' : isNum(R.oiP) ? (R.oiP * 100).toFixed(0) + '%' : undefined);
+  C('Operating margin not shrinking (vs last FY)', R.fin ? 'na' : isNum(R.omCh) ? R.omCh >= -0.01 : undefined, R.fin ? 'n/m' : isNum(R.omCh) ? (R.omCh >= 0 ? '+' : '') + (R.omCh * 100).toFixed(1) + ' pts' : undefined);
   C('Revenue grew last FY', isNum(k.revGrowthFY) ? k.revGrowthFY > 0 : undefined, isNum(k.revGrowthFY) ? sgnPct(k.revGrowthFY) : undefined);
   C('Profit grew last FY', isNum(k.niGrowthFY) ? k.niGrowthFY > 0 : undefined, isNum(k.niGrowthFY) ? sgnPct(k.niGrowthFY) : undefined);
   C('P/E ≤ sector median', k.loss ? false : isNum(k.pe) && S && isNum(S.pe) ? k.pe <= S.pe : undefined, isNum(k.pe) && S && isNum(S.pe) ? `${k.pe.toFixed(1)} vs ${S.pe.toFixed(1)}` : undefined);

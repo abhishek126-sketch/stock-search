@@ -10,7 +10,8 @@ TYPES = ('quarterlyTotalRevenue,quarterlyNetIncome,quarterlyDilutedEPS,trailingP
          'trailingMarketCap,annualStockholdersEquity,annualTotalDebt,annualEBIT,annualTotalAssets,'
          'annualCurrentLiabilities,annualNetIncome,annualTotalRevenue,annualOperatingCashFlow,annualFreeCashFlow,'
          'annualInterestExpense,annualAccountsReceivable,annualInventory,annualDilutedEPS,annualDilutedAverageShares,'
-         'annualOperatingIncome,annualCashAndCashEquivalents,annualGrossProfit,quarterlyOperatingIncome,annualCurrentAssets,annualResearchAndDevelopment,annualCapitalExpenditure')
+         'annualOperatingIncome,annualCashAndCashEquivalents,annualGrossProfit,quarterlyOperatingIncome,annualCurrentAssets,annualResearchAndDevelopment,annualCapitalExpenditure,'
+         'annualEBITDA,annualPretaxIncome,annualInterestIncomeNonOperating,annualOtherNonOperatingIncomeExpenses')   # last line: earnings-quality checks (14 Nov 2026)
 
 def get(url, tries=4):
     for i in range(tries):
@@ -444,6 +445,9 @@ def promoter_fields(s, pr):
         if q:
             o[key] = round(q[-1][i], 2); o[key + 'Q'] = q[-1][0]
             if len(q) >= 2: o[key + 'Ch'] = round(q[-1][i] - q[0][i], 2); o[key + 'N'] = len(q)
+    # institutions together, last quarter vs the one before (pts): is smart money adding or cutting right now?
+    q2 = [r for r in (x.get('inst') or []) if len(r) > 2 and isinstance(r[1], (int, float)) and isinstance(r[2], (int, float))]
+    if len(q2) >= 2: o['instQ'] = round(q2[-1][1] + q2[-1][2] - q2[-2][1] - q2[-2][2], 2)
     return o
 
 def metrics(d):
@@ -495,6 +499,19 @@ def metrics(d):
         if prv and eqd[prv[-1]] + dbd.get(prv[-1], 0.0) > 0: ce = (ce + eqd[prv[-1]] + dbd.get(prv[-1], 0.0)) / 2
         k['roce'] = ebit[1] / ce
     if debt and eq and eq[1] > 0 and debt[0] == eq[0]: k['de'] = debt[1] / eq[1]
+    # earnings quality (strategy audit, 14 Nov 2026). cfoE = operating cash flow / EBITDA over up to 3 years (good >= 70%);
+    # oiP = other income (non-operating interest + other non-operating income) / profit before tax, latest year (flag > 20%:
+    # HAL 30% in FY26); omCh = operating margin change vs the year before. Banks have no EBITDA in Yahoo's data -> none.
+    ocf_, ebd_ = dict(series(f, 'annualOperatingCashFlow')), dict(series(f, 'annualEBITDA'))
+    yrs = sorted(set(ocf_) & set(ebd_))[-3:]; se = sum(ebd_[y] for y in yrs)
+    if len(yrs) >= 2 and se > 0: k['cfoE'] = sum(ocf_[y] for y in yrs) / se
+    pbt = last(series(f, 'annualPretaxIncome'))
+    if pbt and pbt[1] > 0:
+        ii_, oo_ = dict(series(f, 'annualInterestIncomeNonOperating')), dict(series(f, 'annualOtherNonOperatingIncomeExpenses'))
+        if pbt[0] in ii_ or pbt[0] in oo_: k['oiP'] = (max(0, ii_.get(pbt[0], 0)) + max(0, oo_.get(pbt[0], 0))) / pbt[1]
+    oi_, rv_ = dict(series(f, 'annualOperatingIncome')), dict(series(f, 'annualTotalRevenue'))
+    ys = sorted(y for y in oi_ if rv_.get(y, 0) > 0)
+    if len(ys) >= 2: k['omCh'] = oi_[ys[-1]] / rv_[ys[-1]] - oi_[ys[-2]] / rv_[ys[-2]]
     k['revG'] = cagr(series(f, 'annualTotalRevenue')); k['niG'] = cagr(series(f, 'annualNetIncome'))
     p1 = price_at(hist, now - 365 * 86400)
     if p1 and hist[0][0] < now - 360 * 86400: k['r1y'] = price / p1 - 1
