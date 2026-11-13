@@ -110,7 +110,7 @@ def check():
                     lines = [f"{s.replace('.NS', '').replace('.BO', '')} ₹{zone[s][0]:,.2f} — {(1 - zone[s][0] / zone[s][1]) * 100:.0f}% below fair value ₹{zone[s][1]:,.0f}" for s in new[:12]]
                     more = f"\n…and {len(new) - 12} more" if len(new) > 12 else ''
                     head = f"{len(new)} strong stock{'s' if len(new) > 1 else ''} now at fair value{' − ' + str(int(m)) + '%' if m else ''} or lower ({len(zone)} in the zone in all):"
-                    try: push(topic, '💎 Value scan', head + '\n' + '\n'.join(lines) + more + (f"\n— {a['note']}" if a.get('note') else ''), 'gem', APP + '#value')
+                    try: push(topic, 'Value scan', head + '\n' + '\n'.join(lines) + more + (f"\n— {a['note']}" if a.get('note') else ''), 'gem', APP + '#value')
                     except Exception as e: print('ntfy push failed:', type(e).__name__); continue
                     fired += 1
                 members = sorted(set(zone) | set(keep))
@@ -127,7 +127,7 @@ def check():
                 if p > tgt: continue
                 body = (f"{name} ₹{p:,.2f} is at its fair-value zone: fair value ₹{v[0]:,.2f}" + (f" − {float(a['v']):g}% margin of safety = ₹{tgt:,.2f}" if float(a['v']) else '')
                         + f" ({v[1]} methods; quality {v[2]}, overall {v[3]}{'' if v[4] else ' — no longer on the strong list'})" + (f" — {a['note']}" if a.get('note') else ''))
-                title, tags = f'💎 Value alert: {name}', 'gem'
+                title, tags = f'Value alert: {name}', 'gem'   # header values must be Latin-1; ntfy shows the gem tag as 💎
             else:
                 ok, chg = hit(a, p, pc)
                 if not ok: continue
