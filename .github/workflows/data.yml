@@ -41,6 +41,9 @@ jobs:
           if now.hour >= 18: sys.exit(0 if m.get('nseDay') != today or (m.get('bseDay') != today and now.hour < 21) else 1)
           sys.exit(0 if time.time() - m.get('full', 0) > 6000 else 1)
           EOF
+      - name: NSE bonus / split list (used by build_data.py to fix Yahoo's unadjusted or mis-dated adjustments)
+        if: env.SKIP != '1'
+        run: node scripts/nsedaily.js --ca || echo 'bonus / split list skipped'
       - if: env.SKIP != '1'
         run: python3 scripts/build_data.py
       - name: NSE delivery % and corporate actions

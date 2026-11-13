@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds static JSON snapshots (data/) from Yahoo Finance public endpoints.
 Runs server-side in GitHub Actions (no browser CORS). No API keys or secrets."""
-import http.cookiejar, csv, io, json, os, subprocess, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
+import calendar, http.cookiejar, csv, io, json, os, subprocess, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
 UA = {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}
 OUT = os.path.join(os.path.dirname(__file__), '..', 'data')
 EXTRA_IN = ['RELIANCE','TCS','ITC','HDFCBANK','INFY','SBIN']
@@ -572,10 +572,78 @@ YSEC = {'Automobile and Auto Components': 'Consumer Cyclical', 'Capital Goods': 
         'Financials': 'Financial Services', 'Health Care': 'Healthcare', 'Consumer Discretionary': 'Consumer Cyclical',
         'Consumer Staples': 'Consumer Defensive', 'Materials': 'Basic Materials'}
 
+# ---- bonus / split check against NSE's own corporate actions (data/ca.json, written by scripts/nsedaily.js --ca) ----
+# Yahoo sometimes leaves a bonus / split unadjusted or applies it on the wrong day: DIGIKORE.NS 1:1 bonus, ex-date
+# 24 Oct 2025, halved by Yahoo from 15 Oct only (closes before stayed ~150, NSE-adjusted 75) -> a fake -50% day, wrong
+# 52-week high, returns and averages. TRENT / MOTILALOFS / REDTAPE / CGCL ...: adjustment put on the year's first session.
+CA_SPL, CA_FIX = {}, []
+def load_ca():
+    time.strptime('2020-01-01', '%Y-%m-%d')   # first strptime call in the main thread (it can fail when first called from worker threads)
+    try:
+        CA_SPL.update(json.load(open(os.path.join(OUT, 'ca.json'))).get('by') or {}); print('bonus / split list:', len(CA_SPL), 'symbols')
+    except Exception as e: print('bonus / split list not read:', e)
+
+def ca_factor(subj):
+    """Price factor of an NSE corporate action: 'Bonus 1:1' -> 2, 'Bonus 3:5' -> 1.6, 'Face Value Split (Sub-Division) - From
+    Rs 10/- Per Share To Re 1/- Per Share' -> 10 (both in one line multiply). Preference-share bonuses (NCRPS) -> None."""
+    s = (subj or '').upper()
+    if 'NCRPS' in s or 'PREF' in s: return None
+    f = 1.0
+    b = re.search(r'BONUS\D{0,3}(\d+)\s*:\s*(\d+)', s)
+    if b and int(b.group(2)): f *= (int(b.group(1)) + int(b.group(2))) / int(b.group(2))
+    p = re.search(r'(?:SPLIT|SUB-?DIVISION).*?FROM\s+R[SE]\.?\s*([\d.]+).*?TO\s+R[SE]\.?\s*([\d.]+)', s, re.S)
+    if p:
+        try: x, y = float(p.group(1).rstrip('.')), float(p.group(2).rstrip('.'))
+        except ValueError: x = y = 0
+        if y and x > y: f *= x / y
+    return f if f > 1.05 else None
+
+def fix_ca_jumps(sym, ts, o_, h_, l_, cl, vo):
+    """For each NSE bonus / split (same-day actions multiplied), find Yahoo's one-day drop by that factor and, when the
+    earlier closes are still unadjusted, divide them (open / high / low / close; volume multiplied). A factor >= 1.45
+    (a drop no circuit limit allows) is searched from 25 days before to 7 days after the ex-date and on the first session
+    of the ex-date's year (where Yahoo has put it), the new level must hold 3 sessions; a smaller one only on the ex-date
+    itself, within 4% (a 1:10 bonus is a normal-sized move). Checked on all 440 NSE stocks with a bonus / split in 5 years
+    (13 Nov 2026): 29 fixed, 18 of them checked against NSE's own closes - all exact; HARDWYN (1.4, a real fall) left alone."""
+    if not sym.endswith('.NS') or not ts or not CA_SPL.get(sym[:-3]): return []
+    day = lambda t: time.strftime('%Y-%m-%d', time.gmtime(t + 19800))
+    grp = {}
+    for r in CA_SPL[sym[:-3]]:
+        f = ca_factor(r[1]) if isinstance(r, list) and len(r) > 1 else None
+        if f and isinstance(r[0], str) and len(r[0]) == 10: grp[r[0]] = grp.get(r[0], 1.0) * f
+    out = []
+    for ex, f in sorted(grp.items()):
+        try: te = calendar.timegm(time.strptime(ex, '%Y-%m-%d')) - 19800
+        except ValueError: continue
+        idx = [k for k in range(min(len(ts), len(cl))) if isinstance(cl[k], (int, float)) and cl[k] > 0]
+        big = f >= 1.45
+        fy = next((k for k in idx if day(ts[k])[:4] == ex[:4]), None)
+        best = bd = None
+        for n in range(1, len(idx)):
+            k, p = idx[n], idx[n - 1]
+            if big:
+                if not (te - 25 * 86400 <= ts[k] <= te + 7 * 86400 or k == fy): continue
+            elif day(ts[k]) != ex: continue
+            if abs(cl[p] / cl[k] / f - 1) >= (0.12 if big else 0.04): continue
+            if big and not all(abs(cl[q] / cl[k] - 1) < 0.25 for q in idx[n + 1:n + 4]): continue
+            if bd is None or abs(ts[k] - te) < bd: best, bd = k, abs(ts[k] - te)
+        if best is None: continue
+        for q in range(best):
+            for a in (o_, h_, l_, cl):
+                if q < len(a) and isinstance(a[q], (int, float)): a[q] = a[q] / f
+            if q < len(vo) and isinstance(vo[q], (int, float)): vo[q] = vo[q] * f
+        out.append([ex, round(f, 3), day(ts[best])])
+    return out
+
 def fetch(sym, name, sector, prev=None):
     q = urllib.parse.quote(sym)
     ch = json.loads(get(f'https://query1.finance.yahoo.com/v8/finance/chart/{q}?range=5y&interval=1d&events=div'))['chart']['result'][0]
-    m = ch['meta']; ts = ch.get('timestamp') or []; qd = ch['indicators']['quote'][0]; cl = qd.get('close') or []; vo = qd.get('volume') or []
+    m = ch['meta']; ts = ch.get('timestamp') or []; qd = ch['indicators']['quote'][0]
+    for k in ('open', 'high', 'low', 'close', 'volume'): qd[k] = list(qd.get(k) or [])
+    try: caf = fix_ca_jumps(sym, ts, qd['open'], qd['high'], qd['low'], qd['close'], qd['volume'])
+    except Exception as e: caf = []; print('bonus / split check failed', sym, repr(e)[:120])
+    if caf: CA_FIX.append([sym] + caf)
+    cl = qd.get('close') or []; vo = qd.get('volume') or []
     hist = [[t, round(c, 2)] for t, c in zip(ts, cl) if c is not None]
     # last 80 daily bars with open/high/low/close/volume (for ATR and swing-trade levels; hist keeps closes only)
     o_, h_, l_ = qd.get('open') or [], qd.get('high') or [], qd.get('low') or []
@@ -595,7 +663,7 @@ def fetch(sym, name, sector, prev=None):
         vol = {'avg50': round(sum(v for _, v in cv[1:]) / (len(cv) - 1)), 'last': cv[-1][1], 'udr': round(upv / dnv, 3) if dnv else None}
     now = int(time.time())
     if prev:  # light refresh: new prices/history, keep the day-old fundamentals, news and analysts
-        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'hl52': hl52, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now})
+        prev.update({'price': m.get('regularMarketPrice'), 'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'hl52': hl52, 'divs': divs, 'vol': vol, 'cap': CAP.get(sym), 'quick': now, 'caFix': caf or None})
         if len(hist) >= 2: prev['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (prev['price'] or 0)) < 1e-6 else hist[-1][1]
         return prev
     fu = json.loads(get(f'https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{q}?type={TYPES}&period1={now-6*365*86400}&period2={now+86400}'))
@@ -619,7 +687,7 @@ def fetch(sym, name, sector, prev=None):
          'exchange': m.get('fullExchangeName'), 'currency': m.get('currency'),
          'price': m.get('regularMarketPrice'), 'prevClose': m.get('chartPreviousClose'),
          'priceTime': m.get('regularMarketTime'), 'hist': hist, 'ohlc': ohlc, 'hl52': hl52, 'divs': divs, 'fund': fund, 'vol': vol, 'fx': fx, 'profile': pr or None,
-         'analyst': an, 'cap': CAP.get(sym), 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
+         'analyst': an, 'cap': CAP.get(sym), 'caFix': caf or None, 'fetched': now, 'source': 'Yahoo Finance (public chart, fundamentals-timeseries & quoteSummary endpoints)'}
     if len(hist) >= 2: d['prevClose'] = hist[-2][1] if abs(hist[-1][1] - (d['price'] or 0)) < 1e-6 else hist[-1][1]
     d['news'] = news(sym, d['name'])
     return d
@@ -794,7 +862,7 @@ def keep_newer_bars(d, ob):
 
 def main():
     os.makedirs(os.path.join(OUT, 's'), exist_ok=True)
-    print('crumb', bool(crumb()))
+    print('crumb', bool(crumb())); load_ca()
     mkt = {}
     for key, s in (('IN', '^NSEI'), ('US', '^GSPC')):
         try: mkt[key] = idx_stats(s)
@@ -815,6 +883,7 @@ def main():
     with cf.ThreadPoolExecutor(6) as ex: list(ex.map(job, u))
     print('newer daily bars kept from the previous run (Yahoo lagging a session):', len(KEPT), KEPT[:10])
     print('ETF price history fixed (unadjusted split / bad tick):', len(ETF_FIX), json.dumps(ETF_FIX[:15])[:1500])
+    print('bonus / split fixed against NSE corporate actions:', len(CA_FIX), json.dumps(CA_FIX[:40])[:2500])
     try: fix_etf_jumps(docs)
     except Exception as e:
         print('ETF peer split check failed:', repr(e)[:160])

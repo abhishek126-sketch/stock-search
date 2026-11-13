@@ -58,16 +58,27 @@ async function actions() {
   const home = await fetch('https://www.nseindia.com/', { headers: { ...UA, Accept: 'text/html' } }).catch(() => null);
   const ck = home && home.headers.getSetCookie ? home.headers.getSetCookie().map(c => c.split(';')[0]).join('; ') : '';
   const f = d => ymd(d).split('-').reverse().join('-'), now = new Date(Date.now() + IST);
-  const t = await get(`https://www.nseindia.com/api/corporates-corporateActions?index=equities&from_date=${f(new Date(now - 730 * 864e5))}&to_date=${f(new Date(+now + 92 * 864e5))}`, { Cookie: ck, Referer: 'https://www.nseindia.com/', Accept: 'application/json' }, 3);
-  const j = JSON.parse(t || '[]'), by = {};
-  for (const x of Array.isArray(j) ? j : []) { const e = iso(x.exDate), s = String(x.subject || '').replace(/\s+/g, ' ').trim(); if (e && s && x.symbol) (by[x.symbol] = by[x.symbol] || []).push([e, s.slice(0, 120)]); }
-  for (const s in by) by[s].sort((a, b) => a[0] < b[0] ? 1 : -1);
-  console.log('corporate actions:', j.length, 'for', Object.keys(by).length, 'symbols');
+  // main board + SME (index=sme: DIGIKORE's 1:1 bonus was missing), 5 years back so build_data.py can check every bonus /
+  // split in Yahoo's 5-year price history
+  const j = [], by = {}, spl = {};
+  for (const ix of ['equities', 'sme']) {
+    try {
+      const t = await get(`https://www.nseindia.com/api/corporates-corporateActions?index=${ix}&from_date=${f(new Date(now - 1830 * 864e5))}&to_date=${f(new Date(+now + 92 * 864e5))}`, { Cookie: ck, Referer: 'https://www.nseindia.com/', Accept: 'application/json' }, 3);
+      const a = JSON.parse(t || '[]'); if (Array.isArray(a)) j.push(...a); console.log('corporate actions', ix, Array.isArray(a) ? a.length : 0);
+    } catch (e) { console.log('corporate actions', ix, 'failed:', e.message); }
+  }
+  for (const x of j) { const e = iso(x.exDate), s = String(x.subject || '').replace(/\s+/g, ' ').trim(); if (e && s && x.symbol) (by[x.symbol] = by[x.symbol] || []).push([e, s.slice(0, 120)]); }
+  for (const s in by) { by[s].sort((a, b) => a[0] < b[0] ? 1 : -1); const b = by[s].filter(r => /bonus|split|sub-?div/i.test(r[1])); if (b.length) spl[s] = b; }
+  console.log('corporate actions:', j.length, 'for', Object.keys(by).length, 'symbols;', Object.keys(spl).length, 'with a bonus / split');
+  // bonus / split list for the next full refresh (build_data.py fix_ca_jumps); kept as it was if this download failed
+  if (Object.keys(spl).length > 50) fs.writeFileSync(path.join(OUT, 'ca.json'), JSON.stringify({ built: Math.floor(Date.now() / 1000), by: spl }));
   return by;
 }
 // short label for the list badge
 const caShort = s => /bonus/i.test(s) ? 'Bonus ' + ((/\d+\s*:\s*\d+/.exec(s) || [''])[0]) : /split|sub-?division/i.test(s) ? 'Split' : /rights/i.test(s) ? 'Rights' : /buy ?back/i.test(s) ? 'Buyback' : /demerger/i.test(s) ? 'Demerger' : /dividend/i.test(s) ? 'Dividend' + ((/Rs\.?\s*([\d.]+)|Re\.?\s*([\d.]+)/i.exec(s) || []).slice(1).filter(Boolean).map(v => ' ₹' + v)[0] || '') : s.slice(0, 20);
 async function main() {
+  // --ca: only refresh data/ca.json (bonus / split list), run before build_data.py so the same refresh can use it
+  if (process.argv.includes('--ca')) { try { await actions(); } catch (e) { console.log('corporate actions failed:', e.message); } return; }
   let dl = null, ca = null;
   try { dl = await delivery(); } catch (e) { console.log('delivery failed:', e.message); }
   try { ca = await actions(); } catch (e) { console.log('corporate actions failed:', e.message); }
