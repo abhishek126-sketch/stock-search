@@ -60,7 +60,9 @@ def publish_private(mutate, msg):
         new = {'alerts': new.get('alerts', []), 'updated': new.get('updated') or now}
         base = git('rev-parse', '-q', '--verify', 'HEAD', check=False).stdout.strip()
         git('checkout', '-q', '--detach', check=False)
-        git('checkout', '-q', '--orphan', 'tmp%d%d' % (now, attempt))
+        # unique per process: a save and a check in the same second (same 'now') used to collide on the branch name -> git
+        # error -> nothing saved (the check had already pushed its notifications, so they would repeat). Found by the self-test.
+        git('checkout', '-q', '--orphan', 'tmp%d_%d_%d' % (now, attempt, os.getpid()))
         git('rm', '-rq', '--cached', '.', check=False)
         json.dump(box('enc', new), open(F, 'w')); git('add', 'alerts.json'); git('commit', '-q', '-m', msg)
         lease = '--force-with-lease=alerts:' + base if base else '--force'
