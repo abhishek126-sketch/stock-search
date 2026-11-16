@@ -63,7 +63,7 @@ def analysts(q):
                   'beta': rk('beta') if rk('beta') is not None else ((res[0].get('summaryDetail') or {}).get('beta') or {}).get('raw'),
                   'currentRatio': raw('currentRatio'), 'revGrowth': raw('revenueGrowth'), 'earnGrowth': raw('earningsGrowth'),
                   'fwdEps': rk('forwardEps'), 'peg': rk('pegRatio'), 'grossMargins': raw('grossMargins'),
-                  'summary': (ap.get('longBusinessSummary') or '')[:700] or None, 'employees': ap.get('fullTimeEmployees'),
+                  'summary': (ap.get('longBusinessSummary') or '')[:3000] or None, 'employees': ap.get('fullTimeEmployees'),
                   'earnDates': [x.get('raw') for x in (((res[0].get('calendarEvents') or {}).get('earnings') or {}).get('earningsDate') or []) if isinstance(x, dict)],
                   'exDiv': (((res[0].get('calendarEvents') or {}).get('exDividendDate')) or {}).get('raw') if isinstance((res[0].get('calendarEvents') or {}).get('exDividendDate'), dict) else None,
                   'asOf': int(time.time())}
