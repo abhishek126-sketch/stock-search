@@ -83,14 +83,16 @@
     return out;
   }
   // the app's advice for one open trade today, by the same rules as manageDay.
-  // t: {entry, sl, R0, t1, sold (any sale made?), rem (shares left)}; m: {price (live), close (last close), bestClose (highest
-  // close since entry), e20, lo5, sessions (held)}. Returns [colour class, text], most urgent first.
+  // t: {entry, sl, R0, t1, t3, sold (any sale made?), rem (shares left)}; m: {price (live), close (last close), bestClose (highest
+  // close since entry), e20, lo5, sessions (held; counts the entry day, as manageDay does)}. Returns [colour class, text], most urgent first.
+  // t3 = the remainder's target (4R, as the plan and manageDay use it); it is the exit for the second half, not T2.
   const f2 = v => '₹' + (Math.round(v * 100) / 100).toFixed(2);
   function tradeActions(t, m) {
     const lim = slLimit(t.sl), tr = trailLevel({ e20: m.e20, lo5: m.lo5 }), bestR = (m.bestClose - t.entry) / t.R0, n = m.sessions;
     if (m.price <= t.sl) return ['dn', m.price < lim ? `🔴 Below the stop ${f2(t.sl)}: a stop-loss with limit ${f2(lim)} would NOT fill — sell at market now` : `🔴 At or below the stop ${f2(t.sl)} — sell and record the exit`];
     if (t.sold && tr != null && m.close < tr) return ['dn', `🔴 Closed below ${f2(tr)} (20 EMA / 5-day low) — exit the remaining ${t.rem} at the next open`];
     if (!t.sold && m.price >= t.t1) return ['up', `🟢 Target 1 reached — sell about half (${Math.floor(t.rem / 2) || t.rem}) and trail the rest`];
+    if (t.sold && t.t3 && m.price >= t.t3) return ['up', `🟢 Target 3 reached (${f2(t.t3)}) — sell the remaining ${t.rem} now`];
     if (t.sl < t.entry && bestR >= 1) return ['up', `🟡 Up 1R — move the stop to breakeven ${f2(t.entry)}`];
     if (t.sold && tr != null && tr > t.sl && tr < m.price) return ['up', `🟡 Trail: raise the stop to ${f2(tr)} (20 EMA / 5-day low)`];
     if (n >= 40) return ['dn', `🟠 Max holding: ${n} sessions (8 weeks) — exit at the next open`];

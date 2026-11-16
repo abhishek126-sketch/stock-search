@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 // Weekly history check for the 🧭 Daily plan (run by data.yml; skips itself if the last check is < 6 days old, FORCE=1 overrides).
-// Replays the plan's setups (planrules.labelClose) over ~3 years of daily closes of today's liquid NSE stocks:
+// Replays the plan's Buy signals (planrules.evaluate, the same rules as the live plan) over ~3 years of daily closes of today's liquid NSE stocks:
 //   entry  = next session's close, only if it closes above the signal close (stands in for "trades above the trigger")
 //   1R     = 2 × the average daily close-to-close move, kept between 3% and 8% of the entry
 //   first touch on closes within 40 sessions: −1R or +2R / +3R / +4R / +6R
@@ -28,8 +28,14 @@ function main() {
     for (let i = start; i < C.length - 41; i++) {
       if (i < skip) continue;
       const ni = NT.get(T[i]); if (ni == null || ni < 63) continue;
-      const lab = P.labelClose(C, i, E20, E50, E200, R, NC[ni] / NC[ni - 63] - 1); if (!lab) continue;
       if (!(C[i + 1] > C[i])) continue;
+      if (!(C[i] > E50[i] && C[i] > E200[i] && E20[i] > E50[i])) continue;      // evaluate() rejects these: skip the full check
+      // the live plan's own rules (trend grade, setup score, candle, volume, room), run on the data known on that day only:
+      // no 52-week high from today, today's industry rank not used (industry points are left out of the history)
+      const di = { hist: d.hist.slice(0, i + 1), ohlc: (d.ohlc || []).filter(x => x[0] <= T[i]) };
+      const sig = P.evaluate(di, r, null, { niftyR3m: NC[ni] / NC[ni - 63] - 1, stats: null, regimeScore: undefined, now: T[i] });
+      if (!sig || !sig.buy) continue;
+      const lab = sig.setup;
       let mv = 0; for (let k = i - 13; k <= i; k++) mv += Math.abs(C[k] / C[k - 1] - 1); mv /= 14;
       const E = C[i + 1], Rr = E * Math.min(0.08, Math.max(0.03, 2 * mv));
       const o = { R: 0 }; let stop = E - Rr, rem = 1, best = 0, done = false;

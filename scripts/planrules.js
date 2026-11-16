@@ -43,7 +43,9 @@ const RULES = {
   weakRegimeScore: null,// in a market scored below 65 (Neutral or worse) the setup score must exceed this (audit: 80)
   needGreen: false,     // signal day closes above its open
 };
-const REGIMES = { A: ['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
+// neutral industry position for industries too small to rank: the middle of the table (trend grade +5, setup sector points 5 of 10)
+const NEUTRAL_IND = { rank: 50, of: 100 };
+const REGIMES = { A:['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
 const maxPositions = cap => cap < 50000 ? 3 : cap <= 200000 ? 5 : cap <= 1000000 ? 8 : 10;
 
 const I = require('../indicators.js');
@@ -160,7 +162,9 @@ function evaluate(d, row, x, ctx) {
   ts += rs >= 85 ? 15 : rs >= 75 ? 10 : 5; tn.push(`relative strength ${rs} (beats ${rs}% of stocks)`);
   const offHi = p / hi52 - 1; if (offHi > -0.05) { ts += 10; tn.push('within 5% of the 52-week high'); } else if (offHi > -0.12) ts += 6;
   if (rsi >= 50 && rsi <= 72) ts += 5;
-  const ir = ctx.ind; if (ir && ir.rank <= ir.of / 3) { ts += 10; tn.push(`strong industry (#${ir.rank} of ${ir.of})`); } else if (ir && ir.rank <= ir.of * 2 / 3) ts += 5;
+  // industry strength: industries with fewer than 6 liquid stocks are not ranked (plan.js), so they get the neutral middle
+  const ir = ctx.ind || NEUTRAL_IND;
+  if (ir.rank <= ir.of / 3) { ts += 10; tn.push(`strong industry (#${ir.rank} of ${ir.of})`); } else if (ir.rank <= ir.of * 2 / 3) ts += 5;
   const grade = ts >= 85 ? 'A+' : ts >= 75 ? 'A' : ts >= 60 ? 'B' : ts >= 45 ? 'C' : 'D';
 
   // ---- 3. setup ----
@@ -172,7 +176,7 @@ function evaluate(d, row, x, ctx) {
   if (isBO) {
     setup = 'breakout';
     det = { cons: bRng <= 6 ? 25 : bRng <= 9 ? 19 : bRng <= 12 ? 12 : 6, res: Math.max(...H.slice(-31, -1)) <= hi20 * 1.015 ? 15 : 8,
-      cand: closeLoc >= 0.75 && p > o ? 15 : closeLoc >= 0.6 ? 10 : 4, vol: vr >= 2 ? 20 : vr >= 1.5 ? 14 : 8, rs: rs >= 90 ? 15 : rs >= 80 ? 11 : 7, sec: ir ? Math.round(10 * (1 - (ir.rank - 1) / ir.of)) : 4 };
+      cand: closeLoc >= 0.75 && p > o ? 15 : closeLoc >= 0.6 ? 10 : 4, vol: vr >= 2 ? 20 : vr >= 1.5 ? 14 : 8, rs: rs >= 90 ? 15 : rs >= 80 ? 11 : 7, sec: Math.round(10 * (1 - (ir.rank - 1) / ir.of)) };
     sw = [`closed above the 20-session high ${inrS(hi20)} after a ${bRng.toFixed(1)}% base`, `volume ${vr.toFixed(1)}× its 50-day average`];
   } else if (isPB) {
     setup = 'pullback';

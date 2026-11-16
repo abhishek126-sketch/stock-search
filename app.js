@@ -210,9 +210,10 @@ function compute(d) {
   const ed = eps.slice(-4); if (ed.length === 4 && ed.every((x, i) => i === 0 || (days(x[0], ed[i - 1][0]) > 75 && days(x[0], ed[i - 1][0]) < 105)) && days(ed[3][0], new Date().toISOString()) < 220) k.epsTTM = ed.reduce((s, x) => s + x[1], 0);
   const ov = d.ov || {};
   const tPE = last(f.trailingPeRatio), tPB = last(f.trailingPbRatio), tMC = last(f.trailingMarketCap);
-  if (isNum(ov.pe)) k.pe = ov.pe; else if (isNum(k.epsTTM) && k.epsTTM > 0) k.pe = price / k.epsTTM; else if (tPE) { k.pe = tPE[1]; k.peAsOf = tPE[0]; }
+  // a known TTM EPS of zero or less means P/E is not meaningful: never fall back to the stale trailing P/E for it
+  if (isNum(ov.pe)) k.pe = ov.pe; else if (isNum(k.epsTTM)) { if (k.epsTTM > 0) k.pe = price / k.epsTTM; } else if (tPE) { k.pe = tPE[1]; k.peAsOf = tPE[0]; }
   if (isNum(ov.eps)) k.eps = ov.eps; else if (isNum(k.epsTTM)) k.eps = k.epsTTM; else if (isNum(k.pe) && k.pe > 0) { k.eps = price / k.pe; k.epsDerived = true; }
-  if (isNum(k.eps) && k.eps < 0) k.loss = true;
+  if (isNum(k.eps) && k.eps <= 0) k.loss = true;   // zero EPS: no profit to value, so P/E shows n/m like a loss
   if (isNum(ov.pb)) k.pb = ov.pb; else if (tPB) { const pAt = priceAt(hist, Date.parse(tPB[0]) / 1000 + DAY); k.pb = pAt ? tPB[1] * price / pAt : tPB[1]; }
   if (isNum(ov.mcap)) k.mcap = ov.mcap; else if (tMC) { const pAt = priceAt(hist, Date.parse(tMC[0]) / 1000 + DAY); k.mcap = pAt ? tMC[1] * price / pAt : tMC[1]; }
   if (isNum(ov.dy)) k.dy = ov.dy; else if (d.divs && hist.length && hist[0][0] < now - 365 * DAY) { const s = d.divs.filter(x => x[0] >= now - 365 * DAY).reduce((a, x) => a + x[1], 0); k.dy = s / price; }

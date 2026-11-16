@@ -29,7 +29,7 @@ const plTick = v => (Math.round(v / 0.05) * 0.05).toFixed(2);
 function plTicket(b, P) {
   const pl = b.plan, q = b.q, h = Math.floor(q / 2), sl = `stop-loss trigger ₹${plTick(pl.SL)} (limit ₹${plTick(PlanPort.slLimit(pl.SL))})`;
   const L = [`${plSym(b.s)} — NSE, Delivery (CNC) · plan from the close of ${P && P.asOf || '?'}, for ${P && P.next || '?'}`, `1) Tonight: GTT BUY ${q} share${q === 1 ? '' : 's'} · trigger ₹${plTick(pl.E)} · limit ₹${plTick(pl.E * 1.005)}`, '2) After it buys, the same evening:'];
-  if (h >= 1 && q - h >= 1) { L.push(`   GTT OCO SELL ${h} · ${sl} · target trigger ₹${plTick(pl.T1)} (Target 1)`); L.push(`   GTT SELL ${q - h} · ${sl} — raise it to ₹${plTick(pl.E)} (breakeven) once a day closes at or above ₹${plTick(pl.be)}`); }
+  if (h >= 1 && q - h >= 1) { L.push(`   GTT OCO SELL ${h} · ${sl} · target trigger ₹${plTick(pl.T1)} (Target 1)`); L.push(`   GTT OCO SELL ${q - h} · ${sl} · target trigger ₹${plTick(pl.T3)} (Target 3) — once a day closes at or above ₹${plTick(pl.be)}, raise its stop to ₹${plTick(pl.E)} (breakeven)`); }
   else L.push(`   GTT OCO SELL ${q} · ${sl} · target trigger ₹${plTick(pl.T1)} (Target 1)`);
   L.push(`   ⚠ A stop-loss with a limit does NOT fill if the stock opens below ₹${plTick(PlanPort.slLimit(pl.SL))}. Then sell at market that morning — the app alerts you, but check.`);
   L.push(`   Risk ≈ ₹${Math.round(b.risk).toLocaleString('en-IN')} + charges ≈ ₹${Math.round(b.fees).toLocaleString('en-IN')}`);
@@ -244,7 +244,7 @@ async function renderPlan(box) {
     <li><b>Today's lesson:</b> ${esc(LESSONS[Math.floor(Date.parse(P.asOf) / 864e5) % LESSONS.length])}</li></ol></div>`;
 
   const stT = ST ? `<div class="tw"><table class="pt"><tr><th style="text-align:left">Setup</th><th>Trades</th><th>+2R first</th><th>+3R</th><th>+4R</th><th>+6R</th><th>−1R first</th><th>Avg result*</th><th>Won</th></tr>${['breakout', 'pullback', 'continuation', 'all'].filter(k => ST[k]).map(k => { const s = ST[k]; return `<tr><td style="text-align:left">${k === 'all' ? '<b>All</b>' : PL_SET[k]}</td><td>${s.n.toLocaleString('en-IN')}</td><td>${pctS(s.p2)}</td><td>${pctS(s.p3)}</td><td>${pctS(s.p4)}</td><td>${pctS(s.p6)}</td><td>${pctS(s.lose)}</td><td>${sgn(s.avgR, 2)}R</td><td>${pctS(s.win)}</td></tr>`; }).join('')}</table></div>
-    <p class="mut" style="font-size:12.5px">*History check${swq('winrate')}: ${P.stats.from} to ${P.stats.to}, ${P.stats.stocks} of today's liquid NSE stocks, daily closes only, no costs. "Avg result" follows the management plan above (breakeven at +1R, half at +2R, trail on the 20 EMA, 15-session time stop). Stocks delisted since then are missing, so real odds are a little worse. Refreshed weekly.</p>` : '<p class="mut">History check not run yet.</p>';
+    <p class="mut" style="font-size:12.5px">*History check${swq('winrate')}: ${P.stats.from} to ${P.stats.to}, ${P.stats.stocks} of today's liquid NSE stocks, the same Buy rules as the plan (trend grade, setup score, candle, volume, room) run on the data known each day, no costs; today's market cap, pledge and relative-strength rank are used, and industry points are left out. "Avg result" follows the management plan above (breakeven at +1R, half at +2R, trail on the 20 EMA, 15-session time stop). Stocks delisted since then are missing, so real odds are a little worse. Refreshed weekly.</p>` : '<p class="mut">History check not run yet.</p>';
   const S9 = `<details class="how"><summary>How the plan is built</summary><div class="mut"><ul style="margin:4px 0;padding-left:18px">
     <li><b>Market:</b> Nifty's position vs its 20 / 50 / 200 EMA and their direction, breadth (share of liquid stocks above the 50 EMA), India VIX, how stretched Nifty is, distance from its high → A Strong Bull (100% exposure), B Bull (75%), C Neutral (50%), D Weak (25%), E Bear (0–10%).</li>
     <li><b>Rejected</b> if: 20 EMA below 50 EMA · price below the 50 or 200 EMA · relative strength under ${P.rules.minRs} or weaker than Nifty over 3 months · turnover under ₹${P.rules.minTurnover / 1e7} Cr a day · average daily move over ${P.rules.maxAtrPct}% · up over ${P.rules.maxRun20}% in 20 sessions, over ${P.rules.maxExt20}% above the 20 EMA or RSI over ${P.rules.maxRsi} · price under ₹${P.rules.minPrice} or market cap under ₹${P.rules.minMcap / 1e7} Cr · volume over ${P.rules.pumpVr}× with +${P.rules.pumpR5}% in 5 days · exchange surveillance · promoter pledge over 50% · reward to the 52-week high under ${P.rules.minRR}R.</li>
@@ -323,8 +323,10 @@ async function trData(s) {
 }
 // same rules as the history test and paper portfolio (planport.js tradeActions / closeExit)
 function trAdvice(t, x, price) {
-  const since = x ? x.hist.filter(h => new Date((h[0] + 19800) * 1000).toISOString().slice(0, 10) > t.date) : [];
-  return PlanPort.tradeActions({ entry: t.entry, sl: t.sl, R0: t.R0 || (t.entry - t.sl0), t1: t.t1, sold: (t.sold || []).length > 0, rem: trRem(t) },
+  // the entry day counts (>= date), as in manageDay: its close can reach +1R, and it is session 1 of the time stop
+  const since = x ? x.hist.filter(h => new Date((h[0] + 19800) * 1000).toISOString().slice(0, 10) >= t.date) : [];
+  const R0 = t.R0 || (t.entry - t.sl0), t3 = Math.floor((t.entry + 4 * R0) / 0.05 + 1e-9) * 0.05;   // plan's T3 = tickDn(E + 4R)
+  return PlanPort.tradeActions({ entry: t.entry, sl: t.sl, R0, t1: t.t1, t3, sold: (t.sold || []).length > 0, rem: trRem(t) },
     { price, close: x ? x.close : price, bestClose: since.length ? Math.max(...since.map(h => h[1])) : t.entry, e20: x ? x.e20 : NaN, lo5: x ? x.lo5 : NaN, sessions: since.length });
 }
 function sellDialog(id, full, done) {
