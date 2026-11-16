@@ -81,4 +81,34 @@ ok(T.openView.length === 1 && T.openView[0].entry === 100 && T.asOf === '2026-03
 run(); const T2 = JSON.parse(fs.readFileSync(path.join(dir, 'track.json')));
 ok(T2.openView.length === 1 && T2.book.filled === 1 && T2.sum.filled === 1, 'running the same evening again does not double-count');
 fs.rmSync(dir, { recursive: true, force: true });
+
+// stop-loss with a limit 1% under the trigger: an open below that limit does not fill on a GTT → marked limitMiss
+let g1 = PP.manageDay(pos(), [0, 93, 93.5, 92, 93, 10], null);
+ok(g1.length === 1 && g1[0].px === 93 && g1[0].limitMiss === true, 'gap below the stop-limit (open 93 < 94.05): marked as a missed GTT fill');
+let g2 = PP.manageDay(pos(), [0, 94.5, 95, 94, 94.6, 10], null);
+ok(g2.length === 1 && g2[0].px === 94.5 && !g2[0].limitMiss, 'gap between stop and limit (open 94.5): fills at the open, not marked');
+ok(PP.slLimit(95) === 94.05, 'stop-limit = 1% under the stop');
+
+// the app's advice and the simulator's exit rules agree
+const ind = { e20: 104, lo5: 106 }, tp = { entry: 100, sl: 100, R0: 5, t1: 110, sold: true, rem: 5 };
+const cx = PP.closeExit({ entry: 100, R0: 5, half: true, days: 5, best: 110 }, 103, ind);
+ok(cx && /trail/.test(cx), 'after T1: close 103 below max(20 EMA 104, 5-day low 106) → trail exit (sim)');
+const ad = PP.tradeActions(tp, { price: 103, close: 103, bestClose: 110, e20: 104, lo5: 106, sessions: 5 });
+ok(ad[0] === 'dn' && /Closed below/.test(ad[1]), 'same case → app says exit the remaining shares: ' + ad[1]);
+const ad2 = PP.tradeActions({ entry: 100, sl: 95, R0: 5, t1: 110, sold: false, rem: 10 }, { price: 93, close: 93, bestClose: 100, e20: 99, lo5: 96, sessions: 2 });
+ok(ad2[0] === 'dn' && /would NOT fill/.test(ad2[1]), 'price 93 below stop-limit 94.05 → "would NOT fill, sell at market now"');
+const ad3 = PP.tradeActions({ entry: 100, sl: 95, R0: 5, t1: 110, sold: false, rem: 10 }, { price: 94.5, close: 94.5, bestClose: 100, e20: 99, lo5: 96, sessions: 2 });
+ok(/sell and record/.test(ad3[1]), 'price 94.5 between stop and limit → normal stop message');
+ok(PP.closeExit({ entry: 100, R0: 5, half: false, days: 40, best: 106 }, 101, ind) === 'max holding (8 weeks)', 'max holding after 40 sessions (sim; had +1R, so no time stop)');
+ok(/time stop/.test(PP.closeExit({ entry: 100, R0: 5, half: false, days: 40, best: 102 }, 101, ind)), 'without +1R the time stop fires first (same order as before)');
+const ad4 = PP.tradeActions({ entry: 100, sl: 100, R0: 5, t1: 110, sold: false, rem: 10 }, { price: 101, close: 101, bestClose: 101, e20: 99, lo5: 98, sessions: 40 });
+ok(ad4[0] === 'dn' && /Max holding/.test(ad4[1]), 'app shows max holding at 40 sessions (was missing)');
+
+// plan gate: no GTT tickets from an old or empty plan
+const todayS = Date.now() / 1000, iso = s => new Date((todayS - s * 86400) * 1000 + 19800e3).toISOString().slice(0, 10);
+ok(!PP.planGate({ asOf: iso(5), counts: { checked: 300 } }, todayS).ok, 'plan 5 days old → blocked');
+ok(PP.planGate({ asOf: iso(1), counts: { checked: 300 } }, todayS).ok, 'plan from yesterday → allowed');
+ok(!PP.planGate({ asOf: iso(0), counts: { checked: 0 } }, todayS).ok, 'plan built from 0 stocks → blocked');
+ok(!PP.planGate(null, todayS).ok, 'no plan file → blocked');
+
 if (fail) { console.log(fail + ' failed'); process.exit(1); } console.log('all simulation tests passed');

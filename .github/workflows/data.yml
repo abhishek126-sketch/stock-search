@@ -68,8 +68,11 @@ jobs:
         if: env.SKIP != '1'
         run: node scripts/backtest.js || echo 'history test skipped'
       - name: Daily plan (market regime, rules, buy / watch / avoid)
+        id: plan
         if: env.SKIP != '1'
-        run: node scripts/plan.js || echo 'daily plan skipped'
+        # a refused plan must not block publishing the rest of the data; the check step after publish fails the run
+        continue-on-error: true
+        run: node scripts/plan.js
       - name: Paper portfolio (forward test of the plan)
         if: env.SKIP != '1'
         run: node scripts/track.js || echo 'paper portfolio skipped'
@@ -81,6 +84,9 @@ jobs:
         env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
       - if: env.SKIP != '1'
         run: bash .github/workflows/publish.sh all
+      - name: Daily plan check (red run if the plan was not updated)
+        if: env.SKIP != '1' && steps.plan.outcome == 'failure'
+        run: echo "::error::Daily plan NOT updated; the app keeps the previous plan and blocks GTT copy until a fresh one is built (see the plan step log)" && exit 1
       - name: Make sure a quotes loop is running (GitHub drops/delays scheduled runs)
         if: always()
         run: gh workflow run quotes.yml --ref main || true

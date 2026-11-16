@@ -26,11 +26,12 @@ const plClBand = cl => cl == null ? null : cl >= 75 ? 'hi' : cl >= 50 ? 'mid' : 
 const plCdlTxt = c => c ? `closed at <b>${c.cl}%</b> of the day's range (${c.cl >= 75 ? 'near the high — buyers held control' : c.cl >= 50 ? 'upper half' : 'lower half — sellers pushed it back from the high'}) · ${c.up ? 'green' : 'red'} body ${c.body}% · upper wick ${c.uw}%${c.uw >= 40 ? ' <span class="dn">(selling into the rise)</span>' : ''}` : 'no range that day';
 // GTT order tickets to paste into the broker app (prices on the ₹0.05 tick)
 const plTick = v => (Math.round(v / 0.05) * 0.05).toFixed(2);
-function plTicket(b) {
-  const pl = b.plan, q = b.q, h = Math.floor(q / 2), sl = `stop-loss trigger ₹${plTick(pl.SL)} (limit ₹${plTick(pl.SL * 0.99)})`;
-  const L = [`${plSym(b.s)} — NSE, Delivery (CNC)`, `1) Tonight: GTT BUY ${q} share${q === 1 ? '' : 's'} · trigger ₹${plTick(pl.E)} · limit ₹${plTick(pl.E * 1.005)}`, '2) After it buys, the same evening:'];
+function plTicket(b, P) {
+  const pl = b.plan, q = b.q, h = Math.floor(q / 2), sl = `stop-loss trigger ₹${plTick(pl.SL)} (limit ₹${plTick(PlanPort.slLimit(pl.SL))})`;
+  const L = [`${plSym(b.s)} — NSE, Delivery (CNC) · plan from the close of ${P && P.asOf || '?'}, for ${P && P.next || '?'}`, `1) Tonight: GTT BUY ${q} share${q === 1 ? '' : 's'} · trigger ₹${plTick(pl.E)} · limit ₹${plTick(pl.E * 1.005)}`, '2) After it buys, the same evening:'];
   if (h >= 1 && q - h >= 1) { L.push(`   GTT OCO SELL ${h} · ${sl} · target trigger ₹${plTick(pl.T1)} (Target 1)`); L.push(`   GTT SELL ${q - h} · ${sl} — raise it to ₹${plTick(pl.E)} (breakeven) once a day closes at or above ₹${plTick(pl.be)}`); }
   else L.push(`   GTT OCO SELL ${q} · ${sl} · target trigger ₹${plTick(pl.T1)} (Target 1)`);
+  L.push(`   ⚠ A stop-loss with a limit does NOT fill if the stock opens below ₹${plTick(PlanPort.slLimit(pl.SL))}. Then sell at market that morning — the app alerts you, but check.`);
   L.push(`   Risk ≈ ₹${Math.round(b.risk).toLocaleString('en-IN')} + charges ≈ ₹${Math.round(b.fees).toLocaleString('en-IN')}`);
   return L.join('\n');
 }
@@ -259,8 +260,8 @@ async function renderPlan(box) {
   const re = () => { swSave(); const y = window.scrollY; renderPlan(box).then(() => window.scrollTo(0, y)); };
   plBarWire(box, re);
   box.querySelectorAll('[data-plrisk]').forEach(b => b.onclick = () => { SWF.riskPct = +b.dataset.plrisk; if (SWF.maxRisk < SWF.riskPct) SWF.maxRisk = SWF.riskPct; swSave(); re(); });
-  box.querySelectorAll('[data-plcopy]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.plcopy); if (p) plCopy(plTicket(p), b); });
-  const ca = box.querySelector('#plcopyall'); if (ca) ca.onclick = () => plCopy(`GTT orders for ${swDate(P.next)} — capital ${inr(B.cap)}, risk ${inr(B.riskAmt)} a trade, ${plCosts().label} charges (plan from the close of ${swDate(P.asOf)})\n\n` + B.picks.map((b, i) => `#${i + 1} ` + plTicket(b)).join('\n\n'), ca);
+  box.querySelectorAll('[data-plcopy]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.plcopy); if (!p) return; const g = PlanPort.planGate(P, Date.now() / 1000); if (!g.ok) { b.textContent = '⛔ ' + g.why; return; } plCopy(plTicket(p, P), b); });
+  const ca = box.querySelector('#plcopyall'); if (ca) ca.onclick = () => { const g = PlanPort.planGate(P, Date.now() / 1000); if (!g.ok) { ca.textContent = '⛔ ' + g.why; return; } plCopy(`GTT orders for ${swDate(P.next)} — capital ${inr(B.cap)}, risk ${inr(B.riskAmt)} a trade, ${plCosts().label} charges (plan from the close of ${swDate(P.asOf)})\n\n` + B.picks.map((b, i) => `#${i + 1} ` + plTicket(b, P)).join('\n\n'), ca); };
   box.querySelectorAll('[data-pllog]').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); const p = B.picks.find(x => x.s === b.dataset.pllog); if (p) tradeDialog(null, p, () => { SWF.mode = 'trades'; swSave(); renderSwing(box); }); });
 }
 
@@ -320,18 +321,11 @@ async function trData(s) {
     v = { close: c[c.length - 1], e20: e, lo5: Math.min(...(d.ohlc || []).slice(-5).map(x => x[3])), hist: d.hist.slice(-80) }; } catch { }
   TRD[s] = { t: Date.now(), v }; return v;
 }
+// same rules as the history test and paper portfolio (planport.js tradeActions / closeExit)
 function trAdvice(t, x, price) {
-  const R0 = t.R0 || (t.entry - t.sl0), rem = trRem(t), sold = (t.sold || []).length > 0;
   const since = x ? x.hist.filter(h => new Date((h[0] + 19800) * 1000).toISOString().slice(0, 10) > t.date) : [];
-  const best = Math.max(price, ...since.map(h => h[1])), bestR = (best - t.entry) / R0, nS = since.length, cl = x ? x.close : price;
-  const trail = x ? Math.round(Math.max(x.e20, x.lo5) / 0.05) * 0.05 : null;
-  if (price <= t.sl) return ['dn', `🔴 At or below the stop ${inr2(t.sl)} — sell and record the exit`];
-  if (sold && x && cl < x.e20) return ['dn', `🔴 Closed below the 20 EMA ${inr2(x.e20)} — exit the remaining ${rem}`];
-  if (!sold && price >= t.t1) return ['up', `🟢 Target 1 reached — sell about half (${Math.floor(rem / 2) || rem}) and trail the rest`];
-  if (t.sl < t.entry && bestR >= 1) return ['up', `🟡 Up 1R — move the stop to breakeven ${inr2(t.entry)}`];
-  if (sold && trail && trail > t.sl && trail < price) return ['up', `🟡 Trail: raise the stop to ${inr2(trail)} (20 EMA / 5-day low)`];
-  if (nS >= 15 && bestR < 1) return ['dn', `🟠 Time stop: ${nS} sessions without +1R — exit or tighten`];
-  return ['mut', `✔ Hold — stop ${inr2(t.sl)}${nS ? ` · ${nS} session${nS === 1 ? '' : 's'} held` : ''}`];
+  return PlanPort.tradeActions({ entry: t.entry, sl: t.sl, R0: t.R0 || (t.entry - t.sl0), t1: t.t1, sold: (t.sold || []).length > 0, rem: trRem(t) },
+    { price, close: x ? x.close : price, bestClose: since.length ? Math.max(...since.map(h => h[1])) : t.entry, e20: x ? x.e20 : NaN, lo5: x ? x.lo5 : NaN, sessions: since.length });
 }
 function sellDialog(id, full, done) {
   const A = TR(), t = A.trades.find(x => x.id === id); if (!t) return; const d = trDlg(), rem = trRem(t), [p] = typeof curPrice === 'function' ? curPrice(t.s) : [];

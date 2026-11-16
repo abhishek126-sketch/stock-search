@@ -52,23 +52,57 @@
   //   are decided on the close and act from the next open. Same bar touching stop and target → stop first (conservative).
   //   p: {s, entry, qty, rem, sl, R0, T1, T3, half, best, days, exitNext}; ind: {e20, lo5} after this close.
   //   Returns sells [{qty, px, why}].
+  // ---- shared exit rules: the simulator (manageDay) and the app's trade advice (tradeActions, used by planui trAdvice)
+  //      read these, so what the history test assumes and what the app tells you to do cannot drift apart.
+  const slLimit = sl => sl * 0.99;                                  // the GTT stop-loss's limit sits 1% under its trigger (planui plTicket)
+  const trailLevel = ind => ind && isFinite(ind.e20) && isFinite(ind.lo5) ? Math.max(ind.e20, ind.lo5) : null;
+  // exit decided on a close, acted on at the next open. p: {entry, R0, half, days, best}; c: that close; ind: {e20, lo5}
+  function closeExit(p, c, ind) {
+    const tr = p.half ? trailLevel(ind) : null;
+    if (tr != null && c < tr) return 'trail (close below 20 EMA / 5-day low)';
+    if (p.days >= 15 && p.best < p.entry + p.R0) return 'time stop (15 sessions without +1R)';
+    if (p.days >= 40) return 'max holding (8 weeks)';
+    return null;
+  }
   function manageDay(p, bar, ind) {
     const [, o, h, l, c] = bar, out = [];
     const sell = (q, px, why) => { q = Math.min(q, p.rem); if (q > 0) { out.push({ qty: q, px, why }); p.rem -= q; } };
     if (p.exitNext) { sell(p.rem, o, p.exitNext); return out; }
     p.days++;
-    if (o <= p.sl) { sell(p.rem, o, p.sl >= p.entry ? 'stop (gap, breakeven/trail)' : 'stop (gap down)'); return out; }
+    // gap through the stop: a GTT stop-loss with a limit does NOT fill if the open is below that limit. The model assumes
+    // you sell at the open by hand (the plan tells you to); limitMiss marks those fills so they can be counted.
+    if (o <= p.sl) { sell(p.rem, o, p.sl >= p.entry ? 'stop (gap, breakeven/trail)' : 'stop (gap down)'); if (out.length && o < slLimit(p.sl)) out[out.length - 1].limitMiss = true; return out; }
     if (l <= p.sl) { sell(p.rem, p.sl, p.sl >= p.entry ? 'stop (breakeven/trail)' : 'stop'); return out; }
     if (!p.half && h >= p.T1) { const q = Math.max(1, Math.floor(p.qty / 2)); sell(q, Math.max(o, p.T1), 'T1 half'); p.half = true; }
     if (p.rem > 0 && h >= p.T3) { sell(p.rem, Math.max(o, p.T3), 'T3'); return out; }
     p.best = Math.max(p.best, c);
     if (p.rem > 0) {
       if (p.sl < p.entry && p.best >= p.entry + p.R0) p.sl = p.entry;                                   // breakeven
-      if (p.half && ind && isFinite(ind.e20) && isFinite(ind.lo5)) { const tr = Math.max(ind.e20, ind.lo5); if (c < tr) p.exitNext = 'trail (close below 20 EMA / 5-day low)'; }
-      if (!p.exitNext && p.days >= 15 && p.best < p.entry + p.R0) p.exitNext = 'time stop (15 sessions without +1R)';
-      if (!p.exitNext && p.days >= 40) p.exitNext = 'max holding (8 weeks)';
+      p.exitNext = closeExit(p, c, ind);
     }
     return out;
+  }
+  // the app's advice for one open trade today, by the same rules as manageDay.
+  // t: {entry, sl, R0, t1, sold (any sale made?), rem (shares left)}; m: {price (live), close (last close), bestClose (highest
+  // close since entry), e20, lo5, sessions (held)}. Returns [colour class, text], most urgent first.
+  const f2 = v => '₹' + (Math.round(v * 100) / 100).toFixed(2);
+  function tradeActions(t, m) {
+    const lim = slLimit(t.sl), tr = trailLevel({ e20: m.e20, lo5: m.lo5 }), bestR = (m.bestClose - t.entry) / t.R0, n = m.sessions;
+    if (m.price <= t.sl) return ['dn', m.price < lim ? `🔴 Below the stop ${f2(t.sl)}: a stop-loss with limit ${f2(lim)} would NOT fill — sell at market now` : `🔴 At or below the stop ${f2(t.sl)} — sell and record the exit`];
+    if (t.sold && tr != null && m.close < tr) return ['dn', `🔴 Closed below ${f2(tr)} (20 EMA / 5-day low) — exit the remaining ${t.rem} at the next open`];
+    if (!t.sold && m.price >= t.t1) return ['up', `🟢 Target 1 reached — sell about half (${Math.floor(t.rem / 2) || t.rem}) and trail the rest`];
+    if (t.sl < t.entry && bestR >= 1) return ['up', `🟡 Up 1R — move the stop to breakeven ${f2(t.entry)}`];
+    if (t.sold && tr != null && tr > t.sl && tr < m.price) return ['up', `🟡 Trail: raise the stop to ${f2(tr)} (20 EMA / 5-day low)`];
+    if (n >= 40) return ['dn', `🟠 Max holding: ${n} sessions (8 weeks) — exit at the next open`];
+    if (n >= 15 && bestR < 1) return ['dn', `🟠 Time stop: ${n} sessions without +1R — exit or tighten`];
+    return ['mut', `✔ Hold — stop ${f2(t.sl)}${n ? ` · ${n} session${n === 1 ? '' : 's'} held` : ''}`];
+  }
+  // Refuses GTT tickets from a plan that is too old or came from a thin run. P = plan.json (built by scripts/plan.js).
+  function planGate(P, nowSec) {
+    if (!P || !P.asOf) return { ok: false, why: 'no daily plan yet — it appears after the evening refresh' };
+    if (nowSec / 86400 - Date.parse(P.asOf + 'T15:30:00+05:30') / 864e5 > 4) return { ok: false, why: `plan is from ${P.asOf} — too old to place orders from` };
+    if (!P.counts || !(P.counts.checked > 0)) return { ok: false, why: 'plan was built from no stocks — do not place orders' };
+    return { ok: true, why: '' };
   }
   // a GTT buy-stop placed for the next session: trigger E, limit E × (1 + slip). Filled at max(open, E) if the price
   // reaches E and the open is not above the limit (a gap above the limit = no fill, don't chase).
@@ -89,6 +123,6 @@
     ['FMCG & food', /Packaged Foods|Household|Personal Products|Beverages|Tobacco|Confectioners|Farm Products|Food Distribution|Grocery/]];
   const themeOf = (ind, sec) => { const t = THEMES.find(x => x[1].test(ind || '')); return t ? t[0] : (sec || ''); };
 
-  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf };
+  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf, slLimit, trailLevel, closeExit, tradeActions, planGate };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PlanPort = API;
 })(typeof self !== 'undefined' ? self : this);

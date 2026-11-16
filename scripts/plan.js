@@ -123,6 +123,17 @@ async function main() {
     stats: stats ? { from: stats.from, to: stats.to, stocks: stats.stocks, by: ST, built: stats.built } : null,
     counts: { checked: res.filter(o => o.tovCr >= 10).length, passed: res.filter(o => o.pass && o.tovCr >= 10).length, buy: buy.length, rej: rejCount },
     buy, watch, avoid, g };
+  // ---- guard: never replace the last good plan with one built from stale or thin inputs. The app hands out GTT orders
+  //      from plan.json, so a refusal keeps the old file (the app then shows its date and blocks the copy buttons) and
+  //      exits non-zero, which turns the data run red (data.yml 'Daily plan check').
+  const refuse = [], prevPlan = readJ('plan.json', null), meta = readJ('meta.json', {});
+  if (meta.nseDay && asOf < meta.nseDay) refuse.push(`price history ends ${asOf} but NSE's official close of ${meta.nseDay} is applied`);
+  if (!nif) refuse.push('Nifty 50 missing');
+  else if (istDate(nif.t) < asOf) refuse.push(`Nifty data ends ${istDate(nif.t)}, before the plan's ${asOf}`);
+  if (!vix) refuse.push('India VIX missing (the market regime would be wrong)');
+  if (prevPlan && prevPlan.counts && prevPlan.counts.checked > 0 && outp.counts.checked < 0.8 * prevPlan.counts.checked) refuse.push(`only ${outp.counts.checked} stocks checked (last plan: ${prevPlan.counts.checked})`);
+  if (outp.counts.checked === 0) refuse.push('no stocks checked');
+  if (refuse.length) { console.error('plan NOT written, keeping the previous plan: ' + refuse.join('; ')); process.exit(2); }
   fs.writeFileSync(path.join(OUT, 'plan.json'), JSON.stringify(outp));
   console.log('plan:', asOf, '→', next, '| regime', regime.cls, regime.label, regime.score, '| checked', outp.counts.checked, '| buy', buy.length, buy.slice(0, 8).map(b => b.s.replace('.NS', '')).join(' '), '| watch', watch.length, '| avoid', avoid.length, '| FII OI', oi ? oi.d : 'none');
 }
