@@ -42,7 +42,17 @@ const RULES = {
   needVwap20: false,    // close above the 20-session volume-weighted average price
   weakRegimeScore: null,// in a market scored below 65 (Neutral or worse) the setup score must exceed this (audit: 80)
   needGreen: false,     // signal day closes above its open
+  // ---- audit of 23 Nov 2026 ----
+  earnDays: 14,         // results due within this many calendar days (~10 sessions): no buy — trades are held ~14 sessions and a
+                        // results gap jumps straight past a stop-loss. Was only a warning. Dates are Yahoo's (often estimates);
+                        // past dates aren't kept, so the history test can't measure this rule. null = warning only.
+  rankBy: 'rs',         // order of the buy list (who gets the limited slots): 'rs' = relative strength, 'conf' = confidence score.
+                        // History tests (17 and 23 Nov 2026): no link between the score and results (75+ did no better than
+                        // 60–74), so the unproven score no longer decides. Ranking by RS tested the same (₹1L 12.8% vs 13.2% a
+                        // year by confidence, 23 Nov) - chosen because relative strength is the best-documented factor of the lot.
 };
+// buy-list order: strongest relative strength first, then the confidence score
+const byRank = (a, b) => RULES.rankBy === 'conf' ? (b.conf - a.conf) : ((b.rs ?? -1) - (a.rs ?? -1)) || (b.conf - a.conf);
 // neutral industry position for industries too small to rank: the middle of the table (trend grade +5, setup sector points 5 of 10)
 const NEUTRAL_IND = { rank: 50, of: 100 };
 const REGIMES = { A:['Strong Bull', 100], B: ['Bull', 75], C: ['Neutral', 50], D: ['Weak', 25], E: ['Bear', 10] };
@@ -137,8 +147,10 @@ function evaluate(d, row, x, ctx) {
     if (vw && p < vw) rej('vwap', `below its 20-session VWAP ${inrS(vw)} — recent buyers are on average at a loss`); }
   // ---- warnings (shown, lower the confidence) ----
   const warn = [];
-  const ed = ((d.profile && d.profile.earnDates) || []).find(t => t > ctx.now - 86400 && t < ctx.now + 7 * 86400);
-  if (ed) warn.push(`results due ${new Date((ed + 19800) * 1000).toISOString().slice(0, 10)} — the price can gap either way`);
+  const ed = ((d.profile && d.profile.earnDates) || []).find(t => t > ctx.now - 86400 && t < ctx.now + Math.max(7, RULES.earnDays || 0) * 86400);
+  const edS = ed ? new Date((ed + 19800) * 1000).toISOString().slice(0, 10) : null;
+  if (ed) warn.push(`results due ${edS} — the price can gap either way`);
+  const earnBlock = !!(ed && RULES.earnDays);
   if (row.caN && row.caN[0] <= new Date((ctx.now + 7 * 86400 + 19800) * 1000).toISOString().slice(0, 10)) warn.push(`ex-date ${row.caN[0]}: ${row.caN[1]}`);
   if (row.pp > 20) warn.push(`promoters have pledged ${row.pp}% of their shares`); else if (row.pp > 5) warn.push(`promoter pledge ${row.pp}%`);
   const aud = x && (x.ann || []).find(a => (a.g || []).includes('auditor') && Date.parse(a.d) > (ctx.now - 120 * 86400) * 1000);
@@ -228,16 +240,17 @@ function evaluate(d, row, x, ctx) {
   const minSS = RULES.weakRegimeScore != null && (ctx.regimeScore ?? 100) < 65 ? Math.max(RULES.minSetupScore, RULES.weakRegimeScore) : RULES.minSetupScore;
   const ok0 = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > minSS && !rrWhy && (!RULES.needGreen || p > o);
   const candleOk = (RULES.minCloseLoc == null || (S.cdl && S.cdl.cl >= RULES.minCloseLoc)) && (RULES.maxUpperWick == null || (S.cdl && S.cdl.uw <= RULES.maxUpperWick));
-  const buy = ok0 && candleOk;
+  const buy = ok0 && candleOk && !earnBlock;
   // what to wait for (watchlist)
   let wait = '';
-  if (!buy) wait = ok0 && !candleOk ? `passes every other rule, but the day closed ${S.cdl ? `at ${S.cdl.cl}% of its range` : 'without a range'}${RULES.maxUpperWick != null && S.cdl && S.cdl.uw > RULES.maxUpperWick ? ` with a ${S.cdl.uw}% upper wick` : ''} — wait for a day that closes in the top quarter (≥ ${RULES.minCloseLoc}%) of its range`
+  if (!buy) wait = ok0 && candleOk && earnBlock ? `results due ${edS} — wait until after the results: a results-day gap can jump straight past the stop-loss`
+    : ok0 && !candleOk ? `passes every other rule, but the day closed ${S.cdl ? `at ${S.cdl.cl}% of its range` : 'without a range'}${RULES.maxUpperWick != null && S.cdl && S.cdl.uw > RULES.maxUpperWick ? ` with a ${S.cdl.uw}% upper wick` : ''} — wait for a day that closes in the top quarter (≥ ${RULES.minCloseLoc}%) of its range`
     : rrWhy ? `wait for a close above the 52-week high ${inrS(hi52)}`
     : ext20 > 3 ? `wait for a pullback towards the 20 EMA ${inrS(e20)} and a green candle`
     : setup === 'early' ? `early trend — wait for higher highs and the 50 EMA rising above the 200 EMA`
     : offHi > -0.05 ? `wait for a breakout above ${inrS(Math.max(hi20, hi52))} on volume ≥ 1.5× normal`
     : !RULES.buyGrades.includes(grade) ? `trend grade ${grade} — needs a stronger trend (A or A+)` : `no clean setup yet`;
-  return { ...S, pass: true, warn, grade, ts, tn, setup, ss, det, sw, plan, rrWhy, conf, buy, wait, hl };
+  return { ...S, pass: true, warn, grade, ts, tn, setup, ss, det, sw, plan, rrWhy, conf, buy, wait, hl, ...(earnBlock ? { earn: edS } : {}) };
 }
 
 // close-only setup label used by the history check (planstats.js) — same thresholds, no intraday data
@@ -254,5 +267,5 @@ function labelClose(c, i, E20, E50, E200, R, niftyRet3m) {
 }
 
 const SETUPS = { breakout: '🚀 Breakout', pullback: '↩️ Pullback', continuation: '📈 Trend continuation', early: '🌱 Early-stage trend', none: '— No setup' };
-const exp = { RULES, REGIMES, SETUPS, maxPositions, classifyMarket, evaluate, labelClose, emaS, rsiS, atrW, hhhl, r2, tickUp, tickDn };
+const exp = { RULES, REGIMES, SETUPS, maxPositions, byRank, classifyMarket, evaluate, labelClose, emaS, rsiS, atrW, hhhl, r2, tickUp, tickDn };
 if (typeof module !== 'undefined') module.exports = exp;

@@ -111,7 +111,7 @@ async function main() {
     if (!o) continue; o.tags = appTag[x.row.s] || []; o.indRank = IR[x.ind] ? IR[x.ind].rank + '/' + IR[x.ind].of : null; res.push(o);
   }
   const strip = o => { const { hl, ...r } = o; return r; };
-  const buy = res.filter(o => o.buy).sort((a, b) => b.conf - a.conf).slice(0, 40).map(strip);
+  const buy = res.filter(o => o.buy).sort(P.byRank).slice(0, 40).map(strip);   // strongest relative strength first (planrules RULES.rankBy)
   const watch = res.filter(o => o.pass && !o.buy && (P.RULES.buyGrades.includes(o.grade) || (o.grade === 'B' && o.ss > P.RULES.minSetupScore))).sort((a, b) => b.ts - a.ts || b.conf - a.conf).slice(0, 60).map(strip);
   const avoid = res.filter(o => !o.pass && (o.tags.length || (o.tovCr >= 10 && o.code.some(c => ['pump', 'surv', 'para'].includes(c)))))
     .sort((a, b) => b.tags.length - a.tags.length || b.tovCr - a.tovCr).slice(0, 60).map(o => ({ s: o.s, n: o.n, cap: o.cap, p: o.p, chg: o.chg, tags: o.tags, why: o.why, code: o.code, warn: o.warn, tovCr: o.tovCr }));

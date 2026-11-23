@@ -1,6 +1,8 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Only this site's own script files may run (no inline scripts / onclick attributes: see boot.js), and data may only be fetched from the hosts below. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://raw.githubusercontent.com https://cdn.jsdelivr.net https://api.github.com https://ntfy.sh https://www.alphavantage.co; worker-src 'self'; manifest-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <title>Stock Search – India & US</title>
 <meta name="theme-color" content="#0f766e"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon.svg" type="image/svg+xml"><link rel="icon" href="icon-192.png" type="image/png" sizes="192x192"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Stock Search"><meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -123,7 +125,7 @@ dialog{border-top:5px solid #6366f1}
 @media(prefers-reduced-motion:reduce){#topBtn{transition:none}}
 </style></head>
 <body>
-<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts" onclick="showAlerts()">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
+<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
 <div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
 <div id="live"><span class="st">Checking for updates…</span><span><button id="refBtn" class="btn sec">↻ Refresh</button> <button id="updBtn" class="btn">⚡ Update now</button></span></div>
 <main>
@@ -136,14 +138,14 @@ dialog{border-top:5px solid #6366f1}
 </div>
 <div id="view" hidden></div>
 </main>
-<dialog id="dlg"><h2 style="margin-top:0">Settings</h2><p><a href="#glossary" onclick="this.closest('dialog').close()">📖 Glossary — plain-English meaning of every term</a></p>
+<dialog id="dlg"><h2 style="margin-top:0">Settings</h2><p><a href="#glossary" data-close>📖 Glossary — plain-English meaning of every term</a></p>
 <p class="mut">Built-in data (no key needed): ~3,600 stocks — NIFTY 500 + NIFTY Microcap 250 (NSE) + S&amp;P 500 (US), tagged Large / Mid / Small / Micro / US — plus all NSE-listed ETFs, ~150 major US ETFs and every NSE/BSE penny stock under ₹50, refreshed several times each weekday from Yahoo Finance's public data by a GitHub Action.</p>
 <label><b>Alpha Vantage API key (optional)</b></label>
 <input id="avkey" type="password" placeholder="Paste your free key"><p class="mut">Adds: a live price refresh button, and searching stocks outside the built-in list (BSE codes such as <code>500325.BSE</code> / any US ticker). Get a free key at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co/support/#api-key</a> (free tier ≈ 25 requests/day). The key stays only in this browser (localStorage).</p>
 <label style="margin-top:12px;display:block"><b>GitHub token for “Update now” (optional)</b></label>
 <input id="ghpat" type="password" placeholder="github_pat_…" autocomplete="off"><label class="mut" style="display:block;margin:6px 0"><input type="checkbox" id="fullRef"> “Update now” runs the full refresh (fundamentals + news, ~4–5 min) instead of quotes only (~30–60 s)</label>
 <p class="mut">Stored only in this browser (localStorage); sent only to api.github.com. Use a fine-grained token limited to this one repository with <b>Actions: Read and write</b>. <a href="#" id="tokHow">How to create</a></p>
-<p class="mut"><b>Price alerts:</b> push notifications go to your private ntfy topic <code id="ntfyTopic" style="word-break:break-all"></code> — <a id="ntfyLink" target="_blank" rel="noopener">open in ntfy</a> · <a href="#alerts" onclick="this.closest('dialog').close()">manage alerts</a>. The same token saves your alerts to the repo.</p>
+<p class="mut"><b>Price alerts:</b> push notifications go to your private ntfy topic <code id="ntfyTopic" style="word-break:break-all"></code> — <a id="ntfyLink" target="_blank" rel="noopener">open in ntfy</a> · <a href="#alerts" data-close>manage alerts</a>. The same token saves your alerts to the repo.</p>
 <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="clrCache">Clear cached data</button><button class="btn" id="saveSet">Save</button></div></dialog>
 <dialog id="alDlg"></dialog>
 <dialog id="tokHelp"><h2 style="margin-top:0">Set up “Update now”</h2><p class="mut">Prices refresh automatically every ~5 min in market hours. “Update now” asks GitHub to run the refresh immediately, which needs your own token:</p>
@@ -152,22 +154,8 @@ dialog{border-top:5px solid #6366f1}
 <li><b>Repository access:</b> Only select repositories → <b>stock-search</b>.</li><li><b>Permissions → Repository permissions → Actions:</b> Read and write (Metadata: Read-only is added automatically). Nothing else.</li>
 <li><b>Generate token</b>, copy it (starts with <code>github_pat_</code>), paste into ⚙ Settings here and Save.</li></ol>
 <p class="mut">The token stays in this browser only. Revoke anytime on the same GitHub page.</p>
-<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" onclick="this.closest('dialog').close()">Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
+<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" data-close>Close</button><button class="btn" data-tokset>Open Settings</button></div></dialog>
 <script src="indicators.js"></script><script src="app.js"></script><script src="ext.js"></script><script src="live.js"></script><script src="intraday.js"></script><script src="glossary.js"></script><script src="report.js"></script><script src="alerts.js"></script><script src="moat.js"></script><script src="etf.js"></script><script src="glossary2.js"></script><script src="glossary3.js"></script><script src="corp.js"></script><script src="swot.js"></script><script src="auto.js"></script><script src="doubt.js"></script><script src="score.js"></script><script src="dmasetup.js"></script><script src="planport.js"></script><script src="swingui.js"></script><script src="planui.js"></script><script src="vendor/jspdf.umd.min.js" defer></script><script src="vendor/jspdf.plugin.autotable.min.js" defer></script>
-<script>(()=>{const h=document.querySelector('header'),f=()=>document.documentElement.style.setProperty('--hh',h.getBoundingClientRect().height+'px');f();addEventListener('resize',f);window.ResizeObserver&&new ResizeObserver(f).observe(h);})();</script><script>[homeBtn,logo].forEach(b=>b.onclick=()=>goHome());logo.onkeydown=e=>e.key==="Enter"&&goHome();</script><script>
-if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').then(r=>{
-  // when a new version is deployed, reload once so the fresh code is used (instead of waiting for the next launch)
-  const had=!!navigator.serviceWorker.controller;
-  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(had&&!window._swReloaded){window._swReloaded=true;location.reload();}});
-  setInterval(()=>r.update().catch(()=>{}),30*60e3);
-}).catch(()=>{});
-// "Install" button: shown when the browser offers app install (Chrome / Edge on PC and Android)
-(()=>{let ev=null;const b=document.getElementById('instBtn');
-  addEventListener('beforeinstallprompt',e=>{e.preventDefault();ev=e;b.style.display='inline-block';});
-  addEventListener('appinstalled',()=>{b.style.display='none';ev=null;});
-  b.onclick=async()=>{if(!ev)return;ev.prompt();try{await ev.userChoice;}catch{}ev=null;b.style.display='none';};
-})();
-</script>
 <button id="topBtn" type="button" title="Go to top" aria-label="Go to top">↑</button>
-<script>(()=>{const b=document.getElementById('topBtn');const f=()=>b.classList.toggle('on',scrollY>400);addEventListener('scroll',f,{passive:true});f();b.onclick=()=>scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});})();</script>
+<script src="boot.js"></script>
 </body></html>

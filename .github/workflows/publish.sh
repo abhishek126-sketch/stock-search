@@ -32,6 +32,13 @@ a.update({k: b[k] for k in ('quotes', 'nQuotes') if k in b}); json.dump(a, open(
 PY
   fi
 }
+# Snapshots (audit 23 Nov 2026): the data branch is one amended commit, so a bad full refresh used to leave nothing to go
+# back to. Before each full publish, the data as it was is kept on data-snap-<1-7> (IST weekday, Mon = 1): the last 7
+# days, each overwritten a week later. Restore (from a PC with push rights), e.g. Tuesday's:
+#   git push --force origin origin/data-snap-2:data      (then run data.yml once so quotes resume on top of it)
+if [ "$MODE" = all ] && BASE0=$(git rev-parse -q --verify HEAD); then
+  git push -q --force origin "$BASE0:refs/heads/data-snap-$(TZ=Asia/Kolkata date +%u)" && echo "snapshot kept: data-snap-$(TZ=Asia/Kolkata date +%u)" || echo "snapshot push failed (publishing anyway)"
+fi
 for attempt in 1 2 3 4; do
   BASE=$(git rev-parse -q --verify HEAD || echo "")
   overlay; git add -A data

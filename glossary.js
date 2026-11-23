@@ -94,7 +94,8 @@ function autoGloss(root) {
 (function () {
   const pop = document.createElement('div'); pop.id = 'gpop'; pop.hidden = true; document.body.appendChild(pop);
   const show = el => { const e = GL[el.dataset.g]; if (!e) return;
-    pop.innerHTML = `<b>${esc(e[0])}</b><p>${esc(e[1])}</p>${e[2] ? `<p class="mut"><i>Example:</i> ${esc(e[2])}</p>` : ''}${e[3] ? `<p><i>Good / bad:</i> ${esc(e[3])}</p>` : ''}<a href="#glossary" class="mut" onclick="sessionStorage.gk='${el.dataset.g}'">Open glossary →</a>`;
+    pop.innerHTML = `<b>${esc(e[0])}</b><p>${esc(e[1])}</p>${e[2] ? `<p class="mut"><i>Example:</i> ${esc(e[2])}</p>` : ''}${e[3] ? `<p><i>Good / bad:</i> ${esc(e[3])}</p>` : ''}<a href="#glossary" class="mut" id="gpopLink">Open glossary →</a>`;
+    { const gk = el.dataset.g, a = pop.querySelector('#gpopLink'); if (a) a.onclick = () => { try { sessionStorage.gk = gk; } catch { } }; }   // no inline onclick (CSP)
     pop.hidden = false; const r = el.getBoundingClientRect(), W = Math.min(320, innerWidth - 16);
     pop.style.width = W + 'px'; pop.style.left = Math.max(8, Math.min(innerWidth - W - 8, r.left - W / 2)) + 'px';
     const h = pop.offsetHeight; pop.style.top = (r.bottom + 6 + h > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6) + 'px'; };

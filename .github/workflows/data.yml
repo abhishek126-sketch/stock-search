@@ -12,6 +12,11 @@ on:
     - cron: '30 21 * * 1-5'   # 03:00 IST after US close
     - cron: '10 22 * * 1-5'   #   backup
   workflow_dispatch:
+    inputs:
+      allow_shrink:
+        description: 'Publish even if fewer than 95% of last time''s stocks were built (only when the stock lists really shrank)'
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths: ['scripts/build_data.py', 'scripts/crosscheck.py', 'indicators.js', 'scripts/swing.js', 'scripts/momentum.js', 'scripts/nsedaily.js', 'scripts/dmascan.js', 'dmasetup.js', 'scripts/plan.js', 'scripts/planrules.js', 'scripts/planstats.js', 'scripts/backtest.js', 'scripts/simengine.js', 'scripts/track.js', 'planport.js', '.github/workflows/data.yml']
@@ -46,6 +51,7 @@ jobs:
         run: node scripts/nsedaily.js --ca || echo 'bonus / split list skipped'
       - if: env.SKIP != '1'
         run: python3 scripts/build_data.py
+        env: { ALLOW_SHRINK: "${{ github.event.inputs.allow_shrink == 'true' && '1' || '' }}" }
       - name: NSE delivery % and corporate actions
         if: env.SKIP != '1'
         run: node scripts/nsedaily.js || echo 'nse daily extras skipped'

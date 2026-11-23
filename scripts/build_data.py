@@ -925,6 +925,21 @@ def main():
     rs_in = [{'s': s, 'r3m': k['r3m'], 'r6m': k.get('r6m'), 'r1y': k.get('r1y'), 'market': 'IN' if s.endswith(('.NS', '.BO')) else 'US'}
              for s, k in K.items() if 'r3m' in k and not docs[s].get('etf')]
     rsr = json.loads(subprocess.run(['node', os.path.join(os.path.dirname(__file__), 'rs_rank.js')], input=json.dumps(rs_in), capture_output=True, text=True, check=True).stdout)
+    # publish guard (audit 23 Nov 2026): before anything is written, each market must have at least 95% of the stocks the
+    # last published summary had. Until now a run publishing only half the stocks went out and replaced everything.
+    # A real shrink of the lists (e.g. NSE drops many penny names) is let through with ALLOW_SHRINK=1 (data.yml input).
+    if not os.environ.get('ALLOW_SHRINK') and not os.environ.get('LIMIT'):
+        try: prev_rows = json.load(open(os.path.join(OUT, 'summary.json'))).get('rows') or []
+        except Exception: prev_rows = []
+        mk = lambda s: 'IN' if s.endswith(('.NS', '.BO')) else 'US'
+        was, now_n = {}, {}
+        for r in prev_rows: was[mk(r['s'])] = was.get(mk(r['s']), 0) + 1
+        for s in docs: now_n[mk(s)] = now_n.get(mk(s), 0) + 1
+        short = [f'{m}: {now_n.get(m, 0)} of {n} last time' for m, n in was.items() if n >= 50 and now_n.get(m, 0) < 0.95 * n]
+        if short:
+            print('::error::publish guard: too few stocks built (' + '; '.join(short) + ') - nothing written, the last good data stays live. '
+                  'If the stock lists really shrank, run data.yml by hand with allow_shrink = yes.')
+            sys.exit(1)
     rows = []
     for s, d in docs.items():
         et = d.get('etf')

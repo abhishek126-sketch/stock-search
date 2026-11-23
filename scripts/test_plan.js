@@ -38,5 +38,15 @@ const m1 = P.classifyMarket({ c: up.hist.map(h => h[1]), hi52: Math.max(...up.hi
 ok(['A', 'B'].includes(m1.cls) && m1.exposure >= 75, 'rising market with broad breadth → Bull or Strong Bull (' + m1.cls + ' ' + m1.score + ')');
 const m2 = P.classifyMarket({ c: dn.hist.map(h => h[1]), hi52: 300 }, { above50: 0.25 }, { v: 26, v5ago: 20 });
 ok(m2.cls === 'E' && m2.exposure <= 10, 'falling market, weak breadth, high VIX → Bear (' + m2.cls + ' ' + m2.score + ')');
+// results due inside the holding window → no buy (audit 23 Nov 2026)
+const earnSoon = { ...up, profile: { earnDates: [ctx.now + 5 * DAY] } }, earnLater = { ...up, profile: { earnDates: [ctx.now + 40 * DAY] } };
+const cl0 = P.RULES.minCloseLoc; P.RULES.minCloseLoc = null;   // the synthetic candle closes mid-range; take the candle rule out of this test
+const f1 = P.evaluate(earnSoon, row('EARN'), null, ctx), f2 = P.evaluate(earnLater, row('EARN'), null, ctx);
+P.RULES.minCloseLoc = cl0;
+ok(f1 && f1.pass && !f1.buy && f1.earn && (!a.buy || /results due/.test(f1.wait)), 'results in 5 days: no buy, watchlist says wait for the results (' + (f1 && f1.wait) + ')');
+ok(f2 && !f2.earn, 'results 40 days away: not blocked');
+// buy-list order: relative strength first, then the confidence score
+const L = [{ s: 'A', rs: 80, conf: 90 }, { s: 'B', rs: 95, conf: 60 }, { s: 'C', rs: 95, conf: 70 }].sort(P.byRank).map(x => x.s).join('');
+ok(L === 'CBA', 'buy list ranked by RS, ties by confidence (' + L + ')');
 ok(P.maxPositions(40000) === 3 && P.maxPositions(50000) === 5 && P.maxPositions(500000) === 8 && P.maxPositions(2e6) === 10, 'positions by capital: 3 / 5 / 8 / 10');
 if (fail) { console.log(fail + ' failed'); process.exit(1); } console.log('all plan tests passed');

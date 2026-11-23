@@ -17,7 +17,8 @@ const P = require('./planrules.js'), PP = require('../planport.js'), SE = requir
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data'), CACHE = process.env.BT_CACHE || null;
 const FILE = path.join(OUT, 'backtest.json'), now = Math.floor(Date.now() / 1000), IST = 19800;
 const CAPITALS = [30000, 100000, 500000];
-const BT_V = 3;   // output format / rules; 2 = byClose (signal-day close location), 3 = top-quarter close rule on. A new format or new costs rebuild at once.
+const BT_V = 4;   // output format / rules; 2 = byClose (signal-day close location), 3 = top-quarter close rule on, 4 = buy list ranked by relative strength
+                 // + planstats without look-ahead (audit 23 Nov 2026). A new format or new costs rebuild at once.
 const ist = t => new Date((t + IST) * 1000).toISOString().slice(0, 10);
 const r2 = v => Math.round(v * 100) / 100;
 const med = a => { const b = a.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };
@@ -92,9 +93,9 @@ async function main() {
       const doc = { hist: x.pairs.slice(0, i + 1), ohlc: x.bars.slice(Math.max(0, i - 79), i + 1), hl52: [Math.max(...hl.map(b => b[2])), Math.min(...hl.map(b => b[3]))], profile: {} };
       const row = { s: x.s, n: x.n, cap: x.cap, rs: rs[j], mcap: x.mcap, pe: null, pp: 0, sec: x.sec, ind: x.ind };
       let o; try { o = P.evaluate(doc, row, null, { ...ctx0, ind: IR[x.ind] }); } catch { o = null; } evals++;
-      if (o && o.buy) buy.push({ s: x.s, plan: o.plan, conf: o.conf, theme: x.theme, setup: o.setup, grade: o.grade, cdl: o.cdl });
+      if (o && o.buy) buy.push({ s: x.s, plan: o.plan, conf: o.conf, rs: o.rs, theme: x.theme, setup: o.setup, grade: o.grade, cdl: o.cdl });
     });
-    buy.sort((a, b) => b.conf - a.conf); buyLen.push(buy.length);
+    buy.sort(P.byRank); buyLen.push(buy.length);   // same order as the live plan (planrules RULES.rankBy)
     for (const B of books) SE.placeOrders(B, { exposure: regime.exposure, cls: regime.cls, buy: buy.slice(0, 40) });
   }
   // Nifty buy-and-hold over the same days
@@ -103,7 +104,7 @@ async function main() {
   const runs = books.map(B => ({ ...SE.summarize(B), curve: thin(B.curve) }));
   const ref = books[1];
   const out = { v: BT_V, built: now, from: ND[k0], to: ND[ND.length - 1], sessions: ND.length - k0, stocks: ST.length, universeNote: 'today\'s liquid NSE stocks only (survivorship bias)', costs: PP.COSTS,
-    rules: { riskPct: 1, maxRisk: 5, posPct: 25, maxCostR: 0.15, slip: 0.005 }, regimeDays: rCount, avgBuyList: r2(buyLen.reduce((s, x) => s + x, 0) / Math.max(1, buyLen.length)), daysNoBuy: buyLen.filter(x => !x).length,
+    rules: { rankBy: P.RULES.rankBy, riskPct: 1, maxRisk: 5, posPct: 25, maxCostR: 0.15, slip: 0.005 }, regimeDays: rCount, avgBuyList: r2(buyLen.reduce((s, x) => s + x, 0) / Math.max(1, buyLen.length)), daysNoBuy: buyLen.filter(x => !x).length,
     nifty: { ret: r2((NC[NC.length - 1] / NC[k0] - 1) * 100), cagr: r2(SE.cagr(nCurve) * 100), maxDD: r2(SE.maxDD(nCurve) * 100), curve: thin(nCurve) },
     runs, lastTrades: ref.closed.slice(-60).map(({ sells, ...t }) => t), evals, secs: Math.round((Date.now() - t0) / 1000) };
   fs.writeFileSync(FILE, JSON.stringify(out));

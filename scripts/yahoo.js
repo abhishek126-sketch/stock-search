@@ -3,7 +3,11 @@
 // Returns { t, o, h, l, c, v } arrays (epoch seconds, prices rounded to 2 dp) or null if the symbol is unknown.
 const r2 = v => Math.round(v * 100) / 100;
 
+// BT_CACHE=<folder>: reuse files saved in the last 5 days (local history tests; same cache format as backtest.js)
+const fs = require('fs'), path = require('path'), CACHE = process.env.BT_CACHE || null;
 async function yahoo(sym) {
+  const cf = CACHE && path.join(CACHE, sym.replace(/[^A-Za-z0-9.^_-]/g, '_') + '.json');
+  if (cf && fs.existsSync(cf) && Date.now() - fs.statSync(cf).mtimeMs < 5 * 864e5) return JSON.parse(fs.readFileSync(cf, 'utf8'));
   let e; for (let k = 0; k < 4; k++) {
     try {
       const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5y&interval=1d`, { headers: { 'User-Agent': 'Mozilla/5.0', Accept: '*/*' }, signal: AbortSignal.timeout(30000) });

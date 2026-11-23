@@ -9,28 +9,46 @@
 //   managed result (the plan's trade-management rules): stop to breakeven after +1R, sell half at +2R, trail the rest
 //   under the 20 EMA, time stop after 15 sessions without +1R, exit after 40 sessions.
 // Caveats (shown in the app): closing prices only, no costs, today's listed stocks only (survivorship bias).
+// No look-ahead in the signal (audit 23 Nov 2026): relative strength is ranked on each past date from that date's prices
+// (as backtest.js does); until then today's RS, pledge and surveillance were used for every past date, so only stocks
+// strong TODAY passed and the odds shown on trade cards came out too high. PS_V bumps rebuild the file at once.
 // Safety: the file is written only if the run covered enough stocks and signals; otherwise the last good file is kept.
 const fs = require('fs'), path = require('path');
 const P = require('./planrules.js');
 const { yahoo, pool } = require('./yahoo.js');
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const now = Math.floor(Date.now() / 1000), FILE = path.join(OUT, 'planstats.json');
-const MIN_STOCKS = 100, MIN_SIGNALS = 200;
+const MIN_STOCKS = 100, MIN_SIGNALS = 200, PS_V = 2;
 const IST = 19800;
 const dkey = t => new Date((t + IST) * 1000).toISOString().slice(0, 10);
 
+// RS rank (1–99) of every stock on every date, among the stocks with a year of history that day (same formula and
+// ranking as backtest.js / indicators.rsRanks). Ys: [{t, c}] · returns per stock an array by bar index (null = not ranked)
+function histRS(Ys) {
+  const byDay = new Map();
+  Ys.forEach((y, k) => { for (let i = 252; i < y.c.length; i++) { const c = y.c;
+    const v = 0.4 * (c[i] / c[i - 63] - 1) + 0.2 * (c[i] / c[i - 126] - 1) + 0.4 * (c[i] / c[i - 252] - 1); if (!isFinite(v)) continue;
+    const d = dkey(y.t[i]); let a = byDay.get(d); if (!a) byDay.set(d, a = []); a.push([v, k, i]); } });
+  const out = Ys.map(y => new Array(y.c.length).fill(null));
+  for (const a of byDay.values()) { if (a.length < 100) continue; a.sort((x, z) => x[0] - z[0]); a.forEach(([, k, i], r) => { out[k][i] = Math.round(1 + 98 * r / Math.max(1, a.length - 1)); }); }
+  return out;
+}
+
 async function main() {
-  try { const o = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (!process.env.FORCE && now - o.built < 6 * 86400) { console.log('planstats: fresh (' + new Date(o.built * 1000).toISOString().slice(0, 10) + ') - skipped'); return; } } catch { }
+  try { const o = JSON.parse(fs.readFileSync(FILE, 'utf8')); if (!process.env.FORCE && now - o.built < 6 * 86400 && o.v === PS_V) { console.log('planstats: fresh (' + new Date(o.built * 1000).toISOString().slice(0, 10) + ') - skipped'); return; } } catch { }
   const S = JSON.parse(fs.readFileSync(path.join(OUT, 'summary.json'), 'utf8'));
   const NI = await yahoo('NIFTYBEES.NS'); if (!NI || NI.c.length < 400) throw new Error('Nifty proxy history unavailable');
   const NIdx = new Map(NI.t.map((t, i) => [dkey(t), i])), NC = NI.c;
   const uni = S.rows.filter(r => /\.NS$/.test(r.s) && (r.mcap || 0) >= P.RULES.minMcap && r.p >= P.RULES.minPrice && !String(r.cap || '').startsWith('ETF'));
   const got = await pool(uni, 6, u => yahoo(u.s));
   const A = {}; const add = (k, o) => { const a = A[k] = A[k] || { n: 0, w2: 0, w3: 0, w4: 0, w6: 0, lose: 0, d2: 0, R: 0, win: 0 }; a.n++; for (const x of ['w2', 'w3', 'w4', 'w6', 'lose']) if (o[x]) a[x]++; if (o.w2) a.d2 += o.d2; a.R += o.R; if (o.R > 0) a.win++; };
-  let used = 0, first = null, lastD = null;
-  uni.forEach((r, k) => {
-    const y = got[k]; if (!y || y.c.length < 400) return;
+  // the stocks that take part (enough history, liquid), then relative strength ranked among them on every past date
+  const L = []; uni.forEach((r, k) => { const y = got[k]; if (!y || y.c.length < 400) return;
     const vb = y.v.slice(-50).filter(v => v > 0); if (!vb.length || vb.reduce((s, v) => s + v, 0) / vb.length * r.p < P.RULES.minTurnover) return;
+    L.push([r, y]); });
+  const RS = histRS(L.map(([, y]) => y));
+  let used = 0, first = null, lastD = null;
+  L.forEach(([r, y], k) => {
     const T = y.t, C = y.c, bars = y.t.map((t, i) => [t, y.o[i], y.h[i], y.l[i], y.c[i], y.v[i]]), pairs = y.t.map((t, i) => [t, y.c[i]]);
     used++;
     const E20 = P.emaS(C, 20), E50 = P.emaS(C, 50), E200 = P.emaS(C, 200), R = P.rsiS(C);
@@ -43,7 +61,9 @@ async function main() {
       // the live plan's own rules (trend grade, setup score, candle, volume, room), run on the data known on that day only:
       // no 52-week high from today, today's industry rank not used (industry points are left out of the history)
       const di = { hist: pairs.slice(0, i + 1), ohlc: bars.slice(Math.max(0, i - 79), i + 1) };
-      const sig = P.evaluate(di, r, null, { niftyR3m: NC[ni] / NC[ni - 63] - 1, stats: null, regimeScore: undefined, now: T[i] });
+      // the stock as known on that day: RS from that day's prices; today's pledge / surveillance / penny flags left out
+      const row = { s: r.s, n: r.n, cap: r.cap, rs: RS[k][i], mcap: r.mcap, pe: null, pp: 0, sec: r.sec, ind: r.ind };
+      const sig = P.evaluate(di, row, null, { niftyR3m: NC[ni] / NC[ni - 63] - 1, stats: null, regimeScore: undefined, now: T[i] });
       if (!sig || !sig.buy) continue;
       const lab = sig.setup;
       let mv = 0; for (let k2 = i - 13; k2 <= i; k2++) mv += Math.abs(C[k2] / C[k2 - 1] - 1); mv /= 14;
@@ -71,6 +91,6 @@ async function main() {
   for (const [k, a] of Object.entries(A)) by[k] = { n: a.n, p2: f3(a.w2 / a.n), p3: f3(a.w3 / a.n), p4: f3(a.w4 / a.n), p6: f3(a.w6 / a.n), lose: f3(a.lose / a.n), days: a.w2 ? Math.round(a.d2 / a.w2) : null, avgR: f3(a.R / a.n), win: f3(a.win / a.n) };
   console.log('planstats: stocks', used, 'signals', signals, JSON.stringify(by));
   if (used < MIN_STOCKS || signals < MIN_SIGNALS) { console.log(`planstats: run too small (${used} stocks, ${signals} signals; needs ${MIN_STOCKS} / ${MIN_SIGNALS}) - last good file kept`); process.exitCode = 1; return; }
-  fs.writeFileSync(FILE, JSON.stringify({ built: now, from: first, to: lastD, stocks: used, by }));
+  fs.writeFileSync(FILE, JSON.stringify({ v: PS_V, built: now, from: first, to: lastD, stocks: used, by }));
 }
 if (require.main === module) main().catch(e => { console.log('planstats failed:', e.message); process.exitCode = 1; });
