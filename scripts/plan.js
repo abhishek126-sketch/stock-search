@@ -18,7 +18,7 @@ const readJ = (f, d = null) => { try { return JSON.parse(fs.readFileSync(path.jo
 const med = a => { const b = a.filter(x => x != null && isFinite(x)).sort((x, y) => x - y); return b.length ? b[Math.floor(b.length / 2)] : null; };
 const r2 = P.r2;
 const UA = { 'User-Agent': 'Mozilla/5.0', Accept: '*/*' };
-async function get(url, tries = 2) { let e; for (let i = 0; i < tries; i++) { try { const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(25000) }); if (r.status === 404) return null; if (!r.ok) throw new Error('HTTP ' + r.status); return await r.text(); } catch (x) { e = x; await new Promise(r => setTimeout(r, 1500)); } } throw e; }
+async function get(url, tries = 3) { let e; for (let i = 0; i < tries; i++) { try { const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(25000) }); if (r.status === 404) return null; if (!r.ok) throw new Error('HTTP ' + r.status); return await r.text(); } catch (x) { e = x; await new Promise(r => setTimeout(r, 1500 * Math.pow(2, i))); } } throw e; }
 
 const INDICES = [['^NSEI', 'Nifty 50'], ['^NSMIDCP', 'Nifty Next 50'], ['^NSEBANK', 'Bank Nifty'], ['NIFTYMIDCAP150.NS', 'Nifty Midcap 150'], ['NIFTYSMLCAP250.NS', 'Nifty Smallcap 250'], ['^INDIAVIX', 'India VIX']];
 async function indices() {

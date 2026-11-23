@@ -18,8 +18,8 @@ const ymd = d => d.toISOString().slice(0, 10);
 const MON = { JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06', JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12' };
 const iso = s => { const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(String(s || '').trim()); return m ? `${m[3]}-${MON[m[2].toUpperCase()]}-${m[1].padStart(2, '0')}` : ''; };
 const ddmmyyyy = d => d.slice(8, 10) + d.slice(5, 7) + d.slice(0, 4);
-async function get(url, hdr = {}, tries = 2) {
-  let e; for (let i = 0; i < tries; i++) { try { const r = await fetch(url, { headers: { ...UA, ...hdr }, signal: AbortSignal.timeout(30000) }); if (r.status === 404) return null; if (!r.ok) throw new Error('HTTP ' + r.status); return await r.text(); } catch (x) { e = x; await new Promise(r => setTimeout(r, 2000)); } }
+async function get(url, hdr = {}, tries = 3) {
+  let e; for (let i = 0; i < tries; i++) { try { const r = await fetch(url, { headers: { ...UA, ...hdr }, signal: AbortSignal.timeout(30000) }); if (r.status === 404) return null; if (!r.ok) throw new Error('HTTP ' + r.status); return await r.text(); } catch (x) { e = x; await new Promise(r => setTimeout(r, 1500 * Math.pow(2, i))); } }
   throw e;
 }
 async function delivery() {

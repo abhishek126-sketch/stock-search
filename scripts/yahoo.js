@@ -18,7 +18,7 @@ async function yahoo(sym) {
       for (let i = 0; i < t.length; i++) { const o = q.open[i], h = q.high[i], l = q.low[i], c = q.close[i]; if ([o, h, l, c].some(x => x == null || !(x > 0)) || h < l) continue;
         out.t.push(t[i]); out.o.push(r2(o)); out.h.push(r2(Math.max(h, o, c))); out.l.push(r2(Math.min(l, o, c))); out.c.push(r2(c)); out.v.push(q.volume[i] || 0); }
       return out;
-    } catch (x) { e = x; await new Promise(r => setTimeout(r, (x.message === '429' ? 8000 : 1500) * (k + 1))); }
+    } catch (x) { e = x; await new Promise(r => setTimeout(r, (x.message === '429' ? 8000 : 1500) * Math.pow(2, k))); }
   }
   throw e;
 }

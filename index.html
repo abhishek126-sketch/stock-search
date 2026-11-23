@@ -127,9 +127,37 @@ dialog{border-top:5px solid #6366f1}
 .hrow,.sbox,#live,main{max-width:none}
 @media(min-width:1200px){main{padding:14px 24px}#live{padding:0 24px}header{padding-left:24px;padding-right:24px}}
 @media(min-width:1000px) and (max-width:1800px){#sct th{white-space:normal}}   /* Score filter headings wrap, so the table fits a 1,366-1,536px screen */
+/* Dark theme support */
+:root[data-theme="dark"]{--bg:#0b0f19;--card:#151c2e;--ink:#f1f5f9;--mut:#94a3b8;--line:#26334d;--pri:#14b8a6;--pri2:#6366f1;--up:#22c55e;--dn:#ef4444;--warn:#f59e0b;--grad:linear-gradient(120deg,#115e59 0%,#0e7490 48%,#3730a3 100%)}
+:root[data-theme="dark"] body{background:radial-gradient(900px 360px at 0 -60px,#042f2e 0,transparent 70%) no-repeat,radial-gradient(900px 360px at 100% -60px,#1e1b4b 0,transparent 70%) no-repeat,var(--bg);color:var(--ink)}
+:root[data-theme="dark"] .card{background:var(--card);color:var(--ink);box-shadow:0 1px 3px #0008}
+:root[data-theme="dark"] h3{color:#e2e8f0}
+:root[data-theme="dark"] th{background:#1e293b;color:#cbd5e1;border-bottom:2px solid #334155}
+:root[data-theme="dark"] td{border-bottom-color:var(--line)}
+:root[data-theme="dark"] table tr:nth-child(even):not(.hl):not(.rk) td{background:#111827}
+:root[data-theme="dark"] #sug{background:#1e293b;color:#f1f5f9;border:1px solid var(--line)}
+:root[data-theme="dark"] #sug div{border-bottom:1px solid var(--line)}
+:root[data-theme="dark"] #sug div:hover,:root[data-theme="dark"] #sug div.act{background:#334155}
+:root[data-theme="dark"] .tabs button{background:#1e293b;color:#cbd5e1;border-color:transparent}
+:root[data-theme="dark"] .btn.sec{background:#1e293b;color:#cbd5e1}
+:root[data-theme="dark"] dialog{background:#151c2e;color:#f1f5f9}
+:root[data-theme="dark"] input[type=text],:root[data-theme="dark"] input[type=password],:root[data-theme="dark"] input[type=search]{background:#1e293b;color:#f1f5f9;border-color:#334155}
+:root[data-theme="dark"] .navc{background:#151c2e;box-shadow:0 0 0 1px #151c2e,0 -12px 0 #151c2e,0 3px 6px #0004}
+:root[data-theme="dark"] .navc a{background:#042f2e;color:#5eead4}
+:root[data-theme="dark"] .kv div{background:#111827;border-color:#334155}
+:root[data-theme="dark"] .csr{background:#111827}
+:root[data-theme="dark"] .disc{background:linear-gradient(135deg,#451a03,#291002);border-color:#78350f;color:#fde68a}
+:root[data-theme="dark"] .chg.up{background:#052e16;color:#4ade80}
+:root[data-theme="dark"] .chg.dn{background:#450a0a;color:#f87171}
+:root[data-theme="dark"] tr.rk td{background:#1e293b;color:#94a3b8}
+:root[data-theme="dark"] tr.hl td{background:#422006;color:#fde047}
+:root[data-theme="dark"] .fullan{background:linear-gradient(135deg,#1e1b4b,#0f172a);border-color:#4338ca}
+:root[data-theme="dark"] .gq{background:#1e1b4b;color:#818cf8}
+:root[data-theme="dark"] .gq:hover{background:#4338ca;color:#fff}
+:root[data-theme="dark"] .chips button{background:#134e4a;color:#ccfbf1}
 </style></head>
 <body>
-<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
+<header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="themeBtn" title="Toggle theme" aria-label="Toggle theme">🌙</button><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
 <div class="sbox"><input id="q" type="search" placeholder="Search NSE / US stocks – name or symbol (e.g. Reliance, TCS, AAPL)" autocomplete="off"><div id="sug"></div></div></header>
 <div id="live"><span class="st">Checking for updates…</span><span><button id="refBtn" class="btn sec">↻ Refresh</button> <button id="updBtn" class="btn">⚡ Update now</button></span></div>
 <main>

@@ -38,7 +38,7 @@ async function yahoo(sym) {
         out.t.push(t[i]); out.o.push(r2(o)); out.h.push(r2(Math.max(h, o, c))); out.l.push(r2(Math.min(l, o, c))); out.c.push(r2(c)); out.v.push(q.volume[i] || 0); }
       if (cf) { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(cf, JSON.stringify(out)); }
       return out;
-    } catch (x) { e = x; await new Promise(r => setTimeout(r, (x.message === '429' ? 8000 : 1500) * (k + 1))); }
+    } catch (x) { e = x; await new Promise(r => setTimeout(r, (x.message === '429' ? 8000 : 1500) * Math.pow(2, k))); }
   }
   throw e;
 }

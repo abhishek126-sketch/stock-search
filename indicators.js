@@ -1,4 +1,10 @@
 'use strict';
+// Theme initialization: read localStorage or system preference early without inline script
+try {
+  const t = (typeof window !== 'undefined' && window.localStorage && window.localStorage.getItem('theme')) || (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  if (typeof document !== 'undefined' && document.documentElement) document.documentElement.dataset.theme = t;
+} catch (e) {}
+
 // One definition of the price indicators. The chart (app.js), the research report (report.js),
 // the DMA screen (dmasetup.js) and the evening scans (swing.js, momentum.js, planrules.js) all call this.
 // EMA is seeded with the SMA of the first N values, then k = 2/(N+1). RSI and ATR use Wilder's smoothing.

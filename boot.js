@@ -13,6 +13,30 @@
   [home, logo].forEach(b => b.onclick = () => goHome());
   logo.onkeydown = e => e.key === 'Enter' && goHome();
   const al = document.getElementById('alertsBtn'); if (al) al.onclick = () => showAlerts();
+  // theme toggle (dark / light)
+  const tBtn = document.getElementById('themeBtn');
+  const getTheme = () => {
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch { return 'light'; }
+  };
+  const applyTheme = t => {
+    document.documentElement.dataset.theme = t;
+    if (tBtn) {
+      tBtn.textContent = t === 'dark' ? '☀️' : '🌙';
+      tBtn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    }
+  };
+  applyTheme(getTheme());
+  if (tBtn) {
+    tBtn.onclick = () => {
+      const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('theme', next); } catch {}
+      applyTheme(next);
+    };
+  }
   // links / buttons that close the dialog they sit in (were onclick="this.closest('dialog').close()")
   document.addEventListener('click', e => { const el = e.target.closest && e.target.closest('[data-close]'); if (el) { const d = el.closest('dialog'); if (d) d.close(); } });
 })();
