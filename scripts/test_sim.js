@@ -87,7 +87,13 @@ let g1 = PP.manageDay(pos(), [0, 93, 93.5, 92, 93, 10], null);
 ok(g1.length === 1 && g1[0].px === 93 && g1[0].limitMiss === true, 'gap below the stop-limit (open 93 < 94.05): marked as a missed GTT fill');
 let g2 = PP.manageDay(pos(), [0, 94.5, 95, 94, 94.6, 10], null);
 ok(g2.length === 1 && g2[0].px === 94.5 && !g2[0].limitMiss, 'gap between stop and limit (open 94.5): fills at the open, not marked');
+let g3 = PP.manageDay(pos(), [0, 90, 90, 90, 90, 10], null);
+ok(g3.length === 1 && g3[0].px === 90 && g3[0].circuitLocked === true, 'lower circuit lock (O=H=L=C=90 < entry 100): marked circuitLocked');
 ok(PP.slLimit(95) === 94.05, 'stop-limit = 1% under the stop');
+
+// worst-case limit slippage sizing in buildPortfolio
+let rSlip = PP.buildPortfolio([mk('A', 500, 25, 80, 'X')], { capital: 100000, riskPct: 1, maxRisk: 5, posPct: 25, exposure: 50, slip: 0.005 });
+ok(rSlip.picks[0].q === 36, 'with 0.5% slip: worst risk = 25 + 2.5 = 27.5, sizing ₹1,000 ÷ 27.5 → 36 shares');
 
 // the app's advice and the simulator's exit rules agree
 const ind = { e20: 104, lo5: 106 }, tp = { entry: 100, sl: 100, R0: 5, t1: 110, sold: true, rem: 5 };

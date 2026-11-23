@@ -374,34 +374,69 @@ function fullReport(d, k, A) {
   return { R, html: `<div class="card navc">${nav.map((t, i) => `<a href="#" data-jump="${ids[i]}">${i + 1}. ${t}</a>`).join('')}<a href="#glossary">📖 Glossary</a><a href="#" id="expAll">Expand all</a></div>` + out.join('') };
 }
 
-// ---------- PDF (jsPDF + autotable, vendored) ----------
-function downloadPDF(d) {
-  if (!window.jspdf) { alert('PDF library not loaded (offline?). Try again online.'); return; }
-  const { jsPDF } = window.jspdf, doc = new jsPDF({ unit: 'pt', format: 'a4' }), W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40;
-  const map = [[/₹/g, 'Rs '], [/[−–—]/g, '-'], [/×/g, 'x'], [/≥/g, '>='], [/≤/g, '<='], [/÷/g, '/'], [/√/g, 'sqrt'], [/▲/g, '+'], [/▼/g, '-'], [/[✔✅]/g, '[ok]'], [/[✘❌🚩]/g, '[!]'], [/[‘’]/g, "'"], [/[“”]/g, '"'], [/…/g, '...'], [/⅓/g, '1/3'], [/¼/g, '1/4'], [/→/g, '->'], [/≈/g, '~'], [/∓/g, '-/+']];
-  const clean = s => { s = String(s); for (const [a, b] of map) s = s.replace(a, b); return s.replace(/[^\x00-\xFF]/g, '').replace(/\s+/g, ' ').trim(); };
-  let y = M; const need = h => { if (y + h > H - M) { doc.addPage(); y = M; } };
-  const text = (t, size = 9, bold = false, col = 20) => { t = clean(t); if (!t) return; doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(col); for (const ln of doc.splitTextToSize(t, W - 2 * M)) { need(size + 3); doc.text(ln, M, y); y += size + 3; } };
-  text(`${d.name} (${d.symbol}) - 25-point research report`, 15, true);
-  text(`Generated ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} IST by Stock Search | price ${fmtP(d.price, d.currency)} | rule-based, educational, not personal investment advice.`, 8, false, 90); y += 6;
-  document.querySelectorAll('#view details.rpt').forEach(sec => {
-    const cl = sec.cloneNode(true); cl.querySelectorAll('.gq, button, input, .ivin, script').forEach(x => x.remove());
-    const sm = cl.querySelector('summary'); need(30); y += 6; text(sm.textContent, 12, true, 15); sm.remove();
-    const walk = el => { for (const ch of el.children) {
-      const tg = ch.tagName.toUpperCase();
-      if (tg === 'TABLE') { doc.autoTable({ html: ch, startY: y, margin: { left: M, right: M }, styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' }, headStyles: { fillColor: [15, 118, 110] }, didParseCell: c => { c.cell.text = c.cell.text.map(clean); } }); y = doc.lastAutoTable.finalY + 6; }
-      else if (tg === 'UL' || tg === 'OL') [...ch.children].forEach(li => text('- ' + li.textContent, 8.5));
-      else if (tg === 'DETAILS') { const s = ch.querySelector('summary'); if (s && /How calculated/.test(s.textContent)) text(ch.textContent, 7.5, false, 100); else { if (s) s.remove(); walk(ch); } }
-      else if (tg === 'H3') { y += 2; text(ch.textContent, 10, true, 40); }
-      else if (tg === 'SVG') { }
-      else if (ch.querySelector('table, ul, h3, details')) walk(ch);
-      else text(ch.textContent, 8.5);
-    } };
-    walk(cl);
+// ---------- PDF (jsPDF + autotable, lazy-loaded on demand) ----------
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(s);
   });
-  const gk = typeof glossTermsIn === 'function' ? [...new Set([].concat(...[...document.querySelectorAll('#view details.rpt, #view #s-moat')].map(glossTermsIn)))].sort((a, b) => GL[a][0].localeCompare(GL[b][0])) : [];
-  if (gk.length) { doc.addPage(); y = M; text(`Glossary of terms used in this report (${gk.length})`, 12, true, 15); y += 2;
-    doc.autoTable({ startY: y, margin: { left: M, right: M }, head: [['Term', 'Plain meaning', 'Good / bad']], body: gk.map(k => [GL[k][0], GL[k][1] + (GL[k][2] ? ' e.g. ' + GL[k][2] : ''), GL[k][3] || '']).map(r => r.map(clean)), styles: { fontSize: 7, cellPadding: 2.2, overflow: 'linebreak' }, columnStyles: { 0: { cellWidth: 95, fontStyle: 'bold' }, 2: { cellWidth: 140 } }, headStyles: { fillColor: [15, 118, 110] } }); }
-  const n = doc.internal.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7); doc.setTextColor(120); doc.text(`Educational only - not personal investment advice. Consult a SEBI-registered adviser. Page ${i}/${n}`, M, H - 20); }
-  doc.save(`${d.symbol.replace(/\W/g, '_')}_report.pdf`);
+}
+
+async function ensureJsPDF() {
+  if (window.jspdf && window.jspdf.jsPDF) return true;
+  try {
+    if (!window.jspdf) await loadScript('vendor/jspdf.umd.min.js');
+    if (window.jspdf && (!window.jspdf.jsPDF || !window.jspdf.jsPDF.API || !window.jspdf.jsPDF.API.autoTable)) {
+      await loadScript('vendor/jspdf.plugin.autotable.min.js');
+    }
+    return !!(window.jspdf && window.jspdf.jsPDF);
+  } catch (err) {
+    console.error('Failed to load PDF libraries:', err);
+    return false;
+  }
+}
+
+async function downloadPDF(d) {
+  const btn = document.getElementById('pdfBtn');
+  const origText = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating PDF…'; }
+  try {
+    const ok = await ensureJsPDF();
+    if (!ok || !window.jspdf) {
+      alert('PDF library not loaded (offline?). Try again online.');
+      return;
+    }
+    const { jsPDF } = window.jspdf, doc = new jsPDF({ unit: 'pt', format: 'a4' }), W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40;
+    const map = [[/₹/g, 'Rs '], [/[−–—]/g, '-'], [/×/g, 'x'], [/≥/g, '>='], [/≤/g, '<='], [/÷/g, '/'], [/√/g, 'sqrt'], [/▲/g, '+'], [/▼/g, '-'], [/[✔✅]/g, '[ok]'], [/[✘❌🚩]/g, '[!]'], [/[‘’]/g, "'"], [/[“”]/g, '"'], [/…/g, '...'], [/⅓/g, '1/3'], [/¼/g, '1/4'], [/→/g, '->'], [/≈/g, '~'], [/∓/g, '-/+']];
+    const clean = s => { s = String(s); for (const [a, b] of map) s = s.replace(a, b); return s.replace(/[^\x00-\xFF]/g, '').replace(/\s+/g, ' ').trim(); };
+    let y = M; const need = h => { if (y + h > H - M) { doc.addPage(); y = M; } };
+    const text = (t, size = 9, bold = false, col = 20) => { t = clean(t); if (!t) return; doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size); doc.setTextColor(col); for (const ln of doc.splitTextToSize(t, W - 2 * M)) { need(size + 3); doc.text(ln, M, y); y += size + 3; } };
+    text(`${d.name} (${d.symbol}) - 25-point research report`, 15, true);
+    text(`Generated ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} IST by Stock Search | price ${fmtP(d.price, d.currency)} | rule-based, educational, not personal investment advice.`, 8, false, 90); y += 6;
+    document.querySelectorAll('#view details.rpt').forEach(sec => {
+      const cl = sec.cloneNode(true); cl.querySelectorAll('.gq, button, input, .ivin, script').forEach(x => x.remove());
+      const sm = cl.querySelector('summary'); need(30); y += 6; text(sm.textContent, 12, true, 15); sm.remove();
+      const walk = el => { for (const ch of el.children) {
+        const tg = ch.tagName.toUpperCase();
+        if (tg === 'TABLE') { doc.autoTable({ html: ch, startY: y, margin: { left: M, right: M }, styles: { fontSize: 7.5, cellPadding: 2.5, overflow: 'linebreak' }, headStyles: { fillColor: [15, 118, 110] }, didParseCell: c => { c.cell.text = c.cell.text.map(clean); } }); y = doc.lastAutoTable.finalY + 6; }
+        else if (tg === 'UL' || tg === 'OL') [...ch.children].forEach(li => text('- ' + li.textContent, 8.5));
+        else if (tg === 'DETAILS') { const s = ch.querySelector('summary'); if (s && /How calculated/.test(s.textContent)) text(ch.textContent, 7.5, false, 100); else { if (s) s.remove(); walk(ch); } }
+        else if (tg === 'H3') { y += 2; text(ch.textContent, 10, true, 40); }
+        else if (tg === 'SVG') { }
+        else if (ch.querySelector('table, ul, h3, details')) walk(ch);
+        else text(ch.textContent, 8.5);
+      } };
+      walk(cl);
+    });
+    const gk = typeof glossTermsIn === 'function' ? [...new Set([].concat(...[...document.querySelectorAll('#view details.rpt, #view #s-moat')].map(glossTermsIn)))].sort((a, b) => GL[a][0].localeCompare(GL[b][0])) : [];
+    if (gk.length) { doc.addPage(); y = M; text(`Glossary of terms used in this report (${gk.length})`, 12, true, 15); y += 2;
+      doc.autoTable({ startY: y, margin: { left: M, right: M }, head: [['Term', 'Plain meaning', 'Good / bad']], body: gk.map(k => [GL[k][0], GL[k][1] + (GL[k][2] ? ' e.g. ' + GL[k][2] : ''), GL[k][3] || '']).map(r => r.map(clean)), styles: { fontSize: 7, cellPadding: 2.2, overflow: 'linebreak' }, columnStyles: { 0: { cellWidth: 95, fontStyle: 'bold' }, 2: { cellWidth: 140 } }, headStyles: { fillColor: [15, 118, 110] } }); }
+    const n = doc.internal.getNumberOfPages(); for (let i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7); doc.setTextColor(120); doc.text(`Educational only - not personal investment advice. Consult a SEBI-registered adviser. Page ${i}/${n}`, M, H - 20); }
+    doc.save(`${d.symbol.replace(/\W/g, '_')}_report.pdf`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = origText; }
+  }
 }

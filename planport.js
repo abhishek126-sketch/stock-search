@@ -31,18 +31,21 @@
     let inv = open.reduce((s, t) => s + t.qty * t.entry, 0), risk = open.reduce((s, t) => s + Math.max(0, t.entry - t.sl) * t.qty, 0), n = open.length;
     const used = new Map(open.filter(t => t.theme).map(t => [t.theme, t.s])), picks = [], skipped = [];
     const openInv = inv, openRisk = risk;
+    const slip = o.slip || 0;
     for (const b of buy) {
       const th = b.theme, E = b.plan.E, R = b.plan.R;
+      const worstE = slip ? E * (1 + slip) : E;
+      const worstR = slip ? R + (worstE - E) : R;
       if (held.has(b.s)) { skipped.push([b, 'already held']); continue; }
       if (th && used.has(th)) { skipped.push([b, `same sector as ${String(used.get(th)).replace(/\.(NS|BO)$/, '')} (${th}) — one bet, not two`]); continue; }
       if (n >= nMax) { skipped.push([b, `position limit reached (${nMax} for this capital)`]); continue; }
-      const lim = [[riskAmt / R, 'risk per trade'], [posCap / E, `${o.posPct}% per-stock limit`], [(expCap - inv) / E, `${o.exposure}% exposure cap`], [(maxRiskAmt - risk) / R, `${o.maxRisk}% total-risk limit`]];
+      const lim = [[riskAmt / worstR, 'risk per trade'], [posCap / worstE, `${o.posPct}% per-stock limit`], [(expCap - inv) / worstE, `${o.exposure}% exposure cap`], [(maxRiskAmt - risk) / worstR, `${o.maxRisk}% total-risk limit`]];
       const q = Math.floor(Math.min(...lim.map(x => x[0]))), bind = lim.reduce((a, x) => x[0] < a[0] ? x : a)[1];
-      if (!(q >= 1)) { skipped.push([b, `no room left: ${bind}${E > posCap ? ` (one share costs ₹${Math.round(E).toLocaleString('en-IN')})` : ''}`]); continue; }
-      if (q * R < 0.5 * riskAmt) { skipped.push([b, `only ${q} share${q === 1 ? '' : 's'} fit (₹${Math.round(q * E).toLocaleString('en-IN')}) under the ${bind} — too small to be worth it`]); continue; }
-      const cost = tripCost(q, E, b.plan.T1, o.costs || COSTS), costR = cost / (q * R);
-      if (costR > maxCostR) { skipped.push([b, `charges ≈ ₹${Math.round(cost)} would eat ${Math.round(costR * 100)}% of the ₹${Math.round(q * R)} at risk — position too small for the fixed costs`]); continue; }
-      picks.push({ ...b, q, cost: q * E, risk: q * R, fees: cost, feesR: costR, bind }); inv += q * E; risk += q * R; n++; if (th) used.set(th, b.s);
+      if (!(q >= 1)) { skipped.push([b, `no room left: ${bind}${worstE > posCap ? ` (one share costs ₹${Math.round(worstE).toLocaleString('en-IN')})` : ''}`]); continue; }
+      if (q * worstR < 0.5 * riskAmt) { skipped.push([b, `only ${q} share${q === 1 ? '' : 's'} fit (₹${Math.round(q * worstE).toLocaleString('en-IN')}) under the ${bind} — too small to be worth it`]); continue; }
+      const cost = tripCost(q, worstE, b.plan.T1, o.costs || COSTS), costR = cost / (q * worstR);
+      if (costR > maxCostR) { skipped.push([b, `charges ≈ ₹${Math.round(cost)} would eat ${Math.round(costR * 100)}% of the ₹${Math.round(q * worstR)} at risk — position too small for the fixed costs`]); continue; }
+      picks.push({ ...b, q, cost: q * worstE, risk: q * worstR, fees: cost, feesR: costR, bind }); inv += q * worstE; risk += q * worstR; n++; if (th) used.set(th, b.s);
     }
     return { cap, riskAmt, maxRiskAmt, expCap, posCap, nMax, picks, skipped, inv, risk, openInv, openRisk, nOpen: open.length };
   }
@@ -67,11 +70,22 @@
   function manageDay(p, bar, ind) {
     const [, o, h, l, c] = bar, out = [];
     const sell = (q, px, why) => { q = Math.min(q, p.rem); if (q > 0) { out.push({ qty: q, px, why }); p.rem -= q; } };
-    if (p.exitNext) { sell(p.rem, o, p.exitNext); return out; }
+    if (p.exitNext) {
+      sell(p.rem, o, p.exitNext);
+      if (out.length && o === h && o === l && o < p.entry) out[out.length - 1].circuitLocked = true;
+      return out;
+    }
     p.days++;
     // gap through the stop: a GTT stop-loss with a limit does NOT fill if the open is below that limit. The model assumes
     // you sell at the open by hand (the plan tells you to); limitMiss marks those fills so they can be counted.
-    if (o <= p.sl) { sell(p.rem, o, p.sl >= p.entry ? 'stop (gap, breakeven/trail)' : 'stop (gap down)'); if (out.length && o < slLimit(p.sl)) out[out.length - 1].limitMiss = true; return out; }
+    if (o <= p.sl) {
+      sell(p.rem, o, p.sl >= p.entry ? 'stop (gap, breakeven/trail)' : 'stop (gap down)');
+      if (out.length) {
+        if (o < slLimit(p.sl)) out[out.length - 1].limitMiss = true;
+        if (o === h && o === l && o < p.entry) out[out.length - 1].circuitLocked = true;
+      }
+      return out;
+    }
     if (l <= p.sl) { sell(p.rem, p.sl, p.sl >= p.entry ? 'stop (breakeven/trail)' : 'stop'); return out; }
     if (!p.half && h >= p.T1) { const q = Math.max(1, Math.floor(p.qty / 2)); sell(q, Math.max(o, p.T1), 'T1 half'); p.half = true; }
     if (p.rem > 0 && h >= p.T3) { sell(p.rem, Math.max(o, p.T3), 'T3'); return out; }
