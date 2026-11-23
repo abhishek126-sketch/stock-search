@@ -123,6 +123,10 @@ dialog{border-top:5px solid #6366f1}
 #topBtn.on{opacity:1;visibility:visible;transform:none}
 #topBtn:focus-visible{outline:3px solid #fbbf24;outline-offset:2px}
 @media(prefers-reduced-motion:reduce){#topBtn{transition:none}}
+/* full desktop width (24 Nov 2026, asked): the page stopped at 1,100px, so wide tables needed scrolling left and right */
+.hrow,.sbox,#live,main{max-width:none}
+@media(min-width:1200px){main{padding:14px 24px}#live{padding:0 24px}header{padding-left:24px;padding-right:24px}}
+@media(min-width:1000px) and (max-width:1800px){#sct th{white-space:normal}}   /* Score filter headings wrap, so the table fits a 1,366-1,536px screen */
 </style></head>
 <body>
 <header><div class="hrow"><button id="homeBtn" title="Home" aria-label="Home">🏠</button><h1 id="logo" role="link" tabindex="0" style="cursor:pointer">📈 Stock Search</h1><button id="favBtn" title="Add to watchlist">☆</button><button id="alertsBtn" title="Price alerts">🔔</button><button id="instBtn" title="Install this app">⬇<span class="bl"> Install</span></button><button id="setBtn" title="Settings" aria-label="Settings">⚙<span class="bl"> Settings</span></button></div>
