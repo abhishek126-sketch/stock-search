@@ -117,10 +117,15 @@ function evaluate(d, row, x, ctx) {
   const hi52 = Math.max(...c.slice(-250), ...(Array.isArray(d.hl52) && d.hl52[0] > 0 ? [d.hl52[0]] : []));
   const r20 = ret(c, 20) * 100, r5 = ret(c, 5) * 100, r3m = ret(c, 63), ext20 = (p / e20 - 1) * 100, closeLoc = (p - l) / Math.max(h - l, 1e-9);
   const rs = row.rs, mcap = row.mcap || 0, sym = row.s.replace(/\.NS$/, '');
+  const ws = I.weinstein ? I.weinstein(hist) : null;
+  const wStage = ws ? ws.stage : null;
+  const wNote = ws ? ws.note : '';
+  const band = (ctx && ctx.bands && (ctx.bands[sym] || ctx.bands[row.s])) || (row && (row.band ?? row.b)) || null;
+  const uc = band ? r2(p * (1 + band / 100)) : null;
   const S = { s: row.s, n: row.n, cap: row.cap, sec: row.sec || d.sector || '', ind: row.ind || d.industry || '', p: r2(p), chg: r2((p / c[n - 1] - 1) * 100),
     e20: tk(e20), e50: tk(e50), e200: tk(e200), rsi: Math.round(rsi), atr: r2(atr), atrp: r2(atrp), rs, vr: vr && r2(vr), tovCr: Math.round(tov / 1e7), mcapCr: Math.round(mcap / 1e7),
     hi52: r2(hi52), offHi: r2((p / hi52 - 1) * 100), r1m: r2(ret(c, 21) * 100), r3m: r2(r3m * 100), ext20: r2(ext20), pe: row.pe && r2(row.pe), roce: row.roce, pp: row.pp, dp: row.dp, dpA: row.dpA,
-    cdl: I.candle(bar, p) };   // shape of the signal-day candle (close location, body, wicks) — shown, and measured in the history test
+    cdl: I.candle(bar, p), wStage, wNote, band, uc };   // shape of the signal-day candle (close location, body, wicks) — shown, and measured in the history test
   // ---- 1. hard rejects (the framework's list, plus exchange surveillance) ----
   const why = [], code = [];
   const rej = (k, t) => { code.push(k); why.push(t); };
@@ -171,6 +176,7 @@ function evaluate(d, row, x, ctx) {
   if (e200 > E200[n - 20]) { ts += 10; tn.push('200 EMA rising'); } else tn.push('200 EMA flat/falling');
   if (e50 > E50[n - 10]) { ts += 10; tn.push('50 EMA rising'); }
   const hl = hhhl(c); if (hl) { ts += 15; tn.push('higher highs and higher lows'); }
+  if (wStage === 2) { ts += 3; tn.push('Weinstein Stage 2 (weekly uptrend)'); } else if (wStage === 4) { ts -= 5; tn.push('Weinstein Stage 4 (weekly downtrend)'); }
   ts += rs >= 85 ? 15 : rs >= 75 ? 10 : 5; tn.push(`relative strength ${rs} (beats ${rs}% of stocks)`);
   const offHi = p / hi52 - 1; if (offHi > -0.05) { ts += 10; tn.push('within 5% of the 52-week high'); } else if (offHi > -0.12) ts += 6;
   if (rsi >= 50 && rsi <= 72) ts += 5;
@@ -232,12 +238,18 @@ function evaluate(d, row, x, ctx) {
         : setup === 'continuation' ? `a daily close below ${inrS(Math.min(lo5, e20))} — the last 5 sessions' low / 20 EMA broke`
         : `the 20 EMA falling back under the 50 EMA (${inrS(e50)})`,
       prob: st ? { T1: st.p2, T2: st.p3, T3: st.p4, T4: st.p6, lose: st.lose, days: st.days, n: st.n, avgR: st.avgR } : null };
+    if (band) {
+      const ucRoom = plan.R > 0 ? r2((uc - plan.E) / plan.R) : null;
+      plan.band = band; plan.uc = uc; plan.ucRoom = ucRoom;
+      if (ucRoom !== null && ucRoom < 1.5) warn.push(`only ${ucRoom.toFixed(1)}R headroom to upper circuit (+${band}% at ${inrS(uc)})`);
+    }
   }
   // ---- 5. confidence (rule-based, 0-100) ----
   const p2 = plan && plan.prob ? plan.prob.T1 : 0.37;
   // wide stops (over 5% of the price) cost 3 points per extra %: same rupee risk, but the stock needs a bigger move
   const wide = plan ? Math.max(0, plan.Rpct - 5) * 3 : 0;
-  const conf = Math.max(0, Math.min(100, Math.round(0.3 * ts + 0.3 * ss + 0.25 * (ctx.regimeScore ?? 50) + 15 * Math.min(1, p2 / 0.45) - 5 * nWarn - wide - (rrWhy ? 20 : 0))));
+  const wBonus = wStage === 2 ? 3 : wStage === 4 ? -5 : 0;
+  const conf = Math.max(0, Math.min(100, Math.round(0.3 * ts + 0.3 * ss + 0.25 * (ctx.regimeScore ?? 50) + 15 * Math.min(1, p2 / 0.45) - 5 * warn.length - wide - (rrWhy ? 20 : 0) + wBonus)));
   const minSS = RULES.weakRegimeScore != null && (ctx.regimeScore ?? 100) < 65 ? Math.max(RULES.minSetupScore, RULES.weakRegimeScore) : RULES.minSetupScore;
   const ok0 = RULES.buyGrades.includes(grade) && ['breakout', 'pullback', 'continuation'].includes(setup) && ss > minSS && !rrWhy && (!RULES.needGreen || p > o);
   const candleOk = (RULES.minCloseLoc == null || (S.cdl && S.cdl.cl >= RULES.minCloseLoc)) && (RULES.maxUpperWick == null || (S.cdl && S.cdl.uw <= RULES.maxUpperWick));
@@ -251,7 +263,7 @@ function evaluate(d, row, x, ctx) {
     : setup === 'early' ? `early trend — wait for higher highs and the 50 EMA rising above the 200 EMA`
     : offHi > -0.05 ? `wait for a breakout above ${inrS(Math.max(hi20, hi52))} on volume ≥ 1.5× normal`
     : !RULES.buyGrades.includes(grade) ? `trend grade ${grade} — needs a stronger trend (A or A+)` : `no clean setup yet`;
-  return { ...S, pass: true, warn, grade, ts, tn, setup, ss, det, sw, plan, rrWhy, conf, buy, wait, hl, ...(earnBlock ? { earn: edS } : {}) };
+  return { ...S, pass: true, warn, grade, ts, tn, setup, ss, det, sw, plan, rrWhy, conf, buy, wait, hl, wStage, wNote, ...(earnBlock ? { earn: edS } : {}) };
 }
 
 // close-only setup label used by the history check (planstats.js) — same thresholds, no intraday data

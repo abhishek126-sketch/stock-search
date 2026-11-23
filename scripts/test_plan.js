@@ -16,8 +16,12 @@ const ctx = { niftyR3m: 0.02, now: t0 + 400 * DAY, regimeScore: 70, stats: null,
 const up = doc(i => 100 * Math.pow(1.002, i) * (1 + 0.025 * Math.sin(i / 2.5)));
 const a = P.evaluate(up, row('UPTREND'), null, ctx);
 ok(a && a.pass, 'uptrend passes the reject rules (' + (a && (a.why || []).join('; ')) + ')');
+ok(a && a.wStage === 2, 'uptrend has Weinstein Stage 2 (' + (a && a.wStage) + ')');
 ok(a && ['A+', 'A', 'B'].includes(a.grade), 'uptrend gets a decent trend grade (' + (a && a.grade) + ')');
 if (a && a.plan) { ok(a.plan.SL < a.plan.E, 'stop below entry'); ok(Math.abs(a.plan.T1 - (a.plan.E + 2 * a.plan.R)) < 0.11, 'T1 = entry + 2R'); ok(a.plan.Rpct <= P.RULES.stopMaxPct + 0.01, 'stop no wider than ' + P.RULES.stopMaxPct + '%'); }
+const withBand = P.evaluate(doc(i => 100 * Math.pow(1.0018, i) * (1 + 0.02 * Math.sin(i / 3.2)), 400, 2e6, 3.5e6), row('BAND', { band: 5 }), null, ctx);
+ok(withBand && withBand.plan && withBand.plan.band === 5, 'circuit band attached to plan');
+ok(withBand && withBand.warn && withBand.warn.some(w => /headroom to upper circuit/.test(w)), 'circuit headroom warning emitted (' + (withBand && withBand.warn.join('; ')) + ')');
 // downtrend → rejected for the EMA rules
 const dn = doc(i => 300 * Math.pow(0.997, i));
 const b = P.evaluate(dn, row('DOWN'), null, ctx);

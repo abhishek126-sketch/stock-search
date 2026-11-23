@@ -33,6 +33,7 @@ function plTicket(b, P) {
   else L.push(`   GTT OCO SELL ${q} · ${sl} · target trigger ₹${plTick(pl.T1)} (Target 1)`);
   L.push(`   ⚠ A stop-loss with a limit does NOT fill if the stock opens below ₹${plTick(PlanPort.slLimit(pl.SL))}. Then sell at market that morning — the app alerts you, but check.`);
   L.push(`   Risk ≈ ₹${Math.round(b.risk).toLocaleString('en-IN')} + charges ≈ ₹${Math.round(b.fees).toLocaleString('en-IN')}`);
+  if (pl.band) L.push(`   Circuit filter: ±${pl.band}% (upper circuit ₹${plTick(pl.uc)}${pl.ucRoom != null ? ` · headroom ${pl.ucRoom.toFixed(1)}R` : ''})`);
   return L.join('\n');
 }
 async function plCopy(text, btn) {
@@ -182,9 +183,10 @@ async function renderPlan(box) {
   const prob = pr => pr ? `${pctS(pr.T1)} / ${pctS(pr.T2)} / ${pctS(pr.T3)} / ${pctS(pr.T4)}` : '–';
   const pick = (b, i) => { const pl = b.plan, pr = pl.prob;
     return `<div class="card" style="border-left:4px solid #15803d"><h3 style="margin:0 0 4px">#${i + 1} <a href="#" data-s="${esc(b.s)}">${esc(plSym(b.s))}</a> <small class="mut">${esc((b.n || '').slice(0, 40))} · ${esc(swSec(b).sec || b.sec || '')}${b.cap ? ' · ' + esc(b.cap) : ''}</small></h3>
-     <p style="margin:0 0 6px">Trend ${plGrade(b.grade)}${swq('tgrade')} <small class="mut">${b.ts}/100</small> · ${PL_SET[b.setup]}${swq(PL_GK[b.setup])} <small class="mut">score ${b.ss}/100${swq('setupsc')}</small> · confidence <b>${b.conf}</b>/100${swq('tconf')}</p>
+     <p style="margin:0 0 6px">Trend ${plGrade(b.grade)}${swq('tgrade')} <small class="mut">${b.ts}/100</small> · ${PL_SET[b.setup]}${swq(PL_GK[b.setup])} <small class="mut">score ${b.ss}/100${swq('setupsc')}</small> · confidence <b>${b.conf}</b>/100${swq('tconf')}${b.wStage === 2 ? ' <span class="tag" style="background:#dcfce7;color:#166534;margin-left:4px;font-weight:700">Stage 2 Advancing</span>' : b.wStage === 4 ? ' <span class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px;font-weight:700">Stage 4 Declining</span>' : ''}</p>
      <p style="margin:0 0 4px;font-size:14px"><b>Trend in plain words:</b> ${esc(b.tn.join('; '))}.</p>
      <p style="margin:0 0 4px;font-size:14px"><b>Why this setup:</b> ${esc(b.sw.join('; '))}${pl.moved ? `; the trigger sits just above the 52-week high ${inr2(b.hi52)}, so you buy only if it makes a new high` : ''}.</p>
+     ${pl.band ? `<p class="mut" style="margin:2px 0 4px;font-size:13px">Circuit filter: ±${pl.band}% · Upper circuit ${inr2(pl.uc)}${pl.ucRoom != null ? ` (${pl.ucRoom.toFixed(1)}R headroom)` : ''}</p>` : ''}
      ${b.cdl !== undefined ? `<p style="margin:0 0 4px;font-size:14px"><b>Signal-day candle${swq('clv')}:</b> ${plCdlTxt(b.cdl)}.${(() => { const r = plRef(), k = b.cdl && plClBand(b.cdl.cl), x = r && r.byClose && k && r.byClose[k]; return x ? ` <span class="mut">History test, ${PL_CLB[k].replace(/ \(.*/, '').toLowerCase()} closes: ${x.n} trades, won ${pctS(x.win)}, ${sgn(x.avgR, 2)}R each.</span>` : ''; })()}</p>` : ''}
      ${b.warn.length ? `<p class="dn" style="margin:0 0 4px;font-size:13.5px">⚠ ${b.warn.map(esc).join(' · ')}</p>` : ''}
      <div class="tw"><table class="pt plk"><tr><th>Entry${swq('trigger')}</th><th>Aggressive</th><th><b>Normal ✔</b></th><th>Conservative</th><th>Ideal</th></tr><tr><td></td><td>${inr2(pl.ent.aggr)}<br><small class="mut">at the open</small></td><td><b>${inr2(pl.ent.norm)}</b><br><small class="mut">buy-stop</small></td><td>${inr2(pl.ent.cons)}<br><small class="mut">after a close above</small></td><td>${inr2(pl.ent.ideal[0])}–${r2s(pl.ent.ideal[1])}<br><small class="mut">${b.setup === 'breakout' ? 'retest' : 'dip to 20 EMA'}</small></td></tr>
@@ -382,19 +384,62 @@ async function renderTrades(box) {
       <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${inr2(t.entry)}</small></td><td>${inr2(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, 0)} ₹ · ${isNum(p) ? sgn((p - t.entry) / R0, 1) + 'R' : ''}</small></td>
       <td>${inr2(t.sl)}<br><small class="mut">T1 ${inr2(t.t1)}</small></td><td style="white-space:normal;text-align:left"><span class="${cls}">${esc(adv)}</span>${t.alerts ? ' <small title="phone alerts on">🔔</small>' : ''}</td>
       <td style="white-space:nowrap"><button class="btn sec" data-trstop="${t.id}" data-sug="${sug ? sug[1].replace(/,/g, '') : ''}" title="Update stop">🛡</button> <button class="btn sec" data-trpart="${t.id}" title="Sell part">➗</button> <button class="btn sec" data-trclose="${t.id}" title="Close trade">✅</button> <button class="btn sec" data-tredit="${t.id}" title="Edit">✎</button></td></tr>`; };
-  const openHTML = open.length ? `<div class="tw"><table class="pt" id="trt"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Now · P&amp;L</th><th>Stop · T1</th><th style="text-align:left">What to do</th><th></th></tr>${open.map(rowO).join('')}</table></div>` : '<p class="mut">No open trades. Log one from 🧭 Daily plan ("📒 Log as my trade") or add it here.</p>';
+  const openRows = open.map(rowO);
+  const openHTML = open.length ? `<div class="tw"><table class="pt" id="trt"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Now · P&amp;L</th><th>Stop · T1</th><th style="text-align:left">What to do</th><th></th></tr>${openRows.join('')}</table></div>` : '<p class="mut">No open trades. Log one from 🧭 Daily plan ("📒 Log as my trade") or add it here.</p>';
+  const themeMap = {};
+  for (const t of open) {
+    const rem = trRem(t);
+    const sec = (typeof swSec === 'function' ? swSec({ s: t.s }).sec : null) || 'Other';
+    themeMap[sec] = (themeMap[sec] || 0) + rem * t.entry;
+  }
+  const themeEntries = Object.entries(themeMap).sort((a, b) => b[1] - a[1]);
+  const themeColors = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48', '#64748b'];
+  const themeBar = (inv > 0 && themeEntries.length) ? `
+    <div style="margin:10px 0 6px">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px;color:var(--ink)">Portfolio Theme / Sector Exposure</div>
+      <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin-bottom:6px">
+        ${themeEntries.map(([sec, val], idx) => {
+          const pct = (val / inv * 100).toFixed(1);
+          const col = themeColors[idx % themeColors.length];
+          return `<div style="width:${pct}%;background:${col}" title="${esc(sec)}: ${inr(val)} (${pct}%)"></div>`;
+        }).join('')}
+      </div>
+      <div class="mut" style="font-size:12px;display:flex;flex-wrap:wrap;gap:8px">
+        ${themeEntries.map(([sec, val], idx) => {
+          const pct = (val / inv * 100).toFixed(0);
+          const col = themeColors[idx % themeColors.length];
+          return `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${col};margin-right:3px"></span>${esc(sec)}: <b>${pct}%</b></span>`;
+        }).join('')}
+      </div>
+    </div>` : '';
   // journal
   const J = closed.map(t => { const R0 = t.R0 || (t.entry - t.sl0), q = (t.sold || []).reduce((s, x) => s + x.q, 0), pl = realised(t), avgX = q ? (t.sold || []).reduce((s, x) => s + x.q * x.p, 0) / q : null;
     return { t, pl, R: q ? pl / (R0 * t.qty) : 0, avgX, end: (t.exit && t.exit.d) || ((t.sold || []).slice(-1)[0] || {}).d }; });
-  const wins = J.filter(j => j.pl > 0), tot = J.reduce((s, j) => s + j.pl, 0), avgR = J.length ? J.reduce((s, j) => s + j.R, 0) / J.length : null;
+  const wins = J.filter(j => j.pl > 0), losses = J.filter(j => j.pl < 0);
+  const tot = J.reduce((s, j) => s + j.pl, 0), avgR = J.length ? J.reduce((s, j) => s + j.R, 0) / J.length : null;
+  const winRate = J.length ? wins.length / J.length : 0;
+  const avgWinR = wins.length ? wins.reduce((s, j) => s + j.R, 0) / wins.length : 0;
+  const avgLossR = losses.length ? Math.abs(losses.reduce((s, j) => s + j.R, 0) / losses.length) : 0;
+  const expectancy = J.length ? (winRate * avgWinR - (1 - winRate) * avgLossR) : null;
+  const grossWin = wins.reduce((s, j) => s + j.pl, 0);
+  const grossLoss = Math.abs(losses.reduce((s, j) => s + j.pl, 0));
+  const pf = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : (grossWin > 0 ? '∞' : '–');
   const bySet = {}; for (const j of J) { const k = j.t.setup || 'manual'; (bySet[k] = bySet[k] || []).push(j); }
-  const jHTML = J.length ? `<div class="kv"><div><span>Closed trades</span><b>${J.length}</b></div><div><span>Win rate${swq('winrate')}</span><b>${Math.round(wins.length / J.length * 100)}%</b></div><div><span>Average result</span><b class="${avgR >= 0 ? 'up' : 'dn'}">${sgn(avgR, 2)}R</b></div><div><span>Total P&amp;L</span><b class="${tot >= 0 ? 'up' : 'dn'}">${sgn(tot, 0)} ₹</b></div></div>
+  const jHTML = J.length ? `<div class="kv">
+    <div><span>Closed trades</span><b>${J.length}</b></div>
+    <div><span>Win rate${swq('winrate')}</span><b>${Math.round(winRate * 100)}%</b></div>
+    <div><span>Expectancy${swq('expectancy')}</span><b class="${expectancy >= 0 ? 'up' : 'dn'}">${expectancy != null ? sgn(expectancy, 2) + 'R' : '–'}</b></div>
+    <div><span>Profit Factor</span><b class="${grossWin >= grossLoss ? 'up' : 'dn'}">${pf}</b></div>
+    <div><span>Average result</span><b class="${avgR >= 0 ? 'up' : 'dn'}">${sgn(avgR, 2)}R</b></div>
+    <div><span>Total P&amp;L</span><b class="${tot >= 0 ? 'up' : 'dn'}">${sgn(tot, 0)} ₹</b></div>
+  </div>
     <p class="mut" style="font-size:13px">By setup: ${Object.entries(bySet).map(([k, a]) => `${esc(PL_SET[k] || k)} ${a.length} trade${a.length === 1 ? '' : 's'}, ${Math.round(a.filter(j => j.pl > 0).length / a.length * 100)}% won, ${sgn(a.reduce((s, j) => s + j.R, 0) / a.length, 2)}R`).join(' · ')}${J.length < 20 ? ' — under 20 trades says little; keep logging.' : ''}</p>
     <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a><br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td><td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${inr2(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${inr2(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, 0)} ₹</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`).join('')}</table></div>` : '<p class="mut">No closed trades yet. Your win rate and average R by setup appear here.</p>';
   const cap = +SWF.cash || 0;
   box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;width:110px}#trt td,#trt th,#trj td,#trj th{text-align:right}#trt .btn,#trj .btn{padding:4px 7px;font-size:13px}</style>
     ${plBar()}<div class="card"><h2>📒 My trades <span class="mut">(open)</span></h2>
      <div class="kv"><div><span>Capital</span><b>${inr(cap)}</b></div><div><span>Invested</span><b>${inr(inv)}</b> <small class="mut">${cap ? (inv / cap * 100).toFixed(1) + '%' : ''}</small></div><div><span>Cash</span><b>${inr(cap - inv)}</b></div><div><span>Open risk</span><b class="dn">${inr(risk)}</b> <small class="mut">${cap ? (risk / cap * 100).toFixed(2) + '%' : ''}</small></div><div><span>Unrealised P&amp;L</span><b class="${unr >= 0 ? 'up' : 'dn'}">${sgn(unr, 0)} ₹</b></div></div>
+     ${themeBar}
      ${openHTML}<p style="margin:8px 0 0"><button class="btn" id="trAdd">➕ Add a trade</button></p>
      <p class="mut" style="font-size:12.5px">"What to do" checks each trade against the management plan: stop hit → exit · up 1R → stop to breakeven · T1 → sell half · after that, trail under the 20 EMA / 5-day low · 15 sessions without +1R → time stop. Prices: latest quote; 20 EMA and 5-day low: last close.</p></div>
     <div class="card"><h2>📊 Trade journal</h2>${jHTML}</div>
@@ -430,7 +475,7 @@ async function planCardFill(d) {
   if (!g) h = `<p class="mut">Not checked — the plan only looks at NSE stocks with at least 260 sessions of history and ₹1 Cr a day of trading.</p>`;
   else if (g[0] === '-') { const codes = (g[6] || '').split(',').filter(Boolean); h = `<p><b>🔴 Rejected</b> by the plan's rules:</p><ul>${(av ? av.why : codes.map(c => PL_REJ[c] || c)).map(w => `<li>${esc(w)}</li>`).join('')}</ul>`; }
   else if (full) { const b = full, pl = b.plan;
-    h = `<p style="margin:0 0 6px">${b.buy ? '<b class="up">🟢 On the buy list</b>' : '<b>🟡 Watchlist</b>'} · trend ${plGrade(b.grade)}${swq('tgrade')} <small class="mut">${b.ts}/100</small> · ${PL_SET[b.setup]}${b.ss ? ` <small class="mut">score ${b.ss}</small>` : ''} · confidence ${b.conf}/100</p>
+    h = `<p style="margin:0 0 6px">${b.buy ? '<b class="up">🟢 On the buy list</b>' : '<b>🟡 Watchlist</b>'} · trend ${plGrade(b.grade)}${swq('tgrade')} <small class="mut">${b.ts}/100</small> · ${PL_SET[b.setup]}${b.ss ? ` <small class="mut">score ${b.ss}</small>` : ''} · confidence ${b.conf}/100${b.wStage === 2 ? ' <span class="tag" style="background:#dcfce7;color:#166534;margin-left:4px;font-weight:700">Stage 2 Advancing</span>' : b.wStage === 4 ? ' <span class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px;font-weight:700">Stage 4 Declining</span>' : ''}</p>
       <p style="font-size:14px;margin:0 0 4px">${esc(b.tn.join('; '))}.</p>${b.buy ? '' : `<p style="font-size:14px;margin:0 0 4px"><b>Next:</b> ${esc(b.wait)}.</p>`}
       ${pl && b.buy ? `<div class="kv"><div><span>Buy above</span><b>${inr2(pl.E)}</b></div><div><span>Stop</span><b class="dn">${inr2(pl.SL)} <small>(−${pl.Rpct}%)</small></b></div><div><span>T1 / T2</span><b class="up">${inr2(pl.T1)} / ${inr2(pl.T2)}</b></div><div><span>Wrong if</span><b style="font-size:13px;font-weight:500">${esc(pl.inval)}</b></div></div>` : ''}
       ${b.cdl !== undefined ? `<p style="font-size:14px;margin:4px 0"><b>Last candle${swq('clv')}:</b> ${plCdlTxt(b.cdl)}.</p>` : ''}

@@ -1,0 +1,13 @@
+{
+  "name": "stock-search-app",
+  "version": "1.0.0",
+  "description": "Stock Search & Swing Trading Application (Indian & US Markets)",
+  "scripts": {
+    "test": "node scripts/test_all.js",
+    "test:indicators": "node scripts/test_indicators.js",
+    "test:dmasetup": "node scripts/test_dmasetup.js",
+    "test:plan": "node scripts/test_plan.js",
+    "test:sim": "node scripts/test_sim.js"
+  },
+  "private": true
+}
