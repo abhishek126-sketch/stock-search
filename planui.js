@@ -209,6 +209,36 @@ async function renderPlan(box) {
       <tr><th>Stop-loss${swq('stoploss')}</th><th>Technical</th><th><b>Structural ✔</b></th><th>Conservative</th><th>Risk / share</th></tr><tr><td></td><td>${inr2(pl.stops.tech)}</td><td><b class="dn">${inr2(pl.SL)}</b></td><td>${inr2(pl.stops.cons)}</td><td>${inr2(pl.R)} <small class="dn">(${pl.Rpct}%)</small></td></tr>
       <tr><th>Targets${swq('rmult')}</th><th>T1 (2R)</th><th>T2 (3R)</th><th>T3 (4R)</th><th>T4 (6R)</th></tr><tr><td><small class="mut">chance*</small></td><td class="up">${inr2(pl.T1)}<br><small>${pr ? pctS(pr.T1) : ''}</small></td><td class="up">${inr2(pl.T2)}<br><small>${pr ? pctS(pr.T2) : ''}</small></td><td class="up">${inr2(pl.T3)}<br><small>${pr ? pctS(pr.T3) : ''}</small></td><td class="up">${inr2(pl.T4)}<br><small>${pr ? pctS(pr.T4) : ''}</small></td></tr></table></div>
      <p style="margin:6px 0 4px;font-size:14px"><b>Wrong if${swq('invalid')}:</b> ${esc(pl.inval)}. <span class="mut">Expected holding: ${pr && pr.days ? `about ${pr.days} sessions to T1, up to 8 weeks for the rest` : '3 days to 8 weeks'}.</span></p>
+     ${(() => {
+       const scenarios = [['Conservative', 0.5], ['Default', 1.0], ['Half-Kelly', 1.5], ['Aggressive', 2.0]];
+       const cap = B.cap || 100000;
+       return `<details class="how" style="margin:6px 0"><summary>📊 Position Sizing &amp; Payoff Matrix (0.5% – 2.0% Risk)</summary>
+         <div class="tw" style="margin-top:4px"><table class="pt" style="font-size:12.5px;text-align:right">
+           <tr><th style="text-align:left">Scenario</th><th>Risk %</th><th>Risk ₹</th><th>Shares</th><th>Cost ₹</th><th>T1 (+2R) Net</th><th>T3 (+4R) Net</th></tr>
+           ${scenarios.map(([name, rPct]) => {
+             const rAmt = cap * rPct / 100;
+             const qMax = Math.floor(rAmt / pl.R);
+             const qPos = Math.floor((cap * (SWF.posPct || 25) / 100) / pl.E);
+             const q = Math.max(1, Math.min(qMax, qPos));
+             const cost = q * pl.E;
+             const grossT1 = q * 2 * pl.R, grossT3 = q * 4 * pl.R;
+             const fees = PlanPort.tripCost(q, pl.E, pl.T1, plCosts());
+             const netT1 = Math.max(0, grossT1 - fees), netT3 = Math.max(0, grossT3 - fees);
+             const isCurr = Math.abs(rPct - (SWF.riskPct || 1)) < 0.1;
+             return `<tr ${isCurr ? 'style="font-weight:700;background:var(--bg-subtle, #f1f5f9)"' : ''}>
+               <td style="text-align:left">${esc(name)}${isCurr ? ' ✔' : ''}</td>
+               <td>${rPct.toFixed(1)}%</td>
+               <td>${inr(rAmt)}</td>
+               <td><b>${q}</b></td>
+               <td>${inr(cost)}</td>
+               <td class="up">+${inr(netT1)}</td>
+               <td class="up">+${inr(netT3)}</td>
+             </tr>`;
+           }).join('')}
+         </table></div>
+         <p class="mut" style="font-size:12px;margin:3px 0 0">Net profits reflect round-trip statutory STT, GST, exchange charges, and DP fees for ${esc(plCosts().label)}.</p>
+       </details>`;
+     })()}
      ${(() => { const r = plRef(); if (!r) return ''; const x = r.bySetup && r.bySetup[b.setup], c = r.byConf && r.byConf[plConfBand(b.conf)];
        return `<p class="mut" style="margin:4px 0;font-size:13px">🧪 History test: ${x ? `${PL_SET[b.setup].replace(/^\S+ /, '').toLowerCase()} trades ${x.n}, won ${pctS(x.win)}, ${sgn(x.avgR, 2)}R each` : 'no comparable trades'}${c ? ` · confidence ${plConfBand(b.conf)}: ${c.n} trades, ${sgn(c.avgR, 2)}R each` : ''} (after costs).</p>`; })()}
      <p style="margin:4px 0 0"><button class="btn" data-pllog="${esc(b.s)}">📒 Log as my trade</button> <button class="btn sec" data-plcopy="${esc(b.s)}">📋 Copy GTT orders</button> <small class="mut">Buy ${b.q} share${b.q === 1 ? '' : 's'} = ${inr(b.cost)}, max loss ${inr(b.risk)} + charges ≈ ${inr(b.fees)} <span title="the limit that set the quantity">(set by ${esc(b.bind)})</span></small></p></div>`; };
@@ -396,8 +426,21 @@ async function renderTrades(box) {
   const rowO = t => { const p = px(t), rem = trRem(t), R0 = t.R0 || (t.entry - t.sl0), x = X[t.s], [cls, adv] = trAdvice(t, x, isNum(p) ? p : t.entry);
     inv += rem * t.entry; risk += Math.max(0, t.entry - t.sl) * rem; const u = isNum(p) ? rem * (p - t.entry) : 0; unr += u;
     const sug = /raise the stop to ₹([\d,.]+)/.exec(adv) || /breakeven ₹([\d,.]+)/.exec(adv);
+    const curR = (isNum(p) && R0 > 0) ? (p - t.entry) / R0 : 0;
+    const tr = (x && isFinite(x.e20) && isFinite(x.lo5)) ? Math.max(x.e20, x.lo5) : null;
+    let trailAlert = '';
+    if (t.sold && t.sold.length > 0 && tr != null && isNum(p) && p > tr && (p - tr) / p <= 0.015) {
+      trailAlert = `<br><small class="flag" style="color:#d97706;font-weight:600">⚠ Within ${((p - tr) / p * 100).toFixed(1)}% of trail (${inr2(tr)})</small>`;
+    } else if (isNum(p) && p > t.sl && (p - t.sl) / p <= 0.015) {
+      trailAlert = `<br><small class="flag" style="color:#dc2626;font-weight:600">⚠ ${((p - t.sl) / p * 100).toFixed(1)}% from stop</small>`;
+    }
+    const pctT1 = Math.min(100, Math.max(0, curR / 2 * 100));
+    const lossPct = Math.min(100, Math.max(0, -curR * 100));
+    const gauge = isNum(p) ? (curR >= 0
+      ? `<div style="width:100%;min-width:64px;max-width:100px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px" title="Progress to T1 (+2R): ${pctT1.toFixed(0)}%"><div style="height:100%;width:${pctT1}%;background:${curR >= 2 ? '#16a34a' : curR >= 1 ? '#2563eb' : '#0891b2'}"></div></div>`
+      : `<div style="width:100%;min-width:64px;max-width:100px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px" title="Distance to Stop (-1R): ${lossPct.toFixed(0)}%"><div style="height:100%;width:${lossPct}%;background:#dc2626"></div></div>`) : '';
     return `<tr><td style="text-align:left;white-space:normal"><a href="#" data-s="${esc(t.s)}"><b>${esc(plSym(t.s))}</b></a><br><small class="mut">${esc(PL_SET[t.setup] || t.setup || '')}${t.note ? ' · ' + esc(t.note) : ''}</small></td>
-      <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${inr2(t.entry)}</small></td><td>${inr2(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, 0)} ₹ · ${isNum(p) ? sgn((p - t.entry) / R0, 1) + 'R' : ''}</small></td>
+      <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${inr2(t.entry)}</small></td><td>${inr2(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, 0)} ₹ · ${isNum(p) ? sgn(curR, 1) + 'R' : ''}</small>${gauge}${trailAlert}</td>
       <td>${inr2(t.sl)}<br><small class="mut">T1 ${inr2(t.t1)}</small></td><td style="white-space:normal;text-align:left"><span class="${cls}">${esc(adv)}</span>${t.alerts ? ' <small title="phone alerts on">🔔</small>' : ''}</td>
       <td style="white-space:nowrap"><button class="btn sec" data-trstop="${t.id}" data-sug="${sug ? sug[1].replace(/,/g, '') : ''}" title="Update stop">🛡</button> <button class="btn sec" data-trpart="${t.id}" title="Sell part">➗</button> <button class="btn sec" data-trclose="${t.id}" title="Close trade">✅</button> <button class="btn sec" data-tredit="${t.id}" title="Edit">✎</button></td></tr>`; };
   const openRows = open.map(rowO);
