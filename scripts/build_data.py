@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Builds static JSON snapshots (data/) from Yahoo Finance public endpoints.
 Runs server-side in GitHub Actions (no browser CORS). No API keys or secrets."""
-import calendar, http.cookiejar, csv, io, json, os, subprocess, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
+import calendar, http.cookiejar, csv, io, json, math, os, subprocess, sys, time, urllib.request, urllib.parse, concurrent.futures as cf
 UA = {'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'}
 OUT = os.path.join(os.path.dirname(__file__), '..', 'data')
 EXTRA_IN = ['RELIANCE','TCS','ITC','HDFCBANK','INFY','SBIN']
@@ -450,8 +450,28 @@ def promoter_fields(s, pr):
     if len(q2) >= 2: o['instQ'] = round(q2[-1][1] + q2[-1][2] - q2[-2][1] - q2[-2][2], 2)
     return o
 
+def peaks(hist, price):
+    """Highest closing price over the last 1, 2, 3, 4 and 5 years (Score filter's "fall from peak", 24 Nov 2026), plus the
+    years of price history there are. A one-day spike doesn't count: each day's level is the middle of it and its two
+    neighbours (the level held on at least 2 of 3 days), so one bad Yahoo tick can't make a false peak. Closes are
+    split / bonus adjusted (Yahoo + NSE corporate actions), not dividend adjusted. The peak is never below today's price."""
+    h = [x for x in hist or [] if isinstance(x[1], (int, float)) and x[1] > 0]
+    if len(h) < 20 or not isinstance(price, (int, float)) or price <= 0: return None, None, None
+    c = [x[1] for x in h]; n = len(c)
+    lv = [min(c[0], c[1])] + [sorted(c[i - 1:i + 2])[1] for i in range(1, n - 1)] + [min(c[-2], c[-1])]
+    tl = h[-1][0]; out = []
+    for y in (1, 2, 3, 4, 5):
+        t0 = tl - y * 365.25 * 86400
+        out.append(round(max([v for x, v in zip(h, lv) if x[0] >= t0] + [price]), 2))
+    # one-day falls of more than 35% in the 5 years: no NSE price band allows that, so it is nearly always a split, bonus or
+    # demerger the prices aren't adjusted for (22 of 1,420 larger stocks on 24 Nov 2026, e.g. RAYMOND and VEDL demergers,
+    # JSLL). The Score filter marks a fall that spans one as doubtful. [date, % change], the latest 5.
+    jq = [[time.strftime('%Y-%m-%d', time.gmtime(h[i][0] + 19800)), round((c[i] / c[i - 1] - 1) * 100)] for i in range(1, n) if c[i] < 0.65 * c[i - 1]]
+    return out, round((tl - h[0][0]) / (365.25 * 86400), 1), (jq[-5:] or None)
+
 def metrics(d):
     f, price, hist = d['fund'], d['price'], d['hist']; now = hist[-1][0] if hist else time.time(); k = {}
+    k['pk'], k['hy'], k['jq'] = peaks(hist, price)
     eps = series(f, 'quarterlyDilutedEPS')[-4:]
     # Yahoo-only stocks (no NSE results read yet): one quarter whose EPS is far off profit / shares while the other three
     # agree is a Yahoo slip -> profit / shares (MOBIKWIK Sep-2026 0.75 vs 1.52; TTM 2.80 vs Screener/Groww 3.54)
@@ -642,7 +662,10 @@ def fix_ca_jumps(sym, ts, o_, h_, l_, cl, vo):
                 if not (te - 25 * 86400 <= ts[k] <= te + 7 * 86400 or k == fy): continue
             elif day(ts[k]) != ex: continue
             if abs(cl[p] / cl[k] / f - 1) >= (0.12 if big else 0.04): continue
-            if big and not all(abs(cl[q] / cl[k] - 1) < 0.25 for q in idx[n + 1:n + 4]): continue
+            # the new level must hold: each of the next 3 closes nearer (in ratio) the new level than the old one. Until 24 Nov
+            # 2026 they had to stay within 25% of it, which a fast riser failed (SILVERTUC 1:10 on 1 Jan 2026 rose 30% in 3
+            # sessions and was left at -90%). Checked on 259 stocks with an NSE split / bonus: only SILVERTUC changes.
+            if big and not all(abs(math.log(cl[q] / cl[k])) < abs(math.log(cl[q] / cl[p])) for q in idx[n + 1:n + 4]): continue
             if bd is None or abs(ts[k] - te) < bd: best, bd = k, abs(ts[k] - te)
         if best is None: continue
         for q in range(best):
