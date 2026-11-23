@@ -144,6 +144,87 @@
     ['FMCG & food', /Packaged Foods|Household|Personal Products|Beverages|Tobacco|Confectioners|Farm Products|Food Distribution|Grocery/]];
   const themeOf = (ind, sec) => { const t = THEMES.find(x => x[1].test(ind || '')); return t ? t[0] : (sec || ''); };
 
-  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf, slLimit, trailLevel, closeExit, tradeActions, planGate };
+  // ---- 5. Kelly Criterion & Half-Kelly dynamic position sizing ----
+  // p: win rate (0..1), b: win/loss payoff ratio (avgWinR / avgLossR)
+  // Kelly fraction f* = (p * b - (1 - p)) / b
+  // Half-Kelly = f* / 2 (recommended for swing trading to prevent tail ruin)
+  function calcKelly(p, b, fraction = 0.5, cap = 0.02) {
+    if (!(p > 0) || !(b > 0)) return { kelly: 0, halfKelly: 0, recRiskPct: 0.5, edge: false };
+    const q = 1 - p;
+    const fStar = (p * b - q) / b;
+    if (fStar <= 0) return { kelly: 0, halfKelly: 0, recRiskPct: 0.25, edge: false };
+    const half = fStar * fraction;
+    const recRiskPct = Math.max(0.25, Math.min(Math.round(half * 1000) / 10, cap * 100));
+    return { kelly: Math.round(fStar * 1000) / 1000, halfKelly: Math.round(half * 1000) / 1000, recRiskPct, edge: true };
+  }
+
+  // ---- 6. Monte Carlo Stress Test & Risk-of-Ruin (Bootstrap Resampling) ----
+  function runMonteCarlo(trades, opts = {}) {
+    const R = (trades || []).map(t => typeof t === 'number' ? t : (t && isFinite(t.R) ? t.R : null)).filter(x => x !== null);
+    if (R.length < 5) return null;
+    const numSims = opts.simulations || 1000;
+    const riskPct = (opts.riskPct || 1) / 100;
+    const startCap = opts.startCapital || 100000;
+    const ruinCutoff = opts.ruinThreshold || 0.20;
+    const severeCutoff = opts.severeRuinThreshold || 0.30;
+
+    const maxDDs = [], endEquities = [], maxLossStreaks = [];
+    let ruinCount = 0, severeRuinCount = 0;
+
+    for (let s = 0; s < numSims; s++) {
+      let cap = startCap, peak = startCap, dd = 0, streak = 0, maxStreak = 0;
+      for (let i = 0; i < R.length; i++) {
+        const idx = Math.floor(Math.random() * R.length);
+        const r = R[idx];
+        const rRisk = cap * riskPct;
+        cap += rRisk * r;
+        if (cap < 0) cap = 0;
+        if (cap > peak) peak = cap;
+        const currentDD = peak > 0 ? (peak - cap) / peak : 1;
+        if (currentDD > dd) dd = currentDD;
+        if (r <= 0) {
+          streak++;
+          if (streak > maxStreak) maxStreak = streak;
+        } else {
+          streak = 0;
+        }
+      }
+      maxDDs.push(dd);
+      endEquities.push(cap);
+      maxLossStreaks.push(maxStreak);
+      if (dd >= ruinCutoff) ruinCount++;
+      if (dd >= severeCutoff) severeRuinCount++;
+    }
+
+    maxDDs.sort((a, b) => a - b);
+    endEquities.sort((a, b) => a - b);
+    maxLossStreaks.sort((a, b) => a - b);
+    const q = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];
+
+    return {
+      simulations: numSims,
+      tradesSampled: R.length,
+      maxDD: {
+        median: Math.round(q(maxDDs, 0.50) * 1000) / 10,
+        p95: Math.round(q(maxDDs, 0.95) * 1000) / 10,
+        p99: Math.round(q(maxDDs, 0.99) * 1000) / 10,
+        worst: Math.round(maxDDs[maxDDs.length - 1] * 1000) / 10
+      },
+      equity: {
+        median: Math.round(q(endEquities, 0.50)),
+        p05: Math.round(q(endEquities, 0.05)),
+        p95: Math.round(q(endEquities, 0.95))
+      },
+      maxLossStreak: {
+        median: q(maxLossStreaks, 0.50),
+        p95: q(maxLossStreaks, 0.95),
+        worst: maxLossStreaks[maxLossStreaks.length - 1]
+      },
+      riskOfRuin20: Math.round((ruinCount / numSims) * 1000) / 10,
+      riskOfRuin30: Math.round((severeRuinCount / numSims) * 1000) / 10
+    };
+  }
+
+  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf, slLimit, trailLevel, closeExit, tradeActions, planGate, calcKelly, runMonteCarlo };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PlanPort = API;
 })(typeof self !== 'undefined' ? self : this);

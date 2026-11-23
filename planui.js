@@ -118,6 +118,22 @@ function plEvidence() {
     ${plSpark([[`₹1 lakh following the plan → ${inr(ref.end)}`, ref.curve, '#2563eb'], [`₹1 lakh in Nifty → ${inr(nifty[nifty.length - 1][1])}`, nifty, '#94a3b8']])}
     <div class="tw"><table class="pt" id="plbt"><tr><th style="text-align:left">Capital</th><th>Ended</th><th>Return</th><th>A year</th><th>Worst fall</th><th>Trades</th><th>Won</th><th>Per trade${swq('expectancy')}</th><th>Profit factor</th><th>Charges</th></tr>${BT.runs.map(row).join('')}
       <tr><td style="text-align:left">Nifty (hold)</td><td>–</td><td class="${BT.nifty.ret >= 0 ? 'up' : 'dn'}">${sgn(BT.nifty.ret)}%</td><td>${BT.nifty.cagr}%</td><td class="dn">${BT.nifty.maxDD}%</td><td colspan="5" class="mut" style="text-align:left">buy and hold, no trading</td></tr></table></div>
+    ${(() => {
+      const winLossRatio = (t.avgLossR && t.avgLossR !== 0) ? Math.abs(t.avgWinR / t.avgLossR) : 2.0;
+      const kelly = (typeof PlanPort !== 'undefined' && PlanPort.calcKelly) ? PlanPort.calcKelly(t.win, winLossRatio) : null;
+      const mc = (BT && BT.monteCarlo) || ((BT && BT.lastTrades || []).length >= 5 && typeof PlanPort !== 'undefined' && PlanPort.runMonteCarlo ? PlanPort.runMonteCarlo(BT.lastTrades) : null);
+      if (!mc) return '';
+      return `<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;margin:8px 0;font-size:13px">
+        <div style="font-weight:700;color:var(--ink);margin-bottom:4px">🎲 Monte Carlo Stress Test &amp; Risk-of-Ruin <small class="mut">(${mc.simulations.toLocaleString()} bootstrapped runs, 1% risk)</small></div>
+        <div class="kv" style="margin-top:6px">
+          <div><span>Max Drawdown (95% CI)</span><b class="dn">≤ ${mc.maxDD.p95}%</b></div>
+          <div><span>Tail Drawdown (99% Stress)</span><b class="dn">≤ ${mc.maxDD.p99}%</b></div>
+          <div><span>Risk of Ruin (&ge;20% DD)</span><b>${mc.riskOfRuin20}%</b></div>
+          <div><span>Max Losing Streak (95% CI)</span><b>≤ ${mc.maxLossStreak.p95} trades</b></div>
+        </div>
+        ${kelly && kelly.edge ? `<p class="mut" style="font-size:12.5px;margin:6px 0 0">💡 <b>Half-Kelly Position Sizing:</b> Empirical edge suggests <b>${kelly.recRiskPct}% risk</b> per trade (${pctS(t.win)} win rate, ${winLossRatio.toFixed(1)}:1 win/loss ratio).</p>` : ''}
+      </div>`;
+    })()}
     <details class="how"><summary>What worked and what didn't (₹1 lakh run)</summary><div style="display:flex;flex-wrap:wrap;gap:10px">
       <div class="tw"><table class="pt pls"><tr><th style="text-align:left">Setup</th><th>Trades</th><th>Won</th><th>Per trade</th></tr>${grp(ref.bySetup, k => PL_SET[k] || esc(k))}</table></div>
       <div class="tw"><table class="pt pls"><tr><th style="text-align:left">Confidence${swq('tconf')}</th><th>Trades</th><th>Won</th><th>Per trade</th></tr>${grp(ref.byConf)}</table></div>
@@ -443,8 +459,8 @@ async function renderTrades(box) {
      ${openHTML}<p style="margin:8px 0 0"><button class="btn" id="trAdd">➕ Add a trade</button></p>
      <p class="mut" style="font-size:12.5px">"What to do" checks each trade against the management plan: stop hit → exit · up 1R → stop to breakeven · T1 → sell half · after that, trail under the 20 EMA / 5-day low · 15 sessions without +1R → time stop. Prices: latest quote; 20 EMA and 5-day low: last close.</p></div>
     <div class="card"><h2>📊 Trade journal</h2>${jHTML}</div>
-    <div class="card"><h2>💾 Backup</h2><p class="mut" style="font-size:13px">Your trades are stored only on this device (not on GitHub, not in the public app). Download a backup now and then, and use it to move them to another phone or PC.</p>
-     <p><button class="btn sec" id="trExp">⬇ Download backup</button> <label class="btn sec" style="cursor:pointer">⬆ Restore from file<input type="file" id="trImp" accept=".json,application/json" hidden></label> <span class="mut" id="trBk"></span></p></div>${SW_DISC}</div>`;
+    <div class="card"><h2>💾 Backup &amp; Export</h2><p class="mut" style="font-size:13px">Your trades are stored only on this device (not on GitHub, not in the public app). Export a spreadsheet for Excel / Google Sheets, or download a full JSON backup to move between devices.</p>
+     <p><button class="btn sec" id="trCsv">📊 Export to CSV (Excel)</button> <button class="btn sec" id="trExp">⬇ Download backup (JSON)</button> <label class="btn sec" style="cursor:pointer">⬆ Restore from file<input type="file" id="trImp" accept=".json,application/json" hidden></label> <span class="mut" id="trBk"></span></p></div>${SW_DISC}</div>`;
   swModeWire(box);
   const re = () => { const y = window.scrollY; renderTrades(box).then(() => window.scrollTo(0, y)); };
   plBarWire(box, re);
@@ -454,6 +470,35 @@ async function renderTrades(box) {
   box.querySelectorAll('[data-trclose]').forEach(b => b.onclick = () => sellDialog(b.dataset.trclose, true, re));
   box.querySelectorAll('[data-trstop]').forEach(b => b.onclick = () => stopDialog(b.dataset.trstop, b.dataset.sug, re));
   box.querySelectorAll('[data-trdel]').forEach(b => b.onclick = () => { if (b.dataset.sure) { const A2 = TR(); A2.trades = A2.trades.filter(t => t.id !== b.dataset.trdel); trSave(A2); re(); } else { b.dataset.sure = 1; b.textContent = 'Delete?'; } });
+  box.querySelector('#trCsv').onclick = () => {
+    const A = TR(), trades = A.trades || [];
+    if (!trades.length) { box.querySelector('#trBk').textContent = 'No trades to export.'; return; }
+    const escCsv = v => { if (v == null) return ''; const s = String(v).replace(/"/g, '""'); return /[",\n\r]/.test(s) ? `"${s}"` : s; };
+    const headers = ['Symbol', 'Setup', 'Status', 'Buy Date', 'Buy Price', 'Initial Qty', 'Remaining Qty', 'Stop Loss', 'Target 1', 'Target 2', 'Exit Date', 'Avg Exit Price', 'Realized P&L (INR)', 'Return %', 'Result (R)', 'Notes'];
+    const rows = [headers.join(',')];
+    for (const t of trades) {
+      const isClosed = !!(t.exit || trRem(t) <= 0);
+      const sold = t.sold || [];
+      const totSoldQty = sold.reduce((s, x) => s + x.q, 0);
+      const avgExit = totSoldQty > 0 ? sold.reduce((s, x) => s + x.q * x.p, 0) / totSoldQty : null;
+      const pl = realised(t);
+      const R0 = t.R0 || (t.entry - t.sl0);
+      const rMult = (totSoldQty > 0 && R0 > 0 && t.qty > 0) ? (pl / (R0 * t.qty)).toFixed(2) : '';
+      const retPct = avgExit != null && t.entry > 0 ? ((avgExit / t.entry - 1) * 100).toFixed(2) : '';
+      const exitDate = (t.exit && t.exit.d) || (sold.length ? sold[sold.length - 1].d : '');
+      const setupLabel = (typeof PL_SET !== 'undefined' && PL_SET[t.setup]) ? PL_SET[t.setup].replace(/^\S+\s*/, '') : (t.setup || '');
+      rows.push([
+        escCsv(plSym(t.s)), escCsv(setupLabel), isClosed ? 'CLOSED' : 'OPEN', escCsv(t.date || ''),
+        t.entry != null ? t.entry : '', t.qty != null ? t.qty : '', trRem(t), t.sl != null ? t.sl : '',
+        t.t1 != null ? t.t1 : '', t.t2 != null ? t.t2 : '', escCsv(exitDate), avgExit != null ? avgExit.toFixed(2) : '',
+        isClosed ? pl.toFixed(2) : '', retPct, rMult, escCsv(t.note || '')
+      ].join(','));
+    }
+    const blob = new Blob(['\uFEFF' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'my-trades-' + new Date().toISOString().slice(0, 10) + '.csv'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  };
   box.querySelector('#trExp').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(TR(), null, 1)], { type: 'application/json' })); a.download = 'my-trades-' + new Date().toISOString().slice(0, 10) + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); };
   box.querySelector('#trImp').onchange = async e => { const f = e.target.files[0]; if (!f) return; try { const j = JSON.parse(await f.text()); if (!j || !Array.isArray(j.trades)) throw new Error('not a trades backup');
     const A2 = TR(), ids = new Set(A2.trades.map(t => t.id)); let n = 0; for (const t of j.trades) if (t && t.id && t.s && !ids.has(t.id)) { A2.trades.push(t); n++; } trSave(A2); box.querySelector('#trBk').textContent = `Restored ${n} trade${n === 1 ? '' : 's'}.`; await tradeAlertsSync(); setTimeout(re, 900); }

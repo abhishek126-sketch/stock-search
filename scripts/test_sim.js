@@ -134,4 +134,15 @@ ok(PP.planGate({ asOf: iso(1), counts: { checked: 300 } }, todayS).ok, 'plan fro
 ok(!PP.planGate({ asOf: iso(0), counts: { checked: 0 } }, todayS).ok, 'plan built from 0 stocks → blocked');
 ok(!PP.planGate(null, todayS).ok, 'no plan file → blocked');
 
+// Kelly criterion position sizing
+const k1 = PP.calcKelly(0.42, 2.4);
+ok(k1 && k1.edge && k1.halfKelly > 0 && k1.recRiskPct > 0, 'Kelly calculates positive risk on positive edge (rec: ' + k1.recRiskPct + '%)');
+const k0 = PP.calcKelly(0.25, 1.2);
+ok(k0 && !k0.edge && k0.kelly === 0 && k0.halfKelly === 0, 'Kelly returns 0 on negative expectancy');
+
+// Monte Carlo simulation
+const sampleTrades = [2.0, -1.0, 3.0, -0.8, -1.0, 1.5, -0.9, 4.0, -1.0, 2.2];
+const mc = PP.runMonteCarlo(sampleTrades, { simulations: 500, riskPct: 1, startCapital: 100000 });
+ok(mc && mc.simulations === 500 && mc.maxDD && mc.maxDD.p95 >= 0 && mc.riskOfRuin20 >= 0, 'Monte Carlo runs 500 bootstrap paths and computes 95% DD CI (' + (mc && mc.maxDD && mc.maxDD.p95) + '%)');
+
 if (fail) { console.log(fail + ' failed'); process.exit(1); } console.log('all simulation tests passed');
