@@ -14,6 +14,7 @@
 // reality), market cap / promoter pledge / surveillance as of today, no results-date gaps filter, one trade per stock.
 const fs = require('fs'), path = require('path');
 const P = require('./planrules.js'), PP = require('../planport.js'), SE = require('./simengine.js');
+const PIT = require('./build_pit_universe.js');
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data'), CACHE = process.env.BT_CACHE || null;
 const FILE = path.join(OUT, 'backtest.json'), now = Math.floor(Date.now() / 1000), IST = 19800;
 const CAPITALS = [30000, 100000, 500000];
@@ -65,7 +66,7 @@ async function main() {
   console.log('backtest: price histories', ST.length, 'in', Math.round((Date.now() - t0) / 1000), 's');
   const ND = NI.t.map(ist), NC = NI.c, NH = NI.h, vix = new Map(VX ? VX.t.map((t, i) => [ist(t), VX.c[i]]) : []);
   const books = CAPITALS.map(c => SE.newBook(c, { costs: PP.COSTS })), rCount = {}, buyLen = [];
-  const k0 = 300; let evals = 0;
+  const k0 = 300; let evals = 0, pitHits = 0;
   for (let k = k0; k < ND.length; k++) {
     const day = ND[k];
     // --- the session: fills, stops, targets, marks
@@ -75,7 +76,9 @@ async function main() {
     for (const B of books) SE.advance(B, day, bars, ind);
     if (k === ND.length - 1) break;                                   // no next session to trade
     // --- the evening plan
-    const live = []; for (const x of ST) { const i = x.idx.get(day); if (i != null && i >= 252) live.push([x, i]); }
+    const pit = PIT.getPitUniverseSync(day, P.RULES.minTurnover, P.RULES.minPrice);
+    if (pit) pitHits++;
+    const live = []; for (const x of ST) { const i = x.idx.get(day); if (i != null && i >= 252 && (!pit || pit.symbols.has(x.s))) live.push([x, i]); }
     if (live.length < 100) continue;
     const sc = live.map(([x, i]) => { const c = x.y.c; return 0.4 * (c[i] / c[i - 63] - 1) + 0.2 * (c[i] / c[i - 126] - 1) + 0.4 * (c[i] / c[i - 252] - 1); });
     const order = sc.map((v, j) => [v, j]).sort((a, b) => a[0] - b[0]), rs = new Array(live.length); order.forEach(([, j], r) => rs[j] = Math.round(1 + 98 * r / Math.max(1, order.length - 1)));
@@ -103,7 +106,7 @@ async function main() {
   const thin = c => c.filter((_, i) => i % 5 === 0 || i === c.length - 1);
   const runs = books.map(B => ({ ...SE.summarize(B), curve: thin(B.curve) }));
   const ref = books[1];
-  const out = { v: BT_V, built: now, from: ND[k0], to: ND[ND.length - 1], sessions: ND.length - k0, stocks: ST.length, universeNote: 'today\'s liquid NSE stocks only (survivorship bias)', costs: PP.COSTS,
+  const out = { v: BT_V, built: now, from: ND[k0], to: ND[ND.length - 1], sessions: ND.length - k0, stocks: ST.length, pitSessions: pitHits, universeNote: pitHits > 50 ? 'Point-in-Time historical universe (survivorship bias eliminated)' : 'today\'s liquid NSE stocks only (survivorship bias; PIT cache available via build_pit_universe.js)', costs: PP.COSTS,
     rules: { rankBy: P.RULES.rankBy, riskPct: 1, maxRisk: 5, posPct: 25, maxCostR: 0.15, slip: 0.005 }, regimeDays: rCount, avgBuyList: r2(buyLen.reduce((s, x) => s + x, 0) / Math.max(1, buyLen.length)), daysNoBuy: buyLen.filter(x => !x).length,
     nifty: { ret: r2((NC[NC.length - 1] / NC[k0] - 1) * 100), cagr: r2(SE.cagr(nCurve) * 100), maxDD: r2(SE.maxDD(nCurve) * 100), curve: thin(nCurve) },
     runs, lastTrades: ref.closed.slice(-60).map(({ sells, ...t }) => t), evals, secs: Math.round((Date.now() - t0) / 1000) };
