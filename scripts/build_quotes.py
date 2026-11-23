@@ -38,14 +38,68 @@ if stale: print('dropped', len(stale), 'stale quotes (> 20 days old):', stale[:2
 try: REF = {r['s']: r['p'] for r in json.load(open(os.path.join(OUT, 'summary.json')))['rows'] if isinstance(r.get('p'), (int, float)) and r['p'] > 0}
 except Exception: REF = {}
 SPLIT = (2, 3, 4, 5, 6, 10, 20, 25, 50, 100)
-def wild(s, p):
+def wild_wide(s, p):
     ref = REF.get(s)
     if not ref or not s.endswith(('.NS', '.BO')) or not isinstance(p, (int, float)) or p <= 0: return False
     r = p / ref
     return not 0.45 < r < 2.2 and not any(abs(r * f - 1) < 0.15 for f in SPLIT)
-bad = sorted(s for s, v in q.items() if wild(s, v[0]))
+# Price bands (audit 24 Nov 2026): the 0.45x-2.2x range above let a quote 40% off through (then shown as the live price, used
+# for P&L and price alerts). NSE's daily security list (data/bands.json, scripts/nsedaily.js) gives each stock's circuit limit
+# for the session: 2 / 5 / 10 / 20%, or 'No Band' (F&O stocks and ETFs, whose limits flex - 35% used, beyond any real day).
+# A quote further from the last official close than the limit allows (+1% slack, compounded over the sessions since that
+# close) can't be a real trade and is dropped. BSE-only stocks: 20% (BSE's widest equity band). A bonus / split going ex
+# within 3 days (data/ca.json) scales the reference first. Any error here falls back to the wide check for that quote.
+def jload(f, d):
+    try: return json.load(open(os.path.join(OUT, f)))
+    except Exception: return d
+BANDS = (jload('bands.json', {}) or {}).get('b') or {}
+CAX = (jload('ca.json', {}) or {}).get('by') or {}
+META0 = jload('meta.json', {}) or {}
+import re, datetime as dt
+def ist_day(t): return dt.datetime.fromtimestamp(t, dt.timezone(dt.timedelta(hours=5, minutes=30))).date()
+def sessions(a, b):  # weekdays after day a up to day b (holidays counted as sessions - errs on the lenient side)
+    n, d = 0, a
+    while d < b and n < 30:
+        d += dt.timedelta(days=1)
+        if d.weekday() < 5: n += 1
+    return max(1, n)
+def ca_factor(subj):  # same as build_data.py ca_factor: 'Bonus 1:1' -> 2, split Rs 10 -> Rs 2 -> 5 (both on one line multiply)
+    s = (subj or '').upper()
+    if 'NCRPS' in s or 'PREF' in s: return None
+    f = 1.0
+    b = re.search(r'BONUS\D{0,3}(\d+)\s*:\s*(\d+)', s)
+    if b and int(b.group(2)): f *= (int(b.group(1)) + int(b.group(2))) / int(b.group(2))
+    p = re.search(r'(?:SPLIT|SUB-?DIVISION).*?FROM\s+R[SE]\.?\s*([\d.]+).*?TO\s+R[SE]\.?\s*([\d.]+)', s, re.S)
+    if p:
+        try: x, y = float(p.group(1).rstrip('.')), float(p.group(2).rstrip('.'))
+        except ValueError: x = y = 0
+        if y and x > y: f *= x / y
+    return f if f > 1.05 else None
+def wild(s, p, t):
+    if not BANDS: return wild_wide(s, p)
+    try:
+        ref = REF.get(s)
+        if not ref or not s.endswith(('.NS', '.BO')) or not isinstance(p, (int, float)) or p <= 0: return False
+        base, nse = s[:-3], s.endswith('.NS')
+        day = ist_day(t if isinstance(t, (int, float)) and t > 0 else time.time())
+        b = BANDS.get(base) if nse else 20
+        lim = ((b if b and b > 0 else 35) + 1) / 100
+        try: d0 = dt.date.fromisoformat(META0.get('nseDay' if nse else 'bseDay') or '')
+        except (TypeError, ValueError): d0 = day
+        k = sessions(d0, day)
+        f = 1.0
+        for r in (CAX.get(base) or []) if nse else []:
+            try:
+                if isinstance(r, list) and len(r) > 1 and abs((dt.date.fromisoformat(r[0]) - day).days) <= 3: f *= ca_factor(r[1]) or 1.0
+            except ValueError: pass
+        r = p / ref * f
+        return not ((1 - lim) ** k <= r <= (1 + lim) ** k)
+    except Exception as e:
+        print('band check error', s, repr(e)[:80]); return wild_wide(s, p)
+bad = sorted(s for s, v in q.items() if wild(s, v[0], v[2]))
+for s in bad[:20]: print('dropped quote', s, q[s][0], 'vs last close', REF.get(s), 'band', BANDS.get(s[:-3]) if s.endswith('.NS') else 'BSE 20')
 for s in bad: del q[s]
-if bad: print('dropped', len(bad), 'wild quotes (far from the last close):', bad[:20])
+if bad: print('dropped', len(bad), 'quotes outside the price band' if BANDS else 'wild quotes (far from the last close)', bad[:20])
 json.dump({'built': now, 'q': q}, open(os.path.join(OUT, 'quotes.json'), 'w'), separators=(',', ':'))
 mp = os.path.join(OUT, 'meta.json'); meta = json.load(open(mp)) if os.path.exists(mp) else {}
 meta.update({'quotes': now, 'nQuotes': len(q)}); json.dump(meta, open(mp, 'w'))

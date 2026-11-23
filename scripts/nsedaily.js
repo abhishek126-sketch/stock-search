@@ -7,6 +7,9 @@
 //   2. Corporate actions — dividends, bonus, splits, rights, buybacks, demergers (NSE corporates-corporateActions, one
 //      request for 2 years back to 3 months ahead). Stock file: ca = [[exDate, subject]]; summary row: caN = [next ex-date
 //      within 30 days, short label].
+//   3. Price bands (24 Nov 2026) — NSE's daily security list (sec_list.csv): each stock's circuit limit for the next session
+//      (2 / 5 / 10 / 20%; 'No Band' = F&O stocks and ETFs, whose limits flex). data/bands.json { built, b: { SYM: % or 0 } }.
+//      build_quotes.py uses it to drop live quotes that no circuit limit allows (a bad Yahoo tick).
 const fs = require('fs'), path = require('path');
 const OUT = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9' };
@@ -74,12 +77,29 @@ async function actions() {
   if (Object.keys(spl).length > 50) fs.writeFileSync(path.join(OUT, 'ca.json'), JSON.stringify({ built: Math.floor(Date.now() / 1000), by: spl }));
   return by;
 }
+async function bands() {
+  const csv = await get('https://nsearchives.nseindia.com/content/equities/sec_list.csv');
+  const L = (csv || '').trim().split(/\r?\n/), h = (L[0] || '').split(',').map(x => x.trim().toLowerCase());
+  const si = h.indexOf('symbol'), se = h.indexOf('series'), bi = h.indexOf('band');
+  if (si < 0 || bi < 0 || L.length < 1000) throw new Error('unexpected sec_list.csv (' + L.length + ' lines)');
+  const SER = ['EQ', 'BE', 'BZ', 'SM', 'ST', 'RR', 'IV'], b = {};
+  for (const l of L.slice(1)) {
+    const a = l.split(','), sym = (a[si] || '').trim(), ser = (a[se] || '').trim(), v = (a[bi] || '').trim();
+    if (!sym || (se >= 0 && !SER.includes(ser))) continue;
+    const n = /no\s*band/i.test(v) ? 0 : parseFloat(v); if (!(n >= 0)) continue;
+    if (!(sym in b) || ser === 'EQ') b[sym] = n;
+  }
+  fs.writeFileSync(path.join(OUT, 'bands.json'), JSON.stringify({ built: Math.floor(Date.now() / 1000), b }));
+  console.log('price bands:', Object.keys(b).length, 'stocks');
+  return b;
+}
 // short label for the list badge
 const caShort = s => /bonus/i.test(s) ? 'Bonus ' + ((/\d+\s*:\s*\d+/.exec(s) || [''])[0]) : /split|sub-?division/i.test(s) ? 'Split' : /rights/i.test(s) ? 'Rights' : /buy ?back/i.test(s) ? 'Buyback' : /demerger/i.test(s) ? 'Demerger' : /dividend/i.test(s) ? 'Dividend' + ((/Rs\.?\s*([\d.]+)|Re\.?\s*([\d.]+)/i.exec(s) || []).slice(1).filter(Boolean).map(v => ' ₹' + v)[0] || '') : s.slice(0, 20);
 async function main() {
   // --ca: only refresh data/ca.json (bonus / split list), run before build_data.py so the same refresh can use it
   if (process.argv.includes('--ca')) { try { await actions(); } catch (e) { console.log('corporate actions failed:', e.message); } return; }
   let dl = null, ca = null;
+  try { await bands(); } catch (e) { console.log('price bands failed (quotes keep the wide check):', e.message); }
   try { dl = await delivery(); } catch (e) { console.log('delivery failed:', e.message); }
   try { ca = await actions(); } catch (e) { console.log('corporate actions failed:', e.message); }
   if (!dl && !ca) return;
@@ -99,4 +119,4 @@ async function main() {
   console.log('rows with delivery %', nd, '| with an ex-date in the next 30 days', nc);
 }
 if (require.main === module) main();
-module.exports = { caShort };
+module.exports = { caShort, bands };
