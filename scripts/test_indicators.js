@@ -70,6 +70,18 @@ t('relative strength ranks 1 to 99 inside each market, with half-even rounding',
   assert.ok(r['MID.NS'] > 1 && r['MID.NS'] < 99);
   assert.strictEqual(r.AAPL, 1);
   assert.strictEqual(I.rsScore({ r3m: 0.1, r6m: null, r1y: 0.5 }), 0.4 * 0.1 + 0.2 * 0.1 + 0.4 * 0.5);
+
+  // liquidity hygiene: 10 liquid stocks + dead/illiquid stocks
+  const liqRows = Array.from({ length: 10 }, (_, i) => ({
+    s: `L${i}.NS`, r3m: 0.1 * i, r6m: 0.1 * i, r1y: 0.1 * i, market: 'IN', liquid: true
+  }));
+  const deadRows = [
+    { s: 'DEAD1.NS', r3m: -0.9, r6m: -0.9, r1y: -0.9, market: 'IN', liquid: false },
+    { s: 'DEAD2.NS', r3m: -0.8, r6m: -0.8, r1y: -0.8, market: 'IN', liquid: false }
+  ];
+  const rHygiene = I.rsRanks(liqRows.concat(deadRows));
+  assert.strictEqual(rHygiene['L0.NS'], 1);
+  assert.strictEqual(rHygiene['L9.NS'], 99);
 });
 
 t('Weinstein stage from weekly closes: rising 2, falling 4, flat after a rise 3, flat after a fall 1', () => {

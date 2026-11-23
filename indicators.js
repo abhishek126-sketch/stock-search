@@ -103,15 +103,38 @@ function pyRound(x) {
   return neg ? -r : r;
 }
 
-// rows: { s, r3m, r6m, r1y, market: 'IN' | 'US' }. Returns { symbol: rank 1–99 }. Ties keep input order.
-function rsRanks(rows) {
+// rows: { s, r3m, r6m, r1y, market: 'IN' | 'US', price, turnover, liquid }. Returns { symbol: rank 1–99 }. Ties keep input order.
+// Liquidity hygiene: when liquid/active flags are present, the percentile denominator pool strictly reflects
+// liquid active securities so halted or zero-volume tickers do not artificially inflate percentile scores.
+function rsRanks(rows, opts = {}) {
   const out = {};
   for (const market of ['IN', 'US']) {
     const scored = [];
-    for (const r of rows) { if (r.market !== market) continue; const v = rsScore(r); if (v != null) scored.push([r.s, v]); }
-    scored.sort((a, b) => a[1] - b[1]);
-    const n = scored.length;
-    scored.forEach(([s], i) => { out[s] = pyRound(1 + 98 * i / Math.max(1, n - 1)); });
+    for (const r of rows) {
+      if (r.market !== market) continue;
+      const v = rsScore(r);
+      if (v != null) {
+        let isLiquid = r.liquid !== false;
+        if (opts.strictLiquidity || r.turnover != null || r.price != null) {
+          if (market === 'IN') {
+            if (r.price != null && r.price < 50) isLiquid = false;
+            if (r.turnover != null && r.turnover < 2e7) isLiquid = false;
+          }
+        }
+        scored.push([r.s, v, isLiquid]);
+      }
+    }
+    const liquidUniverse = scored.filter(x => x[2]);
+    const denominatorPool = liquidUniverse.length >= 10 ? liquidUniverse : scored;
+    denominatorPool.sort((a, b) => a[1] - b[1]);
+    const n = denominatorPool.length;
+    const poolScores = denominatorPool.map(x => x[1]);
+    for (const [s, v] of scored) {
+      let idx = 0;
+      while (idx < n && poolScores[idx] < v) idx++;
+      if (idx === n) idx = n - 1;
+      out[s] = pyRound(1 + 98 * idx / Math.max(1, n - 1));
+    }
   }
   return out;
 }

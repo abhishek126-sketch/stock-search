@@ -32,6 +32,7 @@
     const used = new Map(open.filter(t => t.theme).map(t => [t.theme, t.s])), picks = [], skipped = [];
     const openInv = inv, openRisk = risk;
     const slip = o.slip || 0;
+    const advCapPct = o.advCapPct ?? o.maxAdvPct ?? null;
     for (const b of buy) {
       const th = b.theme, E = b.plan.E, R = b.plan.R;
       const worstE = slip ? E * (1 + slip) : E;
@@ -40,6 +41,10 @@
       if (th && used.has(th)) { skipped.push([b, `same sector as ${String(used.get(th)).replace(/\.(NS|BO)$/, '')} (${th}) — one bet, not two`]); continue; }
       if (n >= nMax) { skipped.push([b, `position limit reached (${nMax} for this capital)`]); continue; }
       const lim = [[riskAmt / worstR, 'risk per trade'], [posCap / worstE, `${o.posPct}% per-stock limit`], [(expCap - inv) / worstE, `${o.exposure}% exposure cap`], [(maxRiskAmt - risk) / worstR, `${o.maxRisk}% total-risk limit`]];
+      const adv = b.adv || (b.plan && b.plan.adv) || b.avgVol;
+      if (advCapPct && isFinite(adv) && adv > 0) {
+        lim.push([Math.floor(adv * advCapPct), `${(advCapPct * 100).toFixed(1)}% ADV liquidity cap`]);
+      }
       const q = Math.floor(Math.min(...lim.map(x => x[0]))), bind = lim.reduce((a, x) => x[0] < a[0] ? x : a)[1];
       if (!(q >= 1)) { skipped.push([b, `no room left: ${bind}${worstE > posCap ? ` (one share costs ₹${Math.round(worstE).toLocaleString('en-IN')})` : ''}`]); continue; }
       if (q * worstR < 0.5 * riskAmt) { skipped.push([b, `only ${q} share${q === 1 ? '' : 's'} fit (₹${Math.round(q * worstE).toLocaleString('en-IN')}) under the ${bind} — too small to be worth it`]); continue; }

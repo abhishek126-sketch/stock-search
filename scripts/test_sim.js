@@ -62,6 +62,17 @@ SE.advance(B, '2026-01-05', { Z: [0, 99, 99.5, 94, 95, 1] }, { Z: { e20: 97, lo5
 const t = B.closed[0];
 ok(t && near(t.gross, -500) && t.net < -500 && t.R < -1, 'stopped out: gross −₹500 (−1R), net worse after charges (' + (t && t.net) + ', ' + (t && t.R) + 'R)');
 
+// dividend accounting on open position held across ex-date
+const Bdiv = SE.newBook(100000);
+Bdiv.pending = [{ s: 'DIVCO', E: 100, SL: 95, T1: 110, T3: 120, q: 100, theme: 'X', setup: 'continuation', grade: 'A', conf: 70, regime: 'C' }];
+SE.advance(Bdiv, '2026-02-01', { DIVCO: [0, 99, 101, 99, 100.5, 1] }, { DIVCO: { e20: 97, lo5: 98 } });
+const cashBeforeDiv = Bdiv.cash;
+SE.advance(Bdiv, '2026-02-02', { DIVCO: [0, 96, 98, 96, 97, 1] }, { DIVCO: { e20: 97, lo5: 96 } }, { DIVCO: 5 });
+ok(near(Bdiv.cash, cashBeforeDiv + 500), 'cash credited with ₹500 dividend on ex-date');
+SE.advance(Bdiv, '2026-02-03', { DIVCO: [0, 96, 96, 94, 95, 1] }, { DIVCO: { e20: 96, lo5: 94 } });
+const tDiv = Bdiv.closed[0];
+ok(tDiv && tDiv.divs === 500 && near(tDiv.gross, 0), 'gross P&L reflects ₹500 dividend offsetting -₹500 capital loss');
+
 // track.js: two evenings in a temp data folder
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'trk-')); fs.mkdirSync(path.join(dir, 's'));
 const day = d => Math.floor(Date.parse(d + 'T03:45:00Z') / 1000);
@@ -94,6 +105,12 @@ ok(PP.slLimit(95) === 94.05, 'stop-limit = 1% under the stop');
 // worst-case limit slippage sizing in buildPortfolio
 let rSlip = PP.buildPortfolio([mk('A', 500, 25, 80, 'X')], { capital: 100000, riskPct: 1, maxRisk: 5, posPct: 25, exposure: 50, slip: 0.005 });
 ok(rSlip.picks[0].q === 36, 'with 0.5% slip: worst risk = 25 + 2.5 = 27.5, sizing ₹1,000 ÷ 27.5 → 36 shares');
+
+// ADV liquidity cap in buildPortfolio
+let rAdv = PP.buildPortfolio([{ ...mk('L', 500, 25, 80, 'X'), adv: 3000 }], { capital: 100000, riskPct: 1, maxRisk: 5, posPct: 25, exposure: 50, advCapPct: 0.01, costs: PP.BROKERS.zerodha });
+ok(rAdv.picks[0].q === 30, '1% ADV cap on ADV 3,000 limits size to 30 shares (instead of 40)');
+let rAdvSkip = PP.buildPortfolio([{ ...mk('L', 500, 25, 80, 'X'), adv: 1000 }], { capital: 100000, riskPct: 1, maxRisk: 5, posPct: 25, exposure: 50, advCapPct: 0.01, costs: PP.BROKERS.zerodha });
+ok(!rAdvSkip.picks.length && /ADV liquidity cap/.test(rAdvSkip.skipped[0][1]), '1% ADV cap on ADV 1,000 permits only 10 shares (< 0.5R) → skipped');
 
 // the app's advice and the simulator's exit rules agree
 const ind = { e20: 104, lo5: 106 }, tp = { entry: 100, sl: 100, R0: 5, t1: 110, sold: true, rem: 5 };

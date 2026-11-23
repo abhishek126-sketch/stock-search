@@ -6,11 +6,11 @@
 const PP = require('../planport.js');
 const r2 = v => Math.round(v * 100) / 100;
 
-function newBook(capital, opts = {}) { return { capital, cash: capital, open: [], pending: [], closed: [], curve: [], fees: 0, missed: 0, filled: 0, opts }; }
+function newBook(capital, opts = {}) { return { capital, cash: capital, open: [], pending: [], closed: [], curve: [], fees: 0, divs: 0, missed: 0, filled: 0, opts }; }
 const equity = (B, px) => B.cash + B.open.reduce((s, p) => s + p.rem * (px(p.s) ?? p.last ?? p.entry), 0);
 
-// bars: sym → [t, o, h, l, c, v] for this session (missing = no trade); ind: sym → {e20, lo5} after this close
-function advance(B, day, bars, ind) {
+// bars: sym → [t, o, h, l, c, v] for this session (missing = no trade); ind: sym → {e20, lo5} after this close; divs: sym → dividend per share on ex-date
+function advance(B, day, bars, ind, divs = {}) {
   const costs = B.opts.costs || PP.COSTS, done = [];
   const exitTrade = (p, sells) => { for (const x of sells) { const v = x.qty * x.px, f = PP.sellCost(v, costs); B.cash += v - f; B.fees += f; p.fees += f; p.sells.push([day, x.qty, r2(x.px), x.why]); } };
   // 1. fills of the orders placed last evening
@@ -29,14 +29,20 @@ function advance(B, day, bars, ind) {
   // 2. positions held from earlier sessions
   for (const p of B.open.slice()) {
     if (p.d0 === day) continue;
+    if (divs && divs[p.s] > 0) {
+      const d = p.rem * divs[p.s];
+      B.cash += d;
+      B.divs = (B.divs || 0) + d;
+      p.divs = (p.divs || 0) + d;
+    }
     const bar = bars[p.s]; if (!bar) continue;                  // no trade today (holiday for this stock / suspended)
     exitTrade(p, PP.manageDay(p, bar, ind[p.s])); p.last = bar[4];
     if (p.rem <= 0) { B.open.splice(B.open.indexOf(p), 1); done.push(p); }
   }
   for (const p of done) {
-    const gross = p.sells.reduce((s, x) => s + x[1] * (x[2] - p.entry), 0), net = gross - p.fees, risk = p.qty * p.R0;
+    const gross = p.sells.reduce((s, x) => s + x[1] * (x[2] - p.entry), 0) + (p.divs || 0), net = gross - p.fees, risk = p.qty * p.R0;
     B.closed.push({ s: p.s, setup: p.setup, grade: p.grade, conf: p.conf, regime: p.regime, cl: p.cl, theme: p.theme, d0: p.d0, d1: day, days: p.days, entry: r2(p.entry), plannedE: p.plannedE, qty: p.qty, sl0: p.sl0,
-      gross: r2(gross), fees: r2(p.fees), net: r2(net), R: r2(net / risk), Rg: r2(gross / risk), exit: p.sells[p.sells.length - 1][3], sells: p.sells });
+      gross: r2(gross), fees: r2(p.fees), divs: r2(p.divs || 0), net: r2(net), R: r2(net / risk), Rg: r2(gross / risk), exit: p.sells[p.sells.length - 1][3], sells: p.sells });
   }
   // 3. mark to the close
   B.curve.push([day, Math.round(equity(B, s => bars[s] ? bars[s][4] : null))]);

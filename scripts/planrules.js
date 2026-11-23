@@ -223,7 +223,7 @@ function evaluate(d, row, x, ctx) {
     if (room !== null && room < RULES.minRR) rrWhy = `reward to the 52-week high ${inrS(hi52)} is only ${room.toFixed(1)}R (needs ${RULES.minRR}R)`;
     const st = (ctx.stats && ctx.stats[setup]) || null;
     const T = k => r2(tickDn(E + k * R));
-    plan = { E: r2(E), SL: r2(SL), R: r2(R), Rpct: r2(R / E * 100), moved, T1: T(2), T2: T(3), T3: T(4), T4: T(6), be: T(1), room: room && r2(room),
+    plan = { E: r2(E), SL: r2(SL), R: r2(R), Rpct: r2(R / E * 100), moved, T1: T(2), T2: T(3), T3: T(4), T4: T(6), be: T(1), room: room && r2(room), adv: v50 ? Math.round(v50) : null,
       ent: { aggr: r2(p), norm: r2(E), cons: setup === 'breakout' ? r2(tickUp(hi20 * 1.005)) : r2(tickUp(Math.max(E, e20 * 1.01))),
         ideal: setup === 'breakout' ? [tk(hi20), tk(hi20 * 1.01)] : [tk(e20 * 0.995), tk(e20 * 1.012)] },
       stops: { tech: r2(tickDn(E - 1.5 * atr)), struct: r2(SL), cons: r2(tickDn((setup === 'continuation' ? e20 : e50) - 0.5 * atr)) },
