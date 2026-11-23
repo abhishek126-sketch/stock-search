@@ -34,6 +34,8 @@ t('RSI is 100 on a one-way rise and matches the plan series', () => {
   assert.strictEqual(I.rsi(up), 100);
   assert.strictEqual(I.rsi([1, 2]), null);
   assert.deepStrictEqual(P.rsiS(up), I.rsiSeries(up));
+  const flat = Array.from({ length: 20 }, () => 100);
+  assert.strictEqual(I.rsi(flat), 50); // Flat series returns neutral 50, not 100
 });
 
 t('ATR uses high, low and the previous close', () => {

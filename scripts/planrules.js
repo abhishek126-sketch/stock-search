@@ -110,7 +110,7 @@ function evaluate(d, row, x, ctx) {
   const e20 = E20[n], e50 = E50[n], e200 = E200[n], rsi = RS[n];
   const vb = b.slice(-51, -1).map(x => x[5]).filter(x => x > 0), v50 = vb.length >= 20 ? vb.reduce((s, x) => s + x, 0) / vb.length : null;
   const v5 = b.slice(-6, -1).reduce((s, x) => s + x[5], 0) / 5, vr = v50 && v ? v / v50 : null, tov = v50 ? v50 * p : 0;
-  const atr = atrW(b.slice(-40)), atrp = atr / p * 100;
+  const atr = atrW(b), atrp = atr / p * 100;
   const H = b.map(x => x[2]), L = b.map(x => x[3]);
   const hi20 = Math.max(...H.slice(-21, -1)), lo5 = Math.min(...L.slice(-5)), lo10 = Math.min(...L.slice(-10));
   const base = b.slice(-16, -1), bHi = Math.max(...base.map(x => x[2])), bLo = Math.min(...base.map(x => x[3])), bRng = (bHi / bLo - 1) * 100;
@@ -174,6 +174,7 @@ function evaluate(d, row, x, ctx) {
   ts += rs >= 85 ? 15 : rs >= 75 ? 10 : 5; tn.push(`relative strength ${rs} (beats ${rs}% of stocks)`);
   const offHi = p / hi52 - 1; if (offHi > -0.05) { ts += 10; tn.push('within 5% of the 52-week high'); } else if (offHi > -0.12) ts += 6;
   if (rsi >= 50 && rsi <= 72) ts += 5;
+  if (ext20 > 5) { ts -= Math.min(10, Math.round((ext20 - 5) * 2)); tn.push(`extended ${ext20.toFixed(1)}% above 20 EMA`); }
   // industry strength: industries with fewer than 6 liquid stocks are not ranked (plan.js), so they get the neutral middle
   const ir = ctx.ind || NEUTRAL_IND;
   if (ir.rank <= ir.of / 3) { ts += 10; tn.push(`strong industry (#${ir.rank} of ${ir.of})`); } else if (ir.rank <= ir.of * 2 / 3) ts += 5;

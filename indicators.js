@@ -52,12 +52,12 @@ function rsiSeries(values, n = 14) {
   let g = 0, l = 0;
   for (let i = 1; i <= n; i++) { const d = values[i] - values[i - 1]; if (d > 0) g += d; else l -= d; }
   g /= n; l /= n;
-  out[n] = l ? 100 - 100 / (1 + g / l) : 100;
+  out[n] = (g === 0 && l === 0) ? 50 : (l ? 100 - 100 / (1 + g / l) : 100);
   for (let i = n + 1; i < values.length; i++) {
     const d = values[i] - values[i - 1];
     g = (g * (n - 1) + Math.max(d, 0)) / n;
     l = (l * (n - 1) + Math.max(-d, 0)) / n;
-    out[i] = l ? 100 - 100 / (1 + g / l) : 100;
+    out[i] = (g === 0 && l === 0) ? 50 : (l ? 100 - 100 / (1 + g / l) : 100);
   }
   return out;
 }

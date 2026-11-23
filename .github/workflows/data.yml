@@ -88,6 +88,9 @@ jobs:
         if: env.SKIP != '1'
         run: python3 scripts/crosscheck.py || echo 'cross-check skipped'
         env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
+      - name: Pre-publish data validation
+        if: env.SKIP != '1'
+        run: node scripts/validate.js || (echo "::error::Data validation failed - aborting publish" && exit 1)
       - if: env.SKIP != '1'
         run: bash .github/workflows/publish.sh all
       - name: Daily plan check (red run if the plan was not updated)
