@@ -433,6 +433,7 @@ function render() {
   ${typeof stageCard === 'function' ? stageCard(d) : ''}
   ${typeof autoSection === 'function' ? autoSection(d, k, A, RPT.R) : ''}
   ${typeof corpPlaceholder === 'function' ? corpPlaceholder(d) : ''}
+  ${!/\.(NS|BO)$/.test(d.symbol || '') && !d.etf && typeof avwapCard === 'function' ? avwapCard(d) : ''}
   ${d.etf ? '' : QUARTCARD}
   ${d.etf ? '' : (typeof moatSection === 'function' ? moatSection(d, k) : '')}
   ${RPT.html}`;
