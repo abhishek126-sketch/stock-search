@@ -1439,24 +1439,34 @@ async function momCardFill(d) {
 
 // ---------- Feature 2: Anchored VWAP (AVWAP) & Institutional Volume Profile Shelves ----------
 function avwapCard(d) {
-  if (!d || d.etf || !Array.isArray(d.ohlc) || d.ohlc.length < 15 || typeof IND === 'undefined' || !IND.avwap || !IND.volumeProfile) return '';
-  const ohlc = d.ohlc;
+  if (!d || d.etf || !Array.isArray(d.ohlc) || typeof IND === 'undefined' || !IND.avwap || !IND.volumeProfile) return '';
+  // bad bars (high / low / close 0 or missing) would anchor on junk or make the volume profile fail — drop them, as compute() does
+  const ohlc = d.ohlc.filter(b => Array.isArray(b) && b[2] > 0 && b[3] > 0 && b[4] > 0);
+  if (ohlc.length < 15) return '';
   const p = isNum(d.price) ? d.price : ohlc[ohlc.length - 1][4];
   const isUS = !/\.(NS|BO)$/.test(d.symbol || '');
   const pFmt = v => isUS ? ('$' + Number(v || 0).toFixed(2)) : inr2(v);
-  const lookback = Math.min(ohlc.length, 250);
-  const sample = ohlc.slice(-lookback);
-  const offset = ohlc.length - lookback;
+  const nBars = ohlc.length;   // the server keeps only ~80 daily OHLC bars (about 4 months)
 
-  // 1. 52w High Anchor
+  // 1. High anchor / 2. Low anchor: highest high and lowest low in the bars we have
   let maxH = -Infinity, maxIdx = 0;
-  // 2. 52w Low Anchor
   let minL = Infinity, minIdx = 0;
-  for (let i = 0; i < sample.length; i++) {
-    const b = sample[i];
-    if (b[2] > maxH) { maxH = b[2]; maxIdx = offset + i; }
-    if (b[3] < minL) { minL = b[3]; minIdx = offset + i; }
+  for (let i = 0; i < nBars; i++) {
+    const b = ohlc[i];
+    if (b[2] > maxH) { maxH = b[2]; maxIdx = i; }
+    if (b[3] < minL) { minL = b[3]; minIdx = i; }
   }
+  // They are the real 52-week high / low only if those fall inside these bars — compare with the full-year range
+  // (server hl52 = intraday [hi, lo] over 365 days; else daily closes from hist). Otherwise label them as the recent high / low.
+  const yrFrom = ohlc[nBars - 1][0] - 365 * 86400;
+  const yrCl = (d.hist || []).filter(x => x && x[0] >= yrFrom && x[1] > 0).map(x => x[1]);
+  const hasHL = Array.isArray(d.hl52) && d.hl52[0] > 0 && d.hl52[1] > 0;
+  const hi52 = hasHL ? d.hl52[0] : (yrCl.length > 150 ? Math.max(...yrCl) : null);
+  const lo52 = hasHL ? d.hl52[1] : (yrCl.length > 150 ? Math.min(...yrCl) : null);
+  const hiIs52 = hi52 != null && maxH >= hi52 * 0.995;
+  const loIs52 = lo52 != null && minL <= lo52 * 1.005;
+  const hiLbl = hiIs52 ? '52w High' : `${nBars}-day High`;
+  const loLbl = loIs52 ? '52w Low' : `${nBars}-day Low`;
 
   const avHi = IND.avwap(ohlc, maxIdx);
   const avLo = IND.avwap(ohlc, minIdx);
@@ -1468,12 +1478,15 @@ function avwapCard(d) {
     const pastEarns = d.profile.earnDates.filter(t => t <= nowSec).sort((a, b) => b - a);
     if (pastEarns.length) {
       const latestEarn = pastEarns[0];
-      let eIdx = 0;
-      for (let i = 0; i < ohlc.length; i++) {
-        if (ohlc[i][0] <= latestEarn) eIdx = i;
-        else break;
+      // results older than the first bar we have → no earnings anchor (index 0 would be an unrelated date labelled "Earnings")
+      if (ohlc[0][0] <= latestEarn) {
+        let eIdx = 0;
+        for (let i = 0; i < ohlc.length; i++) {
+          if (ohlc[i][0] <= latestEarn) eIdx = i;
+          else break;
+        }
+        avEarn = IND.avwap(ohlc, eIdx);
       }
-      avEarn = IND.avwap(ohlc, eIdx);
     }
   }
 
@@ -1493,15 +1506,20 @@ function avwapCard(d) {
   const aboveVA = p > vp.vah;
 
   const biasBadge = aboveHi
-    ? `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#dcfce7;color:#15803d;font-weight:700">Bullish · Above 52W-High AVWAP</span>${swq('avwap_bull')}</span>`
+    ? `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#dcfce7;color:#15803d;font-weight:700">Bullish · Above ${hiIs52 ? '52W-High' : 'Recent-High'} AVWAP</span>${swq('avwap_bull')}</span>`
     : (abovePoc
       ? `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#eff6ff;color:#1e40af;font-weight:700">Accumulation · Above POC</span>${swq('avwap_acc')}</span>`
       : `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#fee2e2;color:#b91c1c;font-weight:700">Below POC &amp; High AVWAP · Resistance Overhead</span>${swq('avwap_resist')}</span>`);
 
   const maxBinVol = Math.max(...vp.bins.map(b => b.vol), 1);
+  // exactly one row carries the price marker: clamp a price outside the bars' range (e.g. a breakout today) to the
+  // top / bottom row, and use half-open bins so a price on a shared edge can't match two rows
+  const nb = vp.bins.length, pIn = Math.min(Math.max(p, vp.minP), vp.maxP);
+  const curIdx = Math.min(nb - 1, Math.max(0, Math.floor((pIn - vp.minP) / ((vp.maxP - vp.minP) / nb))));
+  const curTxt = p > vp.maxP ? '▲ Price' : (p < vp.minP ? '▼ Price' : '◄ Price');
   const shelfRows = vp.bins.slice().reverse().map(b => {
     const isPocBin = Math.abs(b.mid - vp.poc) < (vp.maxP - vp.minP) / 32;
-    const isCurBin = p >= b.low && p <= b.high;
+    const isCurBin = b === vp.bins[curIdx];
     const inValArea = b.mid >= vp.val && b.mid <= vp.vah;
     const barWidth = Math.max(3, Math.round((b.vol / maxBinVol) * 100));
     const bgCol = isPocBin ? '#f59e0b' : (inValArea ? '#3b82f6' : '#cbd5e1');
@@ -1513,7 +1531,7 @@ function avwapCard(d) {
           ${isPocBin ? '<span style="position:absolute;left:4px;top:0;font-size:9.5px;font-weight:700;color:#78350f">POC</span>' : ''}
         </div>
         <span style="width:36px;font-size:11px;color:var(--mut,#64748b)">${b.pct.toFixed(0)}%</span>
-        <span style="width:60px;font-size:11px;font-weight:600;color:${isCurBin ? '#dc2626' : 'transparent'}">${isCurBin ? '◄ Price' : ''}</span>
+        <span style="width:60px;font-size:11px;font-weight:600;color:${isCurBin ? '#dc2626' : 'transparent'}">${isCurBin ? curTxt : ''}</span>
       </div>
     `;
   }).join('');
@@ -1529,8 +1547,8 @@ function avwapCard(d) {
       </p>
 
       <div class="kv">
-        <div><span>AVWAP (52w High)${swq('avwap')}</span><b>${pFmt(avHi.current)} <small class="${distHi >= 0 ? 'up' : 'dn'}">(${sgn(distHi, 1)}%)</small></b></div>
-        <div><span>AVWAP (52w Low)${swq('avwap')}</span><b>${pFmt(avLo.current)} <small class="${distLo >= 0 ? 'up' : 'dn'}">(${sgn(distLo, 1)}%)</small></b></div>
+        <div><span>AVWAP (${hiLbl})${swq('avwap')}</span><b>${pFmt(avHi.current)} <small class="${distHi >= 0 ? 'up' : 'dn'}">(${sgn(distHi, 1)}%)</small></b></div>
+        <div><span>AVWAP (${loLbl})${swq('avwap')}</span><b>${pFmt(avLo.current)} <small class="${distLo >= 0 ? 'up' : 'dn'}">(${sgn(distLo, 1)}%)</small></b></div>
         ${avEarn ? `<div><span>AVWAP (Earnings)${swq('avwap')}</span><b>${pFmt(avEarn.current)} <small class="${distEarn >= 0 ? 'up' : 'dn'}">(${sgn(distEarn, 1)}%)</small></b></div>` : ''}
         <div><span>Point of Control (POC)${swq('poc')}</span><b style="color:#d97706">${pFmt(vp.poc)} <small class="${distPoc >= 0 ? 'up' : 'dn'}">(${sgn(distPoc, 1)}%)</small></b></div>
         <div><span>Value Area (VAL – VAH)${swq('valuearea')}</span><b>${pFmt(vp.val)} – ${pFmt(vp.vah)}</b></div>
@@ -1548,23 +1566,13 @@ function avwapCard(d) {
           ${shelfRows}
         </div>
       </details>
-      <p class="src">Calculated on official closing and daily volume bars. POC = price where the largest volume traded over the last 160 sessions. Educational tool, not a recommendation.</p>
+      <p class="src">Calculated on official closing and daily volume bars. AVWAPs and the volume profile use the last ${nBars} sessions (about ${Math.max(1, Math.round(nBars / 21))} months) — the daily bars the app keeps; POC = price where the largest volume traded in that period. Educational tool, not a recommendation.</p>
     </div>
   `;
 }
 
 // ---------- glossary terms used here ----------
 if (typeof GL !== 'undefined') Object.assign(GL, {
-  avwap: ['Anchored VWAP (AVWAP)', 'Volume-Weighted Average Price calculated from a chosen anchor event (such as a 52-week high, 52-week low, or quarterly earnings announcement) rather than the start of the trading day. It represents the true average cost basis of all market participants who entered the stock since that specific catalyst or turning point.', 'Stock fell from a 52-week peak of ₹1,000 to ₹800, then rallied back to ₹920. If AVWAP anchored from the ₹1,000 peak sits at ₹890, all buyers since that high are now net in profit (+₹30/share). When the stock pulls back towards ₹890, those buyers defend their gains and new institutions accumulate, turning ₹890 into strong support.', 'Good: Price holding above a rising AVWAP anchored from a major swing low or earnings gap-up — buyers are in control and pullbacks offer low-risk entries. Bad: Price stuck beneath a falling AVWAP anchored from a major high — trapped overhead buyers look to sell at breakeven, creating supply resistance.'],
-  volprofile: ['Volume profile & shelves', 'A horizontal histogram displaying the total volume of shares traded at specific price intervals over a given lookback period (here 160 sessions), rather than volume over time. Dense "volume shelves" mark where heavy institutional accumulation or distribution occurred, acting as major support and resistance zones.', 'Between ₹450 and ₹550, huge volume traded around ₹500 (Point of Control) while very little volume traded between ₹530 and ₹545 (Low Volume Node). Price moves slowly near ₹500 as orders are absorbed, but slices quickly through ₹530–545 due to lack of historical liquidity.', 'Good: Entering swing pullbacks that bounce off a high-volume shelf (support) with the primary trend. Bad: Buying directly underneath a heavy volume shelf without waiting for a breakout — the massive overhead supply will often stall momentum.'],
-  poc: ['Point of Control (POC)', 'The exact price level with the single highest traded volume within the Volume Profile period. It is the market\'s "fair value consensus" and the strongest institutional liquidity shelf.', 'In the past 160 trading sessions, more shares were exchanged at ₹2,450 than any other price → ₹2,450 is the POC.', 'Trading above POC indicates buyers have accepted higher prices and the POC acts as structural support. Trading below POC indicates sellers dominate and rallies towards the POC will meet heavy supply.'],
-  valuearea: ['Value Area (VAH / VAL)', 'The price band enclosing 70% of total traded volume during the profile period (representing 1 standard deviation in auction market theory). VAH (Value Area High) serves as the upper boundary/resistance, and VAL (Value Area Low) serves as the lower boundary/support.', 'VAL is ₹320 and VAH is ₹360. A current price of ₹340 is inside the value area (rotational equilibrium).', 'Price breaking out above VAH indicates institutional expansion and trend acceleration. Price failing at VAH and falling back inside the value area typically rotates downward toward VAL.'],
-  avwap_resist: ['Below POC & High AVWAP · Resistance Overhead', 'The stock is trading below both its Point of Control (where the most volume was traded) and its 52-week High AVWAP. This means the majority of recent buyers are sitting at an unrealised loss. As the stock rallies back up, these trapped buyers tend to sell to get their money back, creating a strong supply ceiling (resistance overhead).', 'Stock fell from ₹1,000 to ₹800, with High AVWAP at ₹910 and POC at ₹870. The stock is currently at ₹820. Rallies to ₹870–910 will meet persistent selling from trapped buyers.', 'Bad for breakout buying. Do not chase long trades here. Wait for the stock to base and cross above the POC and High AVWAP on heavy volume before buying.'],
-  avwap_bull: ['Bullish · Above 52W-High AVWAP', 'The stock is trading above the volume-weighted average price of everyone who bought since the 52-week peak. Virtually all buyers who entered over the entire pullback or base are in profit.', '52-week high was ₹500, High AVWAP is ₹460, and price is now ₹480. Buyers who bought between ₹400 and ₹460 have profits, eliminating overhead trapped supply.', 'Good: High probability environment for swing longs. Pullbacks to the High AVWAP often offer ideal low-risk entries.'],
-  avwap_acc: ['Accumulation · Above POC', 'The stock is trading above its Point of Control (POC), meaning buyers have absorbed the largest volume shelf of the last 160 sessions and pushed price above fair value consensus.', 'POC is at ₹250 (where 35% of volume traded) and price is ₹262. The ₹250 shelf now acts as structural support.', 'Good: Shows institutional demand. As long as price holds above the POC, the trend favors buyers.'],
-  va_expand: ['Accepted Above Value (Expansion)', 'Price has closed and held above the Value Area High (VAH) — higher than 70% of historical volume. Market participants agree on higher valuation, initiating a directional markup phase.', 'Value Area High was ₹1,200. Price closes at ₹1,240 on expanding volume.', 'Good: Strong bullish breakout. Ride the trend with a trailing stop below VAH or the 20 EMA.'],
-  va_inside: ['Rotational Inside Value Area', 'Price is fluctuating between the Value Area Low (VAL) and Value Area High (VAH). 70% of recent volume traded within this bracket; the market is in balanced consolidation without a clear trend.', 'Stock bounces between ₹320 (VAL) and ₹360 (VAH), currently at ₹340.', 'Neutral: Avoid buying in the middle of value. Buy only near VAL support or wait for a confirmed breakout above VAH.'],
-  va_below: ['Below Value (Discount / Heavy)', 'Price is trading below the Value Area Low (VAL). The market rejected previous fair value and sellers pushed price into an oversold or markdown zone.', 'VAL was ₹800; price is at ₹750. Volume is thin and institutions have not established a support base.', 'Bad: Trapped supply overhead. Do not buy simply because it looks cheap; wait for price to climb back inside value before considering longs.'],
   regime: ['Market regime', 'A label for the state of the whole market — Strong Bull, Bull, Neutral, Weak or Bear — from where Nifty is versus its averages, how many stocks are rising, and how nervous traders are (India VIX). It decides how much of your money may be invested at all.', 'Nifty above a rising 200 EMA, 70% of stocks above their 50 EMA, VIX 13 → Strong Bull, up to 100% invested.', 'Good: trade more in Bull markets. Bad: buying a lot when the market is Weak or Bear — most stocks fall with it.'],
   expcap: ['Maximum exposure', 'The most of your capital that should be in stocks at once, set by the market regime: Strong Bull 100%, Bull 75%, Neutral 50%, Weak 25%, Bear 0–10%. The rest stays as cash.', '₹50,000 capital in a Neutral market → at most ₹25,000 in stocks.', 'Good: following it — cash protects you when the market turns. Bad: being fully invested in a weak market.'],
   tgrade: ['Trend grade', 'A school-style grade (A+, A, B, C, D) for how healthy a stock\'s uptrend is: averages stacked in order and rising, higher highs and lows, strength versus other stocks, closeness to its 52-week high, and a strong industry. Only A+ and A are bought.', 'Price > 20 > 50 > 200 EMA, all rising, RS 90, 2% from its high → A+.', 'Good: A+ / A. Bad: C / D — the trend is weak or broken; a "cheap" price there is often a trap.'],

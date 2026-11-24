@@ -213,7 +213,9 @@ function avwap(ohlc, anchorIdx = 0) {
 // Computes horizontal volume distribution across price buckets to find Point of Control (POC)
 function volumeProfile(ohlc, numBins = 16) {
   if (!Array.isArray(ohlc) || ohlc.length < 5) return null;
-  const sample = ohlc.slice(-160);
+  // skip bad bars (high / low / close 0 or missing) — one low of 0 would otherwise make minP 0 and the whole profile null
+  const sample = ohlc.slice(-160).filter(b => Array.isArray(b) && b[2] > 0 && b[3] > 0 && b[4] > 0);
+  if (sample.length < 5) return null;
   let minP = Infinity, maxP = -Infinity, totalVol = 0;
   for (const b of sample) {
     if (!b) continue;
