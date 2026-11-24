@@ -1493,10 +1493,10 @@ function avwapCard(d) {
   const aboveVA = p > vp.vah;
 
   const biasBadge = aboveHi
-    ? `<span class="tag" style="background:#dcfce7;color:#15803d;font-weight:700">Bullish · Above 52W-High AVWAP</span>${swq('avwap_bull')}`
+    ? `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#dcfce7;color:#15803d;font-weight:700">Bullish · Above 52W-High AVWAP</span>${swq('avwap_bull')}</span>`
     : (abovePoc
-      ? `<span class="tag" style="background:#eff6ff;color:#1e40af;font-weight:700">Accumulation · Above POC</span>${swq('avwap_acc')}`
-      : `<span class="tag" style="background:#fee2e2;color:#b91c1c;font-weight:700">Below POC &amp; High AVWAP · Resistance Overhead</span>${swq('avwap_resist')}`);
+      ? `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#eff6ff;color:#1e40af;font-weight:700">Accumulation · Above POC</span>${swq('avwap_acc')}</span>`
+      : `<span style="display:inline-flex;align-items:center;gap:3px"><span class="tag" style="margin:0;background:#fee2e2;color:#b91c1c;font-weight:700">Below POC &amp; High AVWAP · Resistance Overhead</span>${swq('avwap_resist')}</span>`);
 
   const maxBinVol = Math.max(...vp.bins.map(b => b.vol), 1);
   const shelfRows = vp.bins.slice().reverse().map(b => {
