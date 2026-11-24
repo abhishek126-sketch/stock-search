@@ -414,6 +414,347 @@ function stopDialog(id, sug, done) {
 // lowering a stop: ask once (inline, no browser dialog)
 function confirm2(d) { const m = d.querySelector('#stMsg'); if (m.dataset.ok) return true; m.dataset.ok = '1'; m.innerHTML = '<span class="dn">That is <b>lower</b> than the current stop — it adds risk. Press Save again if you really mean it.</span>'; return false; }
 
+// ---------- Native HTML5 Push Notifications for Active Trades ----------
+function tradeNotificationsCheck(openTrades, X) {
+  if (typeof Notification === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted' || !Array.isArray(openTrades)) return;
+  const seen = LS.get('tradeAlertSeen', {});
+  let ch = false;
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const t of openTrades) {
+    const sym = plSym(t.s);
+    const [p] = typeof curPrice === 'function' ? curPrice(t.s) : [];
+    if (!isNum(p)) continue;
+    const R0 = t.R0 || (t.entry - t.sl0);
+    const x = X ? X[t.s] : null;
+    const tr = (x && isFinite(x.e20) && isFinite(x.lo5)) ? Math.max(x.e20, x.lo5) : null;
+
+    const fire = (kind, title, body) => {
+      const tag = `trnotif-${t.id}-${kind}-${today}`;
+      if (seen[tag]) return;
+      seen[tag] = Date.now();
+      ch = true;
+      if (typeof dispatchNativePushNotification === 'function') {
+        dispatchNativePushNotification(title, body, tag, () => {
+          if (typeof navTo === 'function') navTo('#swing');
+        });
+      } else {
+        try {
+          const n = new Notification(title, { body, icon: 'icon.svg', tag });
+          n.onclick = () => { if (window.focus) window.focus(); if (typeof navTo === 'function') navTo('#swing'); };
+        } catch {}
+      }
+      if (typeof setStatus === 'function') setStatus(`${title}: ${body}`);
+    };
+
+    // 1. Stop loss breach
+    if (p <= t.sl) {
+      fire('sl_hit', `🚨 Stop-Loss Hit: ${sym}`, `${sym} traded at ${inr2(p)}, breaching stop at ${inr2(t.sl)}.`);
+    }
+    // 2. Trailing stop or stop danger zone (within 1.5%)
+    else if (t.sold && t.sold.length > 0 && tr != null && p > tr && (p - tr) / p <= 0.015) {
+      fire('trail_warn', `⚠️ Trailing Stop Warning: ${sym}`, `${sym} (${inr2(p)}) is within ${((p - tr) / p * 100).toFixed(1)}% of trail level (${inr2(tr)}).`);
+    } else if (p > t.sl && (p - t.sl) / p <= 0.015) {
+      fire('sl_warn', `⚠️ Stop Danger Zone: ${sym}`, `${sym} (${inr2(p)}) is within ${((p - t.sl) / p * 100).toFixed(1)}% of stop (${inr2(t.sl)}).`);
+    }
+
+    // 3. Target 1 reached (+2R)
+    if (t.t1 != null && p >= t.t1 && !(t.sold || []).length) {
+      fire('t1_hit', `🎯 Target 1 Reached: ${sym}`, `${sym} hit ${inr2(p)} (Target 1: ${inr2(t.t1)}). Recommendation: sell half, trail the rest.`);
+    }
+
+    // 4. +1R breakeven threshold
+    if (R0 > 0 && p >= t.entry + R0 && t.sl < t.entry) {
+      fire('be_hit', `🛡️ Breakeven Trigger: ${sym}`, `${sym} reached +1R gain at ${inr2(p)}. Move stop to breakeven (${inr2(t.entry)}).`);
+    }
+  }
+
+  if (ch) LS.set('tradeAlertSeen', seen);
+}
+
+// ---------- GitHub Gist Private Cloud Sync ----------
+async function ghGist(path = '', opt = {}) {
+  const tok = (typeof LS !== 'undefined' ? LS.get('ghpat', '') : '') || '';
+  if (!tok) throw new Error('No GitHub Personal Access Token saved. Please add your token in Settings or ⚡ Update now.');
+  const r = await fetch('https://api.github.com/gists' + path, {
+    ...opt,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: 'Bearer ' + tok,
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(opt.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(opt.headers || {})
+    }
+  });
+  if (!r.ok) {
+    let m = '';
+    try { m = (await r.json()).message; } catch {}
+    throw new Error(r.status === 401 ? 'GitHub token invalid or expired (401).' : `GitHub Gist error ${r.status}: ${m}`);
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+async function syncTradesToGist() {
+  const tradesData = TR();
+  const fileContent = JSON.stringify({
+    v: 1,
+    app: 'Stock Search & Swing Trading App',
+    updatedAt: new Date().toISOString(),
+    tradeCount: (tradesData.trades || []).length,
+    trades: tradesData.trades || []
+  }, null, 2);
+
+  const payload = {
+    description: 'Stock Search App - Private Trade Journal Backup',
+    public: false,
+    files: {
+      'mytrades.json': { content: fileContent }
+    }
+  };
+
+  let gistId = LS.get('mytrades_gist_id', '');
+  let res = null;
+
+  if (gistId) {
+    try {
+      res = await ghGist('/' + gistId, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+    } catch (e) {
+      if (String(e.message).includes('404')) gistId = '';
+      else throw e;
+    }
+  }
+
+  if (!gistId) {
+    res = await ghGist('', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+    if (res && res.id) {
+      gistId = res.id;
+      LS.set('mytrades_gist_id', gistId);
+    }
+  }
+
+  const nowStr = new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+  LS.set('mytrades_gist_synced', nowStr);
+  return `✔ Synced ${(tradesData.trades || []).length} trades to Cloud Gist (${nowStr}).`;
+}
+
+async function restoreTradesFromGist() {
+  let gistId = LS.get('mytrades_gist_id', '');
+  if (!gistId) {
+    const list = await ghGist('?per_page=30');
+    if (Array.isArray(list)) {
+      const found = list.find(g => (g.files && g.files['mytrades.json']) || (g.description && g.description.includes('Stock Search App - Private Trade Journal')));
+      if (found) {
+        gistId = found.id;
+        LS.set('mytrades_gist_id', gistId);
+      }
+    }
+  }
+
+  if (!gistId) {
+    const inputId = prompt('Enter your Private GitHub Gist ID for mytrades:');
+    if (!inputId) throw new Error('Restore cancelled: no Gist ID provided.');
+    gistId = inputId.trim();
+    LS.set('mytrades_gist_id', gistId);
+  }
+
+  const res = await ghGist('/' + gistId);
+  if (!res || !res.files || !res.files['mytrades.json']) {
+    throw new Error('Gist found, but "mytrades.json" file is missing.');
+  }
+
+  const j = JSON.parse(res.files['mytrades.json'].content);
+  if (!j || !Array.isArray(j.trades)) {
+    throw new Error('Invalid cloud backup payload: missing trades array.');
+  }
+
+  const A2 = TR();
+  const ids = new Set((A2.trades || []).map(t => t.id));
+  let added = 0;
+  for (const t of j.trades) {
+    if (t && t.id && t.s) {
+      if (!ids.has(t.id)) {
+        A2.trades.push(t);
+        added++;
+      } else {
+        const idx = A2.trades.findIndex(x => x.id === t.id);
+        if (idx >= 0 && JSON.stringify(A2.trades[idx]) !== JSON.stringify(t)) {
+          A2.trades[idx] = t;
+          added++;
+        }
+      }
+    }
+  }
+
+  trSave(A2);
+  const nowStr = new Date().toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
+  LS.set('mytrades_gist_synced', nowStr);
+  if (typeof tradeAlertsSync === 'function') await tradeAlertsSync();
+  return `✔ Loaded ${j.trades.length} trades from Cloud Gist (${added} updated/restored).`;
+}
+
+// ---------- Expectancy & Compounding Simulator Component ----------
+function expectancySimHTML(J, cap) {
+  const wins = J.filter(j => j.pl > 0), losses = J.filter(j => j.pl < 0);
+  const actualW = J.length >= 5 ? Math.round(wins.length / J.length * 100) : 45;
+  const actualAvgWinR = wins.length ? wins.reduce((s, j) => s + j.R, 0) / wins.length : 2.2;
+  const actualAvgLossR = losses.length ? Math.abs(losses.reduce((s, j) => s + j.R, 0) / losses.length) : 1.0;
+  const actualPayoff = actualAvgLossR > 0 ? (actualAvgWinR / actualAvgLossR).toFixed(1) : '2.2';
+
+  return `
+    <div class="card" id="expSimCard" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0">🧮 Trade Expectancy &amp; Compounding Simulator</h2>
+        <span class="mut" style="font-size:12.5px">Real-time Mathematical Projection</span>
+      </div>
+      <p class="mut" style="font-size:13px;margin:6px 0 12px">
+        Simulate your strategy's compounding power and mathematical edge across a series of 50 to 200 trades. Adjust sliders to see projected equity and maximum drawdown risk bands.
+      </p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));gap:12px;margin-bottom:14px;background:var(--soft,#f8fafc);padding:12px;border-radius:10px;border:1px solid var(--line)">
+        <div>
+          <label style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:4px">
+            <span>Win Rate: <b id="simWVal">${actualW}%</b></span>
+            <small class="mut">30%–70%</small>
+          </label>
+          <input type="range" id="simW" min="30" max="70" value="${actualW}" step="1" style="width:100%">
+        </div>
+        <div>
+          <label style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:4px">
+            <span>Payoff Ratio: <b id="simRVal">${actualPayoff}:1</b></span>
+            <small class="mut">Avg Win / Loss</small>
+          </label>
+          <input type="range" id="simR" min="1.0" max="4.5" value="${actualPayoff}" step="0.1" style="width:100%">
+        </div>
+        <div>
+          <label style="display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:4px">
+            <span>Risk per Trade: <b id="simRiskVal">1.0%</b></span>
+            <small class="mut">0.5%–2.5%</small>
+          </label>
+          <input type="range" id="simRisk" min="0.5" max="2.5" value="1.0" step="0.1" style="width:100%">
+        </div>
+      </div>
+
+      <div class="kv" id="simStats"></div>
+
+      <div id="simTableWrap" style="margin-top:12px"></div>
+
+      <div style="margin-top:14px">
+        <div style="font-size:12.5px;font-weight:600;margin-bottom:6px;color:var(--ink)">Projected Equity Growth Curve (0 to 200 Trades)</div>
+        <div id="simChartWrap" style="width:100%;background:var(--soft,#f8fafc);border-radius:8px;border:1px solid var(--line);padding:8px;box-sizing:border-box"></div>
+      </div>
+    </div>
+  `;
+}
+
+function wireExpectancySim(box, cap) {
+  const card = box.querySelector('#expSimCard');
+  if (!card) return;
+
+  const wSlider = card.querySelector('#simW');
+  const rSlider = card.querySelector('#simR');
+  const riskSlider = card.querySelector('#simRisk');
+
+  const update = () => {
+    const W = +wSlider.value / 100;
+    const R = +rSlider.value;
+    const risk = +riskSlider.value / 100;
+    const C0 = cap > 0 ? cap : 1000000;
+
+    card.querySelector('#simWVal').textContent = `${Math.round(W * 100)}%`;
+    card.querySelector('#simRVal').textContent = `${R.toFixed(1)}:1`;
+    card.querySelector('#simRiskVal').textContent = `${(risk * 100).toFixed(1)}%`;
+
+    const sim = typeof PlanPort !== 'undefined' && PlanPort.calcExpectancy ? PlanPort.calcExpectancy(W, R, risk * 100) : {
+      E: (W * R) - ((1 - W) * 1.0),
+      g: Math.pow(1 + risk * R, W) * Math.pow(1 - risk, 1 - W) - 1,
+      streak95: Math.max(1, Math.round(Math.log(100 / (1 - 0.95)) / Math.log(1 / (1 - W || 0.5)))),
+      estMaxDD: Math.min(95, (1 - Math.pow(1 - risk, 7 * 1.25)) * 100)
+    };
+
+    const E = sim.E;
+    const g = sim.g;
+    const evMoney = C0 * risk * E;
+
+    card.querySelector('#simStats').innerHTML = `
+      <div><span>Expectancy (E)</span><b class="${E >= 0 ? 'up' : 'dn'}">${sgn(E, 2)}R / trade</b></div>
+      <div><span>Exp. Value / Trade</span><b class="${evMoney >= 0 ? 'up' : 'dn'}">${sgn(evMoney, 0)} ₹</b></div>
+      <div><span>Geometric Edge</span><b class="${g >= 0 ? 'up' : 'dn'}">${(g * 100).toFixed(2)}% / trade</b></div>
+      <div><span>Max Loss Streak (95% CI)</span><b>~${sim.streak95} consecutive</b></div>
+      <div><span>Est. Max Drawdown</span><b class="dn">${sim.estMaxDD.toFixed(1)}%</b></div>
+    `;
+
+    const milestones = [25, 50, 100, 150, 200];
+    const rows = milestones.map(n => {
+      const equity = C0 * Math.pow(1 + g, n);
+      const gain = equity - C0;
+      const gainPct = (gain / C0) * 100;
+      return `
+        <tr>
+          <td style="text-align:left"><b>${n} trades</b></td>
+          <td>${inr(equity)}</td>
+          <td class="${gain >= 0 ? 'up' : 'dn'}">${sgn(gain, 0)} ₹</td>
+          <td class="${gainPct >= 0 ? 'up' : 'dn'}"><b>${sgn(gainPct, 1)}%</b></td>
+          <td class="mut"><small>~${Math.round(n * W)} W / ${Math.round(n * (1 - W))} L</small></td>
+        </tr>
+      `;
+    });
+
+    card.querySelector('#simTableWrap').innerHTML = `
+      <div class="tw">
+        <table class="pt" style="font-size:13px">
+          <tr><th style="text-align:left">Horizon</th><th>Projected Capital</th><th>P&amp;L</th><th>Return %</th><th class="mut">Win / Loss Breakdown</th></tr>
+          ${rows.join('')}
+        </table>
+      </div>
+    `;
+
+    const chartW = 500, chartH = 140, pad = 24;
+    const numPoints = 40;
+    const eqSeries = [];
+    for (let i = 0; i <= numPoints; i++) {
+      const n = (i / numPoints) * 200;
+      const eq = C0 * Math.pow(1 + g, n);
+      eqSeries.push(eq);
+    }
+    const minEq = Math.min(...eqSeries, C0 * 0.85);
+    const maxEq = Math.max(...eqSeries, C0 * 1.15);
+
+    const polyPoints = eqSeries.map((eq, i) => {
+      const x = pad + (i / numPoints) * (chartW - 2 * pad);
+      const y = chartH - pad - ((eq - minEq) / (maxEq - minEq || 1)) * (chartH - 2 * pad);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const baselineY = chartH - pad - ((C0 - minEq) / (maxEq - minEq || 1)) * (chartH - 2 * pad);
+    const strokeCol = g >= 0 ? '#16a34a' : '#dc2626';
+    const fillCol = g >= 0 ? 'rgba(22,163,74,0.1)' : 'rgba(220,38,38,0.1)';
+
+    const svg = `
+      <svg viewBox="0 0 ${chartW} ${chartH}" style="width:100%;height:140px;display:block" preserveAspectRatio="none">
+        <line x1="${pad}" y1="${baselineY.toFixed(1)}" x2="${chartW - pad}" y2="${baselineY.toFixed(1)}" stroke="#94a3b8" stroke-dasharray="3,3" stroke-width="1"></line>
+        <polygon points="${pad},${baselineY.toFixed(1)} ${polyPoints.join(' ')} ${chartW - pad},${baselineY.toFixed(1)}" fill="${fillCol}"></polygon>
+        <polyline points="${polyPoints.join(' ')}" fill="none" stroke="${strokeCol}" stroke-width="2.5" stroke-linecap="round"></polyline>
+        <text x="${pad}" y="${chartH - 6}" font-size="10" fill="#64748b">Trade 0</text>
+        <text x="${chartW / 2}" y="${chartH - 6}" font-size="10" fill="#64748b" text-anchor="middle">Trade 100</text>
+        <text x="${chartW - pad}" y="${chartH - 6}" font-size="10" fill="#64748b" text-anchor="end">Trade 200</text>
+        <text x="${chartW - pad}" y="${Math.max(16, (polyPoints[polyPoints.length - 1].split(',')[1] - 6)).toFixed(1)}" font-size="11" font-weight="600" fill="${strokeCol}" text-anchor="end">${inr(eqSeries[eqSeries.length - 1])}</text>
+      </svg>
+    `;
+    card.querySelector('#simChartWrap').innerHTML = svg;
+  };
+
+  wSlider.oninput = update;
+  rSlider.oninput = update;
+  riskSlider.oninput = update;
+  update();
+}
+
 async function renderTrades(box) {
   plDef();
   box.innerHTML = `${swMode()}<p class="mut">Loading your trades…</p>`; swModeWire(box);
@@ -421,6 +762,7 @@ async function renderTrades(box) {
   const A = TR(), open = A.trades.filter(t => !t.exit && trRem(t) > 0), closed = A.trades.filter(t => t.exit || trRem(t) <= 0);
   const px = t => { const q = typeof curPrice === 'function' ? curPrice(t.s) : []; if (isNum(q[0])) return q[0]; const r = SUMMARY && SUMMARY.rows ? SUMMARY.rows.find(x => x.s === t.s) : null; return r ? r.p : null; };
   const X = {}; await Promise.all(open.map(async t => { X[t.s] = await trData(t.s); }));
+  tradeNotificationsCheck(open, X);
   const realised = t => (t.sold || []).reduce((s, x) => s + x.q * (x.p - t.entry), 0);
   let inv = 0, risk = 0, unr = 0;
   const rowO = t => { const p = px(t), rem = trRem(t), R0 = t.R0 || (t.entry - t.sl0), x = X[t.s], [cls, adv] = trAdvice(t, x, isNum(p) ? p : t.entry);
@@ -495,18 +837,54 @@ async function renderTrades(box) {
     <p class="mut" style="font-size:13px">By setup: ${Object.entries(bySet).map(([k, a]) => `${esc(PL_SET[k] || k)} ${a.length} trade${a.length === 1 ? '' : 's'}, ${Math.round(a.filter(j => j.pl > 0).length / a.length * 100)}% won, ${sgn(a.reduce((s, j) => s + j.R, 0) / a.length, 2)}R`).join(' · ')}${J.length < 20 ? ' — under 20 trades says little; keep logging.' : ''}</p>
     <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a><br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td><td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${inr2(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${inr2(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, 0)} ₹</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`).join('')}</table></div>` : '<p class="mut">No closed trades yet. Your win rate and average R by setup appear here.</p>';
   const cap = +SWF.cash || 0;
+  const notifGranted = typeof Notification !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+  const notifHTML = typeof Notification !== 'undefined' && 'Notification' in window ? (notifGranted
+    ? `<small class="up" style="font-size:12px;margin-left:8px;font-weight:600">● Desktop alerts on</small>`
+    : `<button class="btn sec" id="trNotifBtn" style="padding:2px 8px;font-size:12px;margin-left:8px">🔔 Enable Desktop Alerts</button>`) : '';
+  const lastSync = (typeof LS !== 'undefined' ? LS.get('mytrades_gist_synced', '') : '') || '';
+
   box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;width:110px}#trt td,#trt th,#trj td,#trj th{text-align:right}#trt .btn,#trj .btn{padding:4px 7px;font-size:13px}</style>
-    ${plBar()}<div class="card"><h2>📒 My trades <span class="mut">(open)</span></h2>
+    ${plBar()}<div class="card"><h2>📒 My trades <span class="mut">(open)</span>${notifHTML}</h2>
      <div class="kv"><div><span>Capital</span><b>${inr(cap)}</b></div><div><span>Invested</span><b>${inr(inv)}</b> <small class="mut">${cap ? (inv / cap * 100).toFixed(1) + '%' : ''}</small></div><div><span>Cash</span><b>${inr(cap - inv)}</b></div><div><span>Open risk</span><b class="dn">${inr(risk)}</b> <small class="mut">${cap ? (risk / cap * 100).toFixed(2) + '%' : ''}</small></div><div><span>Unrealised P&amp;L</span><b class="${unr >= 0 ? 'up' : 'dn'}">${sgn(unr, 0)} ₹</b></div></div>
      ${themeBar}
      ${openHTML}<p style="margin:8px 0 0"><button class="btn" id="trAdd">➕ Add a trade</button></p>
      <p class="mut" style="font-size:12.5px">"What to do" checks each trade against the management plan: stop hit → exit · up 1R → stop to breakeven · T1 → sell half · after that, trail under the 20 EMA / 5-day low · 15 sessions without +1R → time stop. Prices: latest quote; 20 EMA and 5-day low: last close.</p></div>
     <div class="card"><h2>📊 Trade journal</h2>${jHTML}</div>
-    <div class="card"><h2>💾 Backup &amp; Export</h2><p class="mut" style="font-size:13px">Your trades are stored only on this device (not on GitHub, not in the public app). Export a spreadsheet for Excel / Google Sheets, or download a full JSON backup to move between devices.</p>
-     <p><button class="btn sec" id="trCsv">📊 Export to CSV (Excel)</button> <button class="btn sec" id="trExp">⬇ Download backup (JSON)</button> <label class="btn sec" style="cursor:pointer">⬆ Restore from file<input type="file" id="trImp" accept=".json,application/json" hidden></label> <span class="mut" id="trBk"></span></p></div>${SW_DISC}</div>`;
+    ${expectancySimHTML(J, cap)}
+    <div class="card"><h2>💾 Backup &amp; Cloud Sync</h2><p class="mut" style="font-size:13px">Your trades are stored on this device. Sync with 1 click to your private GitHub Gist for seamless cross-device access, export a spreadsheet for Excel / Google Sheets, or download a full JSON backup.</p>
+     <p style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+       <button class="btn" id="trGistPush">☁️ Sync to Cloud Gist</button>
+       <button class="btn sec" id="trGistPull">⬇️ Restore from Cloud Gist</button>
+       <button class="btn sec" id="trCsv">📊 Export to CSV (Excel)</button>
+       <button class="btn sec" id="trExp">⬇ Download backup (JSON)</button>
+       <label class="btn sec" style="cursor:pointer">⬆ Restore from file<input type="file" id="trImp" accept=".json,application/json" hidden></label>
+     </p>
+     <p class="mut" id="trBk" style="font-size:12.5px">${lastSync ? `Last cloud sync: ${esc(lastSync)}` : ''}</p></div>${SW_DISC}</div>`;
   swModeWire(box);
   const re = () => { const y = window.scrollY; renderTrades(box).then(() => window.scrollTo(0, y)); };
   plBarWire(box, re);
+  const nBtn = box.querySelector('#trNotifBtn');
+  if (nBtn) nBtn.onclick = () => Notification.requestPermission().then(() => re());
+  const gistStatus = msg => { const el = box.querySelector('#trBk'); if (el) el.innerHTML = msg; };
+  const gPush = box.querySelector('#trGistPush');
+  if (gPush) {
+    gPush.onclick = async () => {
+      gPush.disabled = true; gistStatus('Syncing to Cloud Gist…');
+      try { const m = await syncTradesToGist(); gistStatus(m); }
+      catch (e) { gistStatus(`<span class="dn">⚠ Sync failed: ${esc(e.message)}</span>`); }
+      finally { gPush.disabled = false; }
+    };
+  }
+  const gPull = box.querySelector('#trGistPull');
+  if (gPull) {
+    gPull.onclick = async () => {
+      gPull.disabled = true; gistStatus('Pulling from Cloud Gist…');
+      try { const m = await restoreTradesFromGist(); gistStatus(m); setTimeout(re, 900); }
+      catch (e) { gistStatus(`<span class="dn">⚠ Restore failed: ${esc(e.message)}</span>`); }
+      finally { gPull.disabled = false; }
+    };
+  }
+  wireExpectancySim(box, cap);
   box.querySelector('#trAdd').onclick = () => tradeDialog(null, null, re);
   box.querySelectorAll('[data-tredit]').forEach(b => b.onclick = () => tradeDialog(b.dataset.tredit, null, re));
   box.querySelectorAll('[data-trpart]').forEach(b => b.onclick = () => sellDialog(b.dataset.trpart, false, re));

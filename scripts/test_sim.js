@@ -145,4 +145,10 @@ const sampleTrades = [2.0, -1.0, 3.0, -0.8, -1.0, 1.5, -0.9, 4.0, -1.0, 2.2];
 const mc = PP.runMonteCarlo(sampleTrades, { simulations: 500, riskPct: 1, startCapital: 100000 });
 ok(mc && mc.simulations === 500 && mc.maxDD && mc.maxDD.p95 >= 0 && mc.riskOfRuin20 >= 0, 'Monte Carlo runs 500 bootstrap paths and computes 95% DD CI (' + (mc && mc.maxDD && mc.maxDD.p95) + '%)');
 
+// Mathematical Expectancy & Compounding
+const exp1 = PP.calcExpectancy(0.50, 2.0, 1.0);
+ok(exp1 && near(exp1.E, 0.50, 0.01) && exp1.g > 0 && exp1.streak95 >= 1 && exp1.estMaxDD > 0, 'Expectancy: 50% win rate @ 2:1 payoff yields +0.50R expectancy (g: ' + (exp1.g * 100).toFixed(2) + '%)');
+const exp0 = PP.calcExpectancy(0.30, 1.5, 1.0);
+ok(exp0 && exp0.E < 0 && exp0.g < 0, 'Negative expectancy on 30% win rate @ 1.5:1 payoff (' + exp0.E.toFixed(2) + 'R)');
+
 if (fail) { console.log(fail + ' failed'); process.exit(1); } console.log('all simulation tests passed');

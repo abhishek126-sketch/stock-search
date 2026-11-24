@@ -93,15 +93,38 @@ const alDesc = a => {
   if (a.type === 'value') { const f = fvOf(a.s); return `💎 Price ≤ ${mosTxt(a.v)}${f ? ` = ${fmtP(f[0] * (1 - a.v / 100), 'INR')} <small class="mut">(fair value ${fmtP(f[0], 'INR')})</small>` : ''}`; }
   if (a.type === 'valueScan') return `💎 Any strong Indian stock ≤ ${mosTxt(a.v)}`;
   return `${AT[a.type]}${a.type.startsWith('chg') ? a.v + '%' : ' ' + fmtP(+a.v, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD')}`; };
-// in-app notifications when the app is open (once per alert version)
+// in-app notifications and native desktop notifications when the app is open (once per alert version)
+function dispatchNativePushNotification(title, body, tag, onClick) {
+  try {
+    if (typeof Notification !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      const n = new Notification(title, { body, icon: 'icon.svg', tag: tag || 'stock-search-alert' });
+      n.onclick = () => {
+        if (typeof focus === 'function') focus();
+        if (typeof onClick === 'function') onClick();
+      };
+      return true;
+    }
+  } catch (e) {
+    console.warn('Native notification dispatch failed:', e);
+  }
+  return false;
+}
+
 function alertsLocalCheck() {
   const seen = LS.get('alertSeen', {}); let ch = false;
   AL().alerts.forEach(a => {
     const key = a.id + ':' + (a.ver || 0); if (seen[key] || a.type === 'valueScan') return;
     const [p, pc] = curPrice(a.s); const fired = a.trig || (isNum(p) && hitAlert(a, p, pc)); if (!fired) return;
-    seen[key] = Date.now(); ch = true; const msg = `${a.s.replace(/\.(NS|BO)$/, '')}: ${alDesc(a).replace(/<[^>]+>/g, "")} — now ${fmtP(isNum(p) ? p : a.trigP, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD').replace(/<[^>]+>/g, '')}`;
-    try { if ('Notification' in window && Notification.permission === 'granted') { const n = new Notification('🔔 Price alert', { body: msg, icon: 'icon.svg', tag: key }); n.onclick = () => { focus(); openSym(a.s); }; } } catch { }
-    setStatus('🔔 ' + esc(msg));
+    seen[key] = Date.now(); ch = true;
+    const sym = a.s.replace(/\.(NS|BO)$/, '');
+    const isTradeAlert = String(a.id).startsWith('tr-');
+    const msg = `${sym}: ${alDesc(a).replace(/<[^>]+>/g, "")} — now ${fmtP(isNum(p) ? p : a.trigP, a.s.match(/\.(NS|BO)$/) ? 'INR' : 'USD').replace(/<[^>]+>/g, '')}`;
+    const title = isTradeAlert ? `📒 Trade Alert: ${sym}` : '🔔 Price alert';
+    dispatchNativePushNotification(title, msg, key, () => {
+      if (isTradeAlert && typeof navTo === 'function') navTo('#swing');
+      else openSym(a.s);
+    });
+    setStatus((isTradeAlert ? '📒 ' : '🔔 ') + esc(msg));
   });
   if (ch) LS.set('alertSeen', seen);
 }

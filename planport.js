@@ -225,6 +225,22 @@
     };
   }
 
-  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf, slLimit, trailLevel, closeExit, tradeActions, planGate, calcKelly, runMonteCarlo };
+  // ---- 8. Mathematical expectancy & geometric compounding trajectory ----
+  function calcExpectancy(winRate, payoffRatio, riskPct = 1.0) {
+    const W = Math.max(0, Math.min(1, winRate));
+    const R = Math.max(0, payoffRatio);
+    const r = Math.max(0.001, riskPct / 100);
+    // E in R-multiples: W * R - (1 - W) * 1.0
+    const E = (W * R) - ((1 - W) * 1.0);
+    // Geometric growth per trade: (1 + r * R)^W * (1 - r)^(1 - W) - 1
+    const g = Math.pow(1 + r * R, W) * Math.pow(1 - r, 1 - W) - 1;
+    // Expected max loss streak in 100 trades (95% confidence):
+    const pLoss = 1 - W;
+    const streak95 = (pLoss > 0 && pLoss < 1) ? Math.max(1, Math.round(Math.log(100 / (1 - 0.95)) / Math.log(1 / pLoss))) : 1;
+    const estMaxDD = Math.min(99.9, (1 - Math.pow(1 - r, streak95 * 1.25)) * 100);
+    return { E, g, streak95, estMaxDD };
+  }
+
+  const API = { COSTS, BROKERS, costsFor, brokerage, buyCost, sellCost, tripCost, maxPositions, buildPortfolio, manageDay, fillBuy, THEMES, themeOf, slLimit, trailLevel, closeExit, tradeActions, planGate, calcKelly, runMonteCarlo, calcExpectancy };
   if (typeof module !== 'undefined' && module.exports) module.exports = API; else root.PlanPort = API;
 })(typeof self !== 'undefined' ? self : this);
