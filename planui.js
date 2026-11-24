@@ -1438,7 +1438,28 @@ async function momCardFill(d) {
 }
 
 // ---------- Feature 2: Anchored VWAP (AVWAP) & Institutional Volume Profile Shelves ----------
-function avwapCard(d) {
+// Latest quarterly results filing from the exchange announcements (corp data x.ann, NSE or BSE feed). The release itself is
+// the "Outcome of Board Meeting" filing that carries the results, or a "Financial Result…" / "Integrated Filing- Financial" /
+// "Press Release" filing tagged 'results'. Other 'results'-tagged items are skipped: board-meeting notices (before the release),
+// newspaper copies, call transcripts / audio, exchange clarifications and revised results (after it).
+// Returns { d: 'YYYY-MM-DD' (IST), hm: earliest filing time that day as HHMM from the NSE archive file name, or null }.
+function lastResultsFiling(x) {
+  const isRelease = a => {
+    if (!a || !(a.g || []).includes('results') || !/^\d{4}-\d{2}-\d{2}$/.test(a.d || '')) return false;
+    const t = String(a.t || ''), cat = t.split(' — ')[0].trim();
+    if (/^Outcome of Board Meeting$/i.test(cat)) return /financial result|results? for the|unaudited|audited/i.test(t);
+    return /^(Financial Results?( Updates)?|Integrated Filing.{0,3}Financial.*|Press Release)$/i.test(cat);
+  };
+  const rel = ((x && x.ann) || []).filter(isRelease);
+  if (!rel.length) return null;
+  const d = rel.reduce((m, a) => a.d > m ? a.d : m, '');
+  // NSE archive names carry the filing time: ..._DDMMYYYYHHMMSS_...
+  const hm = a => { const m = /_(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})\d{2}_/.exec(a.u || ''); return m && `${m[3]}-${m[2]}-${m[1]}` === a.d ? +(m[4] + m[5]) : null; };
+  const times = rel.filter(a => a.d === d).map(hm).filter(v => v != null);
+  return { d, hm: times.length ? Math.min(...times) : null };
+}
+
+function avwapCard(d, x) {
   if (!d || d.etf || !Array.isArray(d.ohlc) || typeof IND === 'undefined' || !IND.avwap || !IND.volumeProfile) return '';
   // bad bars (high / low / close 0 or missing) would anchor on junk or make the volume profile fail — drop them, as compute() does
   const ohlc = d.ohlc.filter(b => Array.isArray(b) && b[2] > 0 && b[3] > 0 && b[4] > 0);
@@ -1471,24 +1492,33 @@ function avwapCard(d) {
   const avHi = IND.avwap(ohlc, maxIdx);
   const avLo = IND.avwap(ohlc, minIdx);
 
-  // 3. Earnings Anchor
-  let avEarn = null;
-  if (d.profile && Array.isArray(d.profile.earnDates) && d.profile.earnDates.length) {
+  // 3. Results (earnings) anchor: the first session that traded on the latest quarterly results
+  const tz = isUS ? 'America/New_York' : 'Asia/Kolkata';
+  const barDay = t => new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: tz });
+  const firstDay = barDay(ohlc[0][0]);
+  let eIdx = -1, eDay = null;
+  // Indian stocks: the exchange results filing (Yahoo's earnDates there only hold the NEXT results date)
+  const rf = isUS ? null : lastResultsFiling(x);
+  if (rf && rf.d >= firstDay) {
+    const after = rf.hm != null && rf.hm >= 1530;   // filed after the 3:30 pm close → the market reacts the next session
+    eIdx = ohlc.findIndex(b => after ? barDay(b[0]) > rf.d : barDay(b[0]) >= rf.d);
+    eDay = rf.d;
+  }
+  // otherwise (US stocks, or no filing found): the latest past date in Yahoo's earnDates
+  if (eIdx < 0 && d.profile && Array.isArray(d.profile.earnDates)) {
     const nowSec = Date.now() / 1000;
-    const pastEarns = d.profile.earnDates.filter(t => t <= nowSec).sort((a, b) => b - a);
-    if (pastEarns.length) {
-      const latestEarn = pastEarns[0];
-      // results older than the first bar we have → no earnings anchor (index 0 would be an unrelated date labelled "Earnings")
-      if (ohlc[0][0] <= latestEarn) {
-        let eIdx = 0;
-        for (let i = 0; i < ohlc.length; i++) {
-          if (ohlc[i][0] <= latestEarn) eIdx = i;
-          else break;
-        }
-        avEarn = IND.avwap(ohlc, eIdx);
+    const latestEarn = d.profile.earnDates.filter(t => t <= nowSec).sort((a, b) => b - a)[0];
+    // results older than the first bar we have → no anchor (index 0 would be an unrelated date labelled "Results")
+    if (latestEarn && ohlc[0][0] <= latestEarn) {
+      for (let i = 0; i < ohlc.length; i++) {
+        if (ohlc[i][0] <= latestEarn) eIdx = i;
+        else break;
       }
+      eDay = barDay(latestEarn);
     }
   }
+  const avEarn = eIdx >= 0 ? IND.avwap(ohlc, eIdx) : null;
+  const eLbl = eDay ? new Date(eDay + 'T00:00:00Z').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '';
 
   // 4. Volume Profile (16 bins)
   const vp = IND.volumeProfile(ohlc, 16);
@@ -1549,7 +1579,7 @@ function avwapCard(d) {
       <div class="kv">
         <div><span>AVWAP (${hiLbl})${swq('avwap')}</span><b>${pFmt(avHi.current)} <small class="${distHi >= 0 ? 'up' : 'dn'}">(${sgn(distHi, 1)}%)</small></b></div>
         <div><span>AVWAP (${loLbl})${swq('avwap')}</span><b>${pFmt(avLo.current)} <small class="${distLo >= 0 ? 'up' : 'dn'}">(${sgn(distLo, 1)}%)</small></b></div>
-        ${avEarn ? `<div><span>AVWAP (Earnings)${swq('avwap')}</span><b>${pFmt(avEarn.current)} <small class="${distEarn >= 0 ? 'up' : 'dn'}">(${sgn(distEarn, 1)}%)</small></b></div>` : ''}
+        ${avEarn ? `<div><span>AVWAP (Results ${eLbl})${swq('avwap')}</span><b>${pFmt(avEarn.current)} <small class="${distEarn >= 0 ? 'up' : 'dn'}">(${sgn(distEarn, 1)}%)</small></b></div>` : ''}
         <div><span>Point of Control (POC)${swq('poc')}</span><b style="color:#d97706">${pFmt(vp.poc)} <small class="${distPoc >= 0 ? 'up' : 'dn'}">(${sgn(distPoc, 1)}%)</small></b></div>
         <div><span>Value Area (VAL – VAH)${swq('valuearea')}</span><b>${pFmt(vp.val)} – ${pFmt(vp.vah)}</b></div>
         <div><span>Market Structure</span><b style="font-size:13px">${aboveVA ? `<span class="up">Accepted Above Value (Expansion)</span>${swq('va_expand')}` : (inVA ? `<span style="color:#2563eb">Rotational Inside Value Area</span>${swq('va_inside')}` : `<span class="dn">Below Value (Discount / Heavy)</span>${swq('va_below')}`)}</b></div>
