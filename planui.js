@@ -1442,7 +1442,8 @@ async function momCardFill(d) {
 // the "Outcome of Board Meeting" filing that carries the results, or a "Financial Result…" / "Integrated Filing- Financial" /
 // "Press Release" filing tagged 'results'. Other 'results'-tagged items are skipped: board-meeting notices (before the release),
 // newspaper copies, call transcripts / audio, exchange clarifications and revised results (after it).
-// Returns { d: 'YYYY-MM-DD' (IST), hm: earliest filing time that day as HHMM from the NSE archive file name, or null }.
+// Returns { d: 'YYYY-MM-DD' (IST), hm: earliest filing time that day as HHMM from the NSE archive file name, or null,
+//           after: filed after the 3:30 pm close (the market reacts the next session) }.
 function lastResultsFiling(x) {
   const isRelease = a => {
     if (!a || !(a.g || []).includes('results') || !/^\d{4}-\d{2}-\d{2}$/.test(a.d || '')) return false;
@@ -1456,10 +1457,35 @@ function lastResultsFiling(x) {
   // NSE archive names carry the filing time: ..._DDMMYYYYHHMMSS_...
   const hm = a => { const m = /_(\d{2})(\d{2})(\d{4})(\d{2})(\d{2})\d{2}_/.exec(a.u || ''); return m && `${m[3]}-${m[2]}-${m[1]}` === a.d ? +(m[4] + m[5]) : null; };
   const times = rel.filter(a => a.d === d).map(hm).filter(v => v != null);
-  return { d, hm: times.length ? Math.min(...times) : null };
+  const t = times.length ? Math.min(...times) : null;
+  return { d, hm: t, after: t != null && t >= 1530 };
 }
 
-function avwapCard(d, x) {
+// US stocks: latest past results date from data/usearn.json (Finnhub earnings calendar, collected by scripts/usearn.js).
+// hour 'amc' = after the close → the market reacts the next session; 'bmo' / 'dmh' / unknown → that day.
+function usResults(ue, sym) {
+  const L = ue && ue.e && ue.e[sym];
+  if (!Array.isArray(L) || !L.length) return null;
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const past = L.filter(r => Array.isArray(r) && r[0] <= today).sort((a, b) => a[0] < b[0] ? 1 : -1)[0];
+  return past ? { d: past[0], after: past[1] === 'amc' } : null;
+}
+// US pages render the card at once (Yahoo date only), then again when usearn.json has loaded
+let USEARN = null, USEARN_P = null;
+function avwapUS(d) {
+  if (!USEARN_P && typeof getJSON === 'function') {
+    USEARN_P = getJSON(DATA + 'usearn.json').then(j => (USEARN = j || {}), () => (USEARN = {}));
+  }
+  if (!USEARN && USEARN_P) USEARN_P.then(() => {
+    const el = document.getElementById('avwap');
+    if (!el || (typeof CUR !== 'undefined' && CUR !== d)) return;
+    const t = document.createElement('div'); t.innerHTML = avwapCard(d, null, USEARN);
+    if (t.firstElementChild) el.replaceWith(t.firstElementChild);
+  });
+  return avwapCard(d, null, USEARN);
+}
+
+function avwapCard(d, x, ue) {
   if (!d || d.etf || !Array.isArray(d.ohlc) || typeof IND === 'undefined' || !IND.avwap || !IND.volumeProfile) return '';
   // bad bars (high / low / close 0 or missing) would anchor on junk or make the volume profile fail — drop them, as compute() does
   const ohlc = d.ohlc.filter(b => Array.isArray(b) && b[2] > 0 && b[3] > 0 && b[4] > 0);
@@ -1497,15 +1523,16 @@ function avwapCard(d, x) {
   const barDay = t => new Date(t * 1000).toLocaleDateString('en-CA', { timeZone: tz });
   const firstDay = barDay(ohlc[0][0]);
   let eIdx = -1, eDay = null;
-  // Indian stocks: the exchange results filing (Yahoo's earnDates there only hold the NEXT results date)
-  const rf = isUS ? null : lastResultsFiling(x);
+  // Indian stocks: the exchange results filing; US stocks: the Finnhub calendar date (Yahoo's earnDates mostly hold only
+  // the NEXT results date). Released after the close → anchor on the next session, when the market first reacts.
+  const rf = isUS ? usResults(ue, d.symbol) : lastResultsFiling(x);
   if (rf && rf.d >= firstDay) {
-    const after = rf.hm != null && rf.hm >= 1530;   // filed after the 3:30 pm close → the market reacts the next session
-    eIdx = ohlc.findIndex(b => after ? barDay(b[0]) > rf.d : barDay(b[0]) >= rf.d);
+    eIdx = ohlc.findIndex(b => rf.after ? barDay(b[0]) > rf.d : barDay(b[0]) >= rf.d);
     eDay = rf.d;
   }
-  // otherwise (US stocks, or no filing found): the latest past date in Yahoo's earnDates
-  if (eIdx < 0 && d.profile && Array.isArray(d.profile.earnDates)) {
+  // no results date from those sources: the latest past date in Yahoo's earnDates (if a date was found but has no
+  // reaction bar yet — released today after the close — show nothing rather than an older date)
+  if (!rf && d.profile && Array.isArray(d.profile.earnDates)) {
     const nowSec = Date.now() / 1000;
     const latestEarn = d.profile.earnDates.filter(t => t <= nowSec).sort((a, b) => b - a)[0];
     // results older than the first bar we have → no anchor (index 0 would be an unrelated date labelled "Results")

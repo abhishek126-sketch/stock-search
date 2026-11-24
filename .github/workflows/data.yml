@@ -88,6 +88,10 @@ jobs:
         if: env.SKIP != '1'
         run: python3 scripts/crosscheck.py || echo 'cross-check skipped'
         env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
+      - name: US results dates (Finnhub earnings calendar → usearn.json, for the AVWAP card on US pages)
+        if: env.SKIP != '1'
+        run: node scripts/usearn.js || echo 'US results dates skipped'
+        env: { FINNHUB_KEY: '${{ secrets.FINNHUB_KEY }}' }
       - name: Pre-publish data validation
         if: env.SKIP != '1'
         run: node scripts/validate.js || (echo "::error::Data validation failed - aborting publish" && exit 1)
