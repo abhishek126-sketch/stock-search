@@ -60,7 +60,8 @@ const testSuites = [
   'test_indicators.js',
   'test_dmasetup.js',
   'test_plan.js',
-  'test_sim.js'
+  'test_sim.js',
+  'test_features_2_to_6.js'
 ];
 
 for (const suite of testSuites) {

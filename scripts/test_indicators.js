@@ -97,4 +97,36 @@ t('Weinstein stage from weekly closes: rising 2, falling 4, flat after a rise 3,
   const w = I.weinstein(days(ramp(100, 200, 60))); assert.strictEqual(w.weeks, 60); assert.ok(w.slope4w > 1 && w.dist > 0);
 });
 
+t('Anchored VWAP (AVWAP) calculates cumulative typical price times volume from anchor', () => {
+  const ohlc = [
+    [1, 10, 12, 8, 10, 100],   // typical = 10, vol = 100
+    [2, 10, 14, 10, 12, 200],  // typical = 12, vol = 200 -> cum = 1000 + 2400 = 3400 / 300 = 11.333
+    [3, 12, 16, 12, 14, 100]   // typical = 14, vol = 100 -> cum = 3400 + 1400 = 4800 / 400 = 12
+  ];
+  const av = I.avwap(ohlc, 0);
+  assert.ok(av != null);
+  assert.strictEqual(av.series[0], 10);
+  assert.strictEqual(Math.round(av.series[1] * 100) / 100, 11.33);
+  assert.strictEqual(av.current, 12);
+  assert.strictEqual(av.cumVolume, 400);
+
+  const av1 = I.avwap(ohlc, 1);
+  assert.strictEqual(av1.series[0], null);
+  assert.strictEqual(av1.series[1], 12);
+  assert.strictEqual(av1.cumVolume, 300);
+});
+
+t('volumeProfile calculates Point of Control (POC) and 70% Value Area shelves', () => {
+  const ohlc = [];
+  for (let i = 0; i < 30; i++) {
+    ohlc.push([i, 99, 102, 98, 100, i === 15 ? 50000 : 1000]);
+  }
+  const vp = I.volumeProfile(ohlc, 10);
+  assert.ok(vp != null);
+  assert.ok(vp.poc >= 98 && vp.poc <= 102);
+  assert.ok(vp.vah >= vp.poc);
+  assert.ok(vp.val <= vp.poc);
+  assert.strictEqual(vp.bins.length, 10);
+});
+
 console.log(pass + ' passed');

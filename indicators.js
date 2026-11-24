@@ -184,7 +184,95 @@ function weinstein(hist) {
   return { stage, note, ma30w: Math.round(m * 100) / 100, slope4w: r1(slope), dist: r1((p / m - 1) * 100), weeks: W.length };
 }
 
-const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound, candle, weinstein };
+// Anchored Volume Weighted Average Price (AVWAP)
+// ohlc = [[t, o, h, l, c, v], ...], anchorIdx = index to start summing from (default: 0)
+function avwap(ohlc, anchorIdx = 0) {
+  if (!Array.isArray(ohlc) || !ohlc.length) return null;
+  const start = Math.max(0, Math.min(ohlc.length - 1, anchorIdx));
+  let cumVol = 0, cumVolPrice = 0;
+  const series = new Array(ohlc.length).fill(null);
+
+  for (let i = start; i < ohlc.length; i++) {
+    const bar = ohlc[i];
+    if (!bar) continue;
+    const h = bar[2], l = bar[3], c = bar[4], v = bar[5] || 1;
+    const typical = (h + l + c) / 3;
+    cumVol += v;
+    cumVolPrice += typical * v;
+    series[i] = cumVol > 0 ? cumVolPrice / cumVol : typical;
+  }
+  return {
+    series,
+    current: series[series.length - 1],
+    cumVolume: cumVol,
+    startIndex: start
+  };
+}
+
+// Volume Profile / High Volume Node (HVN) Shelves
+// Computes horizontal volume distribution across price buckets to find Point of Control (POC)
+function volumeProfile(ohlc, numBins = 16) {
+  if (!Array.isArray(ohlc) || ohlc.length < 5) return null;
+  const sample = ohlc.slice(-160);
+  let minP = Infinity, maxP = -Infinity, totalVol = 0;
+  for (const b of sample) {
+    if (!b) continue;
+    if (b[3] < minP) minP = b[3];
+    if (b[2] > maxP) maxP = b[2];
+    totalVol += (b[5] || 1);
+  }
+  if (!isFinite(minP) || !isFinite(maxP) || minP <= 0 || maxP <= minP) return null;
+
+  const binSpan = (maxP - minP) / numBins;
+  const bins = Array.from({ length: numBins }, (_, i) => ({
+    low: minP + i * binSpan,
+    high: minP + (i + 1) * binSpan,
+    mid: minP + (i + 0.5) * binSpan,
+    vol: 0,
+    pct: 0
+  }));
+
+  for (const b of sample) {
+    if (!b) continue;
+    const typ = (b[2] + b[3] + b[4]) / 3;
+    const v = b[5] || 1;
+    let bIdx = Math.floor((typ - minP) / binSpan);
+    if (bIdx >= numBins) bIdx = numBins - 1;
+    if (bIdx < 0) bIdx = 0;
+    bins[bIdx].vol += v;
+  }
+
+  let maxVolBin = bins[0];
+  for (const bin of bins) {
+    bin.pct = totalVol > 0 ? (bin.vol / totalVol) * 100 : 0;
+    if (bin.vol > maxVolBin.vol) maxVolBin = bin;
+  }
+
+  const sortedBins = [...bins].sort((a, b) => b.vol - a.vol);
+  let vaVol = 0;
+  const vaBins = [];
+  for (const bin of sortedBins) {
+    vaBins.push(bin);
+    vaVol += bin.vol;
+    if (vaVol / totalVol >= 0.70) break;
+  }
+  const vah = Math.max(...vaBins.map(b => b.high));
+  const val = Math.min(...vaBins.map(b => b.low));
+
+  return {
+    bins,
+    poc: maxVolBin.mid,
+    pocVol: maxVolBin.vol,
+    pocPct: maxVolBin.pct,
+    vah,
+    val,
+    minP,
+    maxP,
+    totalVol
+  };
+}
+
+const API = { sma, smaSeries, emaSeries, ema, rsiSeries, rsi, atr, macd, rsScore, rsRanks, pyRound, candle, weinstein, avwap, volumeProfile };
 if (typeof module !== 'undefined' && module.exports) module.exports = API;
 if (typeof window !== 'undefined') window.IND = API;
 })();

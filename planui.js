@@ -320,13 +320,24 @@ async function renderPlan(box) {
 }
 
 // ---------- 📒 My trades ----------
+// ---------- Trade Psychology & Mistake Tracking Tags (Feature 4) ----------
+const TR_TAGS = {
+  plan: { label: 'Followed Plan', icon: '✅', good: true, desc: 'Followed sizing, entry and stop without deviation' },
+  time_stop: { label: 'Time Stop Exit', icon: '⏱️', good: true, desc: 'Disciplined exit after 15+ stagnant sessions' },
+  early_exit: { label: 'Exited Early', icon: '⚠️', good: false, desc: 'Sold before target or trailing stop out of fear' },
+  chase: { label: 'Chased Gap-Up', icon: '⚠️', good: false, desc: 'Bought extended past the planned trigger price' },
+  moved_sl: { label: 'Moved Stop Down', icon: '🚫', good: false, desc: 'Violated risk rules by widening the stop-loss' },
+  fomo: { label: 'FOMO Impulse', icon: '⚠️', good: false, desc: 'Entered on emotional impulse without a verified setup' },
+  revenge: { label: 'Revenge Trade', icon: '🚫', good: false, desc: 'Traded right after a loss to make back money' }
+};
+
 function trDlg() { let d = document.getElementById('trDlg'); if (!d) { d = document.createElement('dialog'); d.id = 'trDlg'; d.style.cssText = 'max-width:480px;width:94vw;border:1px solid var(--line);border-radius:12px;padding:16px'; document.body.appendChild(d); } return d; }
 const trIn = (id, label, val, extra = '') => `<label class="mut" style="display:block;margin-top:6px;font-size:13px">${label}<input id="${id}" value="${esc(val ?? '')}" ${extra} style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:15px;box-sizing:border-box"></label>`;
 // new trade (from a plan pick or by hand) or edit an existing one
 function tradeDialog(id, pick, done) {
   const A = TR(), t = id ? A.trades.find(x => x.id === id) : null, d = trDlg();
   const today = new Date(Date.now() + 19800e3).toISOString().slice(0, 10);
-  const v = t || (pick ? { s: pick.s, n: pick.n, setup: pick.setup, date: (PLAN && PLAN.next && PLAN.next <= today ? PLAN.next : today), entry: pick.plan.E, qty: pick.q, sl: pick.plan.SL, t1: pick.plan.T1, t2: pick.plan.T2, alerts: true, note: '', isUS: pick.isUS } : { s: '', date: today, alerts: true });
+  const v = t || (pick ? { s: pick.s, n: pick.n, setup: pick.setup, date: (PLAN && PLAN.next && PLAN.next <= today ? PLAN.next : today), entry: pick.plan.E, qty: pick.q, sl: pick.plan.SL, t1: pick.plan.T1, t2: pick.plan.T2, alerts: true, note: '', isUS: pick.isUS, tag: 'plan' } : { s: '', date: today, alerts: true, tag: 'plan' });
   const isUS = !!((v && v.isUS) || (pick && pick.isUS) || (v && v.s && !/\.(NS|BO)$/.test(v.s)));
   const ccy = isUS ? '$' : '₹';
   d.innerHTML = `<h2 style="margin-top:0">📒 ${t ? 'Edit trade' : 'Log a trade'} ${isUS ? '<small class="tag" style="background:#eff6ff;color:#1e40af;font-size:12px;margin-left:4px">🇺🇸 US Stock</small>' : ''}</h2>
@@ -335,6 +346,11 @@ function tradeDialog(id, pick, done) {
     ${trIn('trQ', 'Quantity', v.qty, 'inputmode="numeric"')}${trIn('trSL', `Stop-loss ${ccy}`, v.sl, 'inputmode="decimal"')}
     ${trIn('trT1', `Target 1 ${ccy} (blank = 2R)`, v.t1, 'inputmode="decimal"')}${trIn('trT2', `Target 2 ${ccy} (blank = 3R)`, v.t2, 'inputmode="decimal"')}</div>
     ${trIn('trN', 'Note (why you bought)', v.note, 'maxlength="120"')}
+    <label class="mut" style="display:block;margin-top:6px;font-size:13px">Trade discipline tag
+      <select id="trTag" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff">
+        ${Object.entries(TR_TAGS).map(([k, tg]) => `<option value="${k}" ${(v && v.tag === k) ? 'selected' : (k === 'plan' ? 'selected' : '')}>${tg.icon} ${tg.label} — ${tg.desc}</option>`).join('')}
+      </select>
+    </label>
     <label class="mut" style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13.5px"><input type="checkbox" id="trA" ${v.alerts ? 'checked' : ''}> Phone alerts: stop hit, move stop to breakeven, T1 reached${typeof AK_ON === 'function' && !AK_ON() ? ' <span class="dn">(set up the private alerts key on 🔔 Alerts first)</span>' : ''}</label>
     <p class="mut" id="trMsg" style="min-height:1.2em"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="trX">Cancel</button><button class="btn" id="trOk">Save</button></div>`;
   d.showModal(); d.querySelector('#trX').onclick = () => d.close();
@@ -347,9 +363,10 @@ function tradeDialog(id, pick, done) {
     const e = nm('#trE'), q = Math.floor(nm('#trQ')), sl = nm('#trSL'), msg = d.querySelector('#trMsg');
     if (!s || !(e > 0) || !(q > 0) || !(sl > 0) || !(sl < e)) { msg.textContent = 'Fill in the stock, a buy price, a quantity and a stop-loss below the buy price.'; return; }
     const R = e - sl, t1 = nm('#trT1') > e ? nm('#trT1') : Math.round((e + 2 * R) / 0.05) * 0.05, t2 = nm('#trT2') > e ? nm('#trT2') : Math.round((e + 3 * R) / 0.05) * 0.05;
+    const tag = d.querySelector('#trTag') ? d.querySelector('#trTag').value : 'plan';
     const row = SUMMARY && SUMMARY.rows ? SUMMARY.rows.find(r => r.s === s) : null;
-    const A2 = TR(), base = t ? A2.trades.find(x => x.id === t.id) : { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), s, n: (pick && pick.n) || (row && row.n) || plSym(s), setup: (pick && pick.setup) || 'manual', sold: [], exit: null, sl0: sl, log: [] };
-    Object.assign(base, { date: g('#trD'), entry: e, qty: q, sl, t1: Math.round(t1 * 100) / 100, t2: Math.round(t2 * 100) / 100, note: g('#trN'), alerts: d.querySelector('#trA').checked });
+    const A2 = TR(), base = t ? A2.trades.find(x => x.id === t.id) : { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), s, n: (pick && pick.n) || (row && row.n) || plSym(s), setup: (pick && pick.setup) || 'manual', sold: [], exit: null, sl0: sl, log: [], tag };
+    Object.assign(base, { date: g('#trD'), entry: e, qty: q, sl, t1: Math.round(t1 * 100) / 100, t2: Math.round(t2 * 100) / 100, note: g('#trN'), alerts: d.querySelector('#trA').checked, tag });
     if (!t) { base.R0 = R; base.sl0 = sl; A2.trades.unshift(base); } else base.log.push([new Date().toISOString().slice(0, 10), 'edited']);
     trSave(A2); msg.textContent = 'Saved on this device.'; const m = await tradeAlertsSync(); if (m) msg.textContent += ' ' + m;
     setTimeout(() => { d.close(); done && done(); }, m ? 1800 : 500);
@@ -377,7 +394,13 @@ const TRD = {};
 async function trData(s) {
   if (TRD[s] && Date.now() - TRD[s].t < 10 * 60e3) return TRD[s].v;
   let v = null; try { const d = await getJSON(DATA + 's/' + encodeURIComponent(s) + '.json'); const c = d.hist.map(h => h[1]); let e = c.slice(0, 20).reduce((a, x) => a + x, 0) / 20; for (let i = 20; i < c.length; i++) e = c[i] * 2 / 21 + e * 19 / 21;
-    v = { close: c[c.length - 1], e20: e, lo5: Math.min(...(d.ohlc || []).slice(-5).map(x => x[3])), hist: d.hist.slice(-80) }; } catch { }
+    let earnDate = null;
+    if (d.profile && Array.isArray(d.profile.earnDates)) {
+      const nowSec = Date.now() / 1000 - 86400;
+      const future = d.profile.earnDates.filter(t => t >= nowSec).sort((a, b) => a - b);
+      if (future.length) earnDate = future[0];
+    }
+    v = { close: c[c.length - 1], e20: e, lo5: Math.min(...(d.ohlc || []).slice(-5).map(x => x[3])), hist: d.hist.slice(-80), earnDate, ohlc: d.ohlc }; } catch { }
   TRD[s] = { t: Date.now(), v }; return v;
 }
 // same rules as the history test and paper portfolio (planport.js tradeActions / closeExit)
@@ -393,12 +416,21 @@ function sellDialog(id, full, done) {
   const today = new Date(Date.now() + 19800e3).toISOString().slice(0, 10);
   d.innerHTML = `<h2 style="margin-top:0">${full ? '✅ Close trade' : '➗ Sell part'} — ${esc(plSym(t.s))}</h2><p class="mut">${rem} share${rem === 1 ? '' : 's'} open, bought at ${inr2(t.entry)}</p>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 8px">${trIn('slD', 'Date', today, 'type="date"')}${trIn('slQ', 'Quantity', full ? rem : Math.floor(rem / 2) || rem, `inputmode="numeric" ${full ? 'disabled' : ''}`)}${trIn('slP', 'Price ₹', isNum(p) ? r2s(p).replace(/,/g, '') : '', 'inputmode="decimal"')}</div>
+    <label class="mut" style="display:block;margin-top:6px;font-size:13px">Exit psychology / discipline
+      <select id="slTag" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff">
+        <option value="plan" ${(t.tag === 'plan' || !t.tag) ? 'selected' : ''}>✅ Followed Plan — Target or planned trailing stop reached</option>
+        <option value="early_exit" ${t.tag === 'early_exit' ? 'selected' : ''}>⚠️ Exited Early — Sold out of fear before plan trigger</option>
+        <option value="time_stop" ${t.tag === 'time_stop' ? 'selected' : ''}>⏱️ Time Stop — Stagnant setup exit after 15+ sessions</option>
+        <option value="moved_sl" ${t.tag === 'moved_sl' ? 'selected' : ''}>🚫 Moved Stop Down — Widened stop before exiting</option>
+      </select>
+    </label>
     <p class="mut" id="slMsg"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="slX">Cancel</button><button class="btn" id="slOk">Save</button></div>`;
   d.showModal(); d.querySelector('#slX').onclick = () => d.close();
   d.querySelector('#slOk').onclick = async () => {
     const q = full ? rem : Math.floor(+d.querySelector('#slQ').value), pr = typeof parseAmount === 'function' ? parseAmount(d.querySelector('#slP').value) : +d.querySelector('#slP').value, dt = d.querySelector('#slD').value;
     if (!(q >= 1 && q <= rem) || !(pr > 0)) { d.querySelector('#slMsg').textContent = `Enter a quantity from 1 to ${rem} and the price you sold at.`; return; }
     const A2 = TR(), t2 = A2.trades.find(x => x.id === id); t2.sold = (t2.sold || []).concat({ d: dt, q, p: pr });
+    if (d.querySelector('#slTag')) t2.tag = d.querySelector('#slTag').value;
     if (trRem(t2) <= 0) t2.exit = { d: dt }; else if (t2.sl < t2.entry) { /* keep the stop; the advice will suggest breakeven / trail */ }
     trSave(A2); const m = await tradeAlertsSync(); d.querySelector('#slMsg').textContent = 'Saved.' + (m ? ' ' + m : ''); setTimeout(() => { d.close(); done && done(); }, m ? 1500 : 400);
   };
@@ -471,6 +503,14 @@ function tradeNotificationsCheck(openTrades, X) {
     // 4. +1R breakeven threshold
     if (R0 > 0 && p >= t.entry + R0 && t.sl < t.entry) {
       fire('be_hit', `🛡️ Breakeven Trigger: ${sym}`, `${sym} reached +1R gain at ${inr2(p)}. Move stop to breakeven (${inr2(t.entry)}).`);
+    }
+
+    // 5. Pre-Earnings Gap Risk alert (within 3 days)
+    if (x && x.earnDate) {
+      const daysToEarn = Math.ceil((x.earnDate - Date.now() / 1000) / 86400);
+      if (daysToEarn >= 0 && daysToEarn <= 3) {
+        fire('earn_danger', `🚨 Earnings Gap Danger: ${sym}`, `${sym} reports quarterly earnings in ${daysToEarn} day${daysToEarn === 1 ? '' : 's'}. Extreme binary gap risk! Consider trimming position or raising stops.`);
+      }
     }
   }
 
@@ -769,13 +809,49 @@ async function renderTrades(box) {
   const X = {}; await Promise.all(open.map(async t => { X[t.s] = await trData(t.s); }));
   tradeNotificationsCheck(open, X);
   const realised = t => (t.sold || []).reduce((s, x) => s + x.q * (x.p - t.entry), 0);
-  let inv = 0, risk = 0, unr = 0;
+  const USDINR = 86.50;
+  const ccyMode = SWF.ccyMode || 'combined'; // 'combined', 'split', 'inr', 'usd'
+
+  // Multi-Currency Partitioning (Feature 5)
+  const inrOpen = open.filter(t => /\.(NS|BO)$/.test(t.s));
+  const usdOpen = open.filter(t => !/\.(NS|BO)$/.test(t.s));
+  const inrClosed = closed.filter(t => /\.(NS|BO)$/.test(t.s));
+  const usdClosed = closed.filter(t => !/\.(NS|BO)$/.test(t.s));
+
+  const dispOpen = ccyMode === 'inr' ? inrOpen : (ccyMode === 'usd' ? usdOpen : open);
+  const dispClosed = ccyMode === 'inr' ? inrClosed : (ccyMode === 'usd' ? usdClosed : closed);
+
+  const inrCap = +SWF.cash || 100000;
+  const usdCap = +SWF.usdCash || 15000;
+
+  let inrInv = 0, inrRisk = 0, inrUnr = 0;
+  for (const t of inrOpen) {
+    const p = px(t), rem = trRem(t);
+    inrInv += rem * t.entry;
+    inrRisk += Math.max(0, t.entry - t.sl) * rem;
+    if (isNum(p)) inrUnr += rem * (p - t.entry);
+  }
+
+  let usdInv = 0, usdRisk = 0, usdUnr = 0;
+  for (const t of usdOpen) {
+    const p = px(t), rem = trRem(t);
+    usdInv += rem * t.entry;
+    usdRisk += Math.max(0, t.entry - t.sl) * rem;
+    if (isNum(p)) usdUnr += rem * (p - t.entry);
+  }
+
+  const combCap = inrCap + usdCap * USDINR;
+  const combInv = inrInv + usdInv * USDINR;
+  const combCash = (inrCap - inrInv) + (usdCap - usdInv) * USDINR;
+  const combRisk = inrRisk + usdRisk * USDINR;
+  const combUnr = inrUnr + usdUnr * USDINR;
+
   const rowO = t => {
     const isUS = !/\.(NS|BO)$/.test(t.s);
     const ccyS = isUS ? '$' : '₹';
     const pFmt = v => isUS ? ('$' + Number(v || 0).toFixed(2)) : inr2(v);
     const p = px(t), rem = trRem(t), R0 = t.R0 || (t.entry - t.sl0), x = X[t.s], [cls, adv] = trAdvice(t, x, isNum(p) ? p : t.entry);
-    inv += rem * t.entry; risk += Math.max(0, t.entry - t.sl) * rem; const u = isNum(p) ? rem * (p - t.entry) : 0; unr += u;
+    const cost = rem * t.entry, r = Math.max(0, t.entry - t.sl) * rem, u = isNum(p) ? rem * (p - t.entry) : 0;
     const sug = /raise the stop to [₹$]([\d,.]+)/.exec(adv) || /breakeven [₹$]([\d,.]+)/.exec(adv);
     const curR = (isNum(p) && R0 > 0) ? (p - t.entry) / R0 : 0;
     const tr = (x && isFinite(x.e20) && isFinite(x.lo5)) ? Math.max(x.e20, x.lo5) : null;
@@ -785,46 +861,158 @@ async function renderTrades(box) {
     } else if (isNum(p) && p > t.sl && (p - t.sl) / p <= 0.015) {
       trailAlert = `<br><small class="flag" style="color:#dc2626;font-weight:600">⚠ ${((p - t.sl) / p * 100).toFixed(1)}% from stop</small>`;
     }
+
+    // Pre-Earnings Danger Flags (Feature 6)
+    let earnAlert = '';
+    if (x && x.earnDate) {
+      const daysToEarn = Math.ceil((x.earnDate - Date.now() / 1000) / 86400);
+      if (daysToEarn >= 0 && daysToEarn <= 14) {
+        const eDateStr = new Date(x.earnDate * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+        earnAlert = daysToEarn <= 3
+          ? `<br><span class="tag" style="background:#fee2e2;color:#b91c1c;font-weight:700;font-size:11px">🚨 Earnings in ${daysToEarn}d (${eDateStr}) — Gap Risk</span>`
+          : `<br><span class="tag" style="background:#fef9c3;color:#a16207;font-weight:600;font-size:11px">⚠️ Earnings in ${daysToEarn}d (${eDateStr})</span>`;
+      }
+    }
+
     const pctT1 = Math.min(100, Math.max(0, curR / 2 * 100));
     const lossPct = Math.min(100, Math.max(0, -curR * 100));
     const gauge = isNum(p) ? (curR >= 0
       ? `<div style="width:100%;min-width:64px;max-width:100px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px" title="Progress to T1 (+2R): ${pctT1.toFixed(0)}%"><div style="height:100%;width:${pctT1}%;background:${curR >= 2 ? '#16a34a' : curR >= 1 ? '#2563eb' : '#0891b2'}"></div></div>`
       : `<div style="width:100%;min-width:64px;max-width:100px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px" title="Distance to Stop (-1R): ${lossPct.toFixed(0)}%"><div style="height:100%;width:${lossPct}%;background:#dc2626"></div></div>`) : '';
-    return `<tr><td style="text-align:left;white-space:normal"><a href="#" data-s="${esc(t.s)}"><b>${esc(plSym(t.s))}</b></a>${isUS ? ' <small class="mut">US</small>' : ''}<br><small class="mut">${esc(PL_SET[t.setup] || t.setup || '')}${t.note ? ' · ' + esc(t.note) : ''}</small></td>
-      <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${pFmt(t.entry)}</small></td><td>${pFmt(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, isUS ? 2 : 0)} ${ccyS} · ${isNum(p) ? sgn(curR, 1) + 'R' : ''}</small>${gauge}${trailAlert}</td>
+    const tg = TR_TAGS[t.tag || 'plan'] || TR_TAGS.plan;
+    return `<tr><td style="text-align:left;white-space:normal"><a href="#" data-s="${esc(t.s)}"><b>${esc(plSym(t.s))}</b></a>${isUS ? ' <small class="mut">US</small>' : ''} <span class="tag" style="font-size:10.5px;padding:1px 5px;background:${tg.good ? '#f0fdf4' : '#fef2f2'};color:${tg.good ? '#166534' : '#991b1b'}">${tg.icon} ${tg.label}</span><br><small class="mut">${esc(PL_SET[t.setup] || t.setup || '')}${t.note ? ' · ' + esc(t.note) : ''}</small></td>
+      <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${pFmt(t.entry)}</small></td><td>${pFmt(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, isUS ? 2 : 0)} ${ccyS} · ${isNum(p) ? sgn(curR, 1) + 'R' : ''}</small>${gauge}${trailAlert}${earnAlert}</td>
       <td>${pFmt(t.sl)}<br><small class="mut">T1 ${pFmt(t.t1)}</small></td><td style="white-space:normal;text-align:left"><span class="${cls}">${esc(adv)}</span>${t.alerts ? ' <small title="phone alerts on">🔔</small>' : ''}</td>
       <td style="white-space:nowrap"><button class="btn sec" data-trstop="${t.id}" data-sug="${sug ? sug[1].replace(/,/g, '') : ''}" title="Update stop">🛡</button> <button class="btn sec" data-trpart="${t.id}" title="Sell part">➗</button> <button class="btn sec" data-trclose="${t.id}" title="Close trade">✅</button> <button class="btn sec" data-tredit="${t.id}" title="Edit">✎</button></td></tr>`; };
-  const openRows = open.map(rowO);
-  const openHTML = open.length ? `<div class="tw"><table class="pt" id="trt"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Now · P&amp;L</th><th>Stop · T1</th><th style="text-align:left">What to do</th><th></th></tr>${openRows.join('')}</table></div>` : '<p class="mut">No open trades. Log one from 🧭 Daily plan ("📒 Log as my trade") or add it here.</p>';
-  const themeMap = {};
+
+  const openRows = dispOpen.map(rowO);
+  const openHTML = dispOpen.length ? `<div class="tw"><table class="pt" id="trt"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Now · P&amp;L</th><th>Stop · T1</th><th style="text-align:left">What to do</th><th></th></tr>${openRows.join('')}</table></div>` : `<p class="mut">No open trades in ${ccyMode === 'inr' ? 'INR (NSE/BSE)' : ccyMode === 'usd' ? 'USD (NYSE/NASDAQ)' : 'portfolio'}.</p>`;
+
+  // Upcoming Earnings Radar Component (Feature 6)
+  const upcomingEarnTrades = [];
   for (const t of open) {
+    const x = X[t.s];
+    if (x && x.earnDate) {
+      const days = Math.ceil((x.earnDate - Date.now() / 1000) / 86400);
+      if (days >= 0 && days <= 30) {
+        upcomingEarnTrades.push({ t, x, days, earnDate: x.earnDate });
+      }
+    }
+  }
+  upcomingEarnTrades.sort((a, b) => a.days - b.days);
+
+  const earnRadarHTML = upcomingEarnTrades.length ? `
+    <div class="card" style="margin-top:14px;border-left:4px solid ${upcomingEarnTrades[0].days <= 3 ? '#dc2626' : '#f59e0b'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0">📅 Upcoming Earnings Radar &amp; Gap-Risk Shield</h2>
+        <span class="tag" style="background:${upcomingEarnTrades[0].days <= 3 ? '#fee2e2' : '#fef9c3'};color:${upcomingEarnTrades[0].days <= 3 ? '#b91c1c' : '#a16207'};font-weight:700">
+          ${upcomingEarnTrades.length} Open Position${upcomingEarnTrades.length === 1 ? '' : 's'} Reporting Soon
+        </span>
+      </div>
+      <p class="mut" style="font-size:13px;margin:6px 0 10px">
+        Holding through quarterly earnings exposes trades to overnight binary gap risk that stops cannot protect against. Standard swing trading protocol: tighten stops or trim at least 50% size if &le; 3 days to earnings.
+      </p>
+      <div class="tw">
+        <table class="pt" style="font-size:13px">
+          <tr>
+            <th style="text-align:left">Stock</th>
+            <th>Earnings Date</th>
+            <th>Countdown</th>
+            <th>Open Shares</th>
+            <th>Capital at Risk</th>
+            <th style="text-align:left">Gap Risk Protocol</th>
+          </tr>
+          ${upcomingEarnTrades.map(({ t, x, days, earnDate }) => {
+            const isUS = !/\.(NS|BO)$/.test(t.s);
+            const pFmt = v => isUS ? '$' + Number(v || 0).toFixed(2) : inr2(v);
+            const rem = trRem(t);
+            const rAmt = Math.max(0, t.entry - t.sl) * rem;
+            const dStr = new Date(earnDate * 1000).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+            const isImminent = days <= 3;
+            return `
+              <tr style="${isImminent ? 'background:rgba(220,38,38,0.06)' : ''}">
+                <td style="text-align:left">
+                  <a href="#" data-s="${esc(t.s)}"><b>${esc(plSym(t.s))}</b></a>
+                  ${isUS ? ' <small class="mut">US</small>' : ''}
+                </td>
+                <td><b>${dStr}</b></td>
+                <td>
+                  <span class="tag" style="background:${isImminent ? '#fee2e2' : '#fef9c3'};color:${isImminent ? '#b91c1c' : '#a16207'};font-weight:700">
+                    ${days === 0 ? 'Today' : `in ${days} day${days === 1 ? '' : 's'}`}
+                  </span>
+                </td>
+                <td>${rem} @ ${pFmt(t.entry)}</td>
+                <td class="dn"><b>${pFmt(rAmt)}</b></td>
+                <td style="text-align:left">
+                  ${isImminent
+                    ? '<b class="dn">🚨 Immediate: Trim 50% or raise stop</b>'
+                    : '<span class="mut">⚠️ Monitor; plan exit if no profit cushion</span>'}
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </table>
+      </div>
+    </div>
+  ` : '';
+
+  const themeMap = {};
+  for (const t of dispOpen) {
     const rem = trRem(t);
     const sec = (typeof swSec === 'function' ? swSec({ s: t.s }).sec : null) || 'Other';
     themeMap[sec] = (themeMap[sec] || 0) + rem * t.entry;
   }
   const themeEntries = Object.entries(themeMap).sort((a, b) => b[1] - a[1]);
   const themeColors = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0891b2', '#e11d48', '#64748b'];
-  const themeBar = (inv > 0 && themeEntries.length) ? `
+  const curInv = ccyMode === 'inr' ? inrInv : (ccyMode === 'usd' ? usdInv : combInv);
+  const themeBar = (curInv > 0 && themeEntries.length) ? `
     <div style="margin:10px 0 6px">
       <div style="font-size:12.5px;font-weight:600;margin-bottom:4px;color:var(--ink)">Portfolio Theme / Sector Exposure</div>
       <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin-bottom:6px">
         ${themeEntries.map(([sec, val], idx) => {
-          const pct = (val / inv * 100).toFixed(1);
+          const pct = (val / curInv * 100).toFixed(1);
           const col = themeColors[idx % themeColors.length];
-          return `<div style="width:${pct}%;background:${col}" title="${esc(sec)}: ${inr(val)} (${pct}%)"></div>`;
+          return `<div style="width:${pct}%;background:${col}" title="${esc(sec)}: ${pct}%"></div>`;
         }).join('')}
       </div>
       <div class="mut" style="font-size:12px;display:flex;flex-wrap:wrap;gap:8px">
         ${themeEntries.map(([sec, val], idx) => {
-          const pct = (val / inv * 100).toFixed(0);
+          const pct = (val / curInv * 100).toFixed(0);
           const col = themeColors[idx % themeColors.length];
           return `<span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${col};margin-right:3px"></span>${esc(sec)}: <b>${pct}%</b></span>`;
         }).join('')}
       </div>
     </div>` : '';
-  // journal
-  const J = closed.map(t => { const R0 = t.R0 || (t.entry - t.sl0), q = (t.sold || []).reduce((s, x) => s + x.q, 0), pl = realised(t), avgX = q ? (t.sold || []).reduce((s, x) => s + x.q * x.p, 0) / q : null;
-    return { t, pl, R: q ? pl / (R0 * t.qty) : 0, avgX, end: (t.exit && t.exit.d) || ((t.sold || []).slice(-1)[0] || {}).d }; });
+
+  // Journal & Psychology / Mistake Analytics (Feature 4)
+  const J = dispClosed.map(t => {
+    const R0 = t.R0 || (t.entry - t.sl0), q = (t.sold || []).reduce((s, x) => s + x.q, 0), pl = realised(t), avgX = q ? (t.sold || []).reduce((s, x) => s + x.q * x.p, 0) / q : null;
+    return { t, pl, R: q ? pl / (R0 * t.qty) : 0, avgX, end: (t.exit && t.exit.d) || ((t.sold || []).slice(-1)[0] || {}).d, tag: t.tag || 'plan' };
+  });
+
+  const goodTags = ['plan', 'time_stop'];
+  const goodTrades = J.filter(j => goodTags.includes(j.tag));
+  const mistakeTrades = J.filter(j => !goodTags.includes(j.tag));
+  const discScore = J.length ? Math.round((goodTrades.length / J.length) * 100) : 100;
+
+  const mistakeGroups = {};
+  let totalMistakeLoss = 0;
+  for (const j of mistakeTrades) {
+    const tg = j.tag || 'other';
+    if (!mistakeGroups[tg]) mistakeGroups[tg] = { count: 0, wins: 0, pl: 0, r: 0 };
+    mistakeGroups[tg].count++;
+    if (j.pl > 0) mistakeGroups[tg].wins++;
+    mistakeGroups[tg].pl += j.pl;
+    mistakeGroups[tg].r += j.R;
+    if (j.pl < 0) totalMistakeLoss += Math.abs(j.pl);
+  }
+
+  const discBadge = discScore >= 85
+    ? '<span class="tag" style="background:#dcfce7;color:#15803d;font-weight:700">🟢 Iron Discipline</span>'
+    : (discScore >= 65
+      ? '<span class="tag" style="background:#fef9c3;color:#a16207;font-weight:700">🟡 Moderate Deviations</span>'
+      : '<span class="tag" style="background:#fee2e2;color:#b91c1c;font-weight:700">🔴 High Emotional Cost</span>');
+
   const wins = J.filter(j => j.pl > 0), losses = J.filter(j => j.pl < 0);
   const tot = J.reduce((s, j) => s + j.pl, 0), avgR = J.length ? J.reduce((s, j) => s + j.R, 0) / J.length : null;
   const winRate = J.length ? wins.length / J.length : 0;
@@ -835,35 +1023,150 @@ async function renderTrades(box) {
   const grossLoss = Math.abs(losses.reduce((s, j) => s + j.pl, 0));
   const pf = grossLoss > 0 ? (grossWin / grossLoss).toFixed(2) : (grossWin > 0 ? '∞' : '–');
   const bySet = {}; for (const j of J) { const k = j.t.setup || 'manual'; (bySet[k] = bySet[k] || []).push(j); }
-  const jHTML = J.length ? `<div class="kv">
-    <div><span>Closed trades</span><b>${J.length}</b></div>
-    <div><span>Win rate${swq('winrate')}</span><b>${Math.round(winRate * 100)}%</b></div>
-    <div><span>Expectancy${swq('expectancy')}</span><b class="${expectancy >= 0 ? 'up' : 'dn'}">${expectancy != null ? sgn(expectancy, 2) + 'R' : '–'}</b></div>
-    <div><span>Profit Factor</span><b class="${grossWin >= grossLoss ? 'up' : 'dn'}">${pf}</b></div>
-    <div><span>Average result</span><b class="${avgR >= 0 ? 'up' : 'dn'}">${sgn(avgR, 2)}R</b></div>
-    <div><span>Total P&amp;L</span><b class="${tot >= 0 ? 'up' : 'dn'}">${sgn(tot, 0)} ₹</b></div>
-  </div>
-    <p class="mut" style="font-size:13px">By setup: ${Object.entries(bySet).map(([k, a]) => `${esc(PL_SET[k] || k)} ${a.length} trade${a.length === 1 ? '' : 's'}, ${Math.round(a.filter(j => j.pl > 0).length / a.length * 100)}% won, ${sgn(a.reduce((s, j) => s + j.R, 0) / a.length, 2)}R`).join(' · ')}${J.length < 20 ? ' — under 20 trades says little; keep logging.' : ''}</p>
-    <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => {
+
+  const jHTML = J.length ? `
+    <div style="background:var(--soft,#f8fafc);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <h3 style="margin:0 0 2px">🧠 Trade Psychology &amp; Discipline Scorecard</h3>
+          <span class="mut" style="font-size:12.5px">${goodTrades.length} of ${J.length} closed trades followed complete trading rules</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <b style="font-size:20px;color:${discScore >= 80 ? '#15803d' : '#b91c1c'}">${discScore}%</b>
+          ${discBadge}
+        </div>
+      </div>
+      ${totalMistakeLoss > 0 ? `<div style="margin-top:8px;font-size:13px;color:#b91c1c"><b>Emotional Mistake Drag:</b> −₹${Math.round(totalMistakeLoss).toLocaleString('en-IN')} lost across ${mistakeTrades.length} undisciplined execution${mistakeTrades.length === 1 ? '' : 's'}.</div>` : ''}
+
+      ${Object.keys(mistakeGroups).length ? `
+        <div class="tw" style="margin-top:8px">
+          <table class="pt" style="font-size:12.5px">
+            <tr><th style="text-align:left">Discipline Violation</th><th>Occurrences</th><th>Win Rate</th><th>Net P&amp;L</th><th>Avg R</th><th style="text-align:left">Behavioral Correction</th></tr>
+            ${Object.entries(mistakeGroups).map(([k, st]) => {
+              const tg = TR_TAGS[k] || { label: k, icon: '⚠️', desc: '' };
+              const wr = Math.round(st.wins / st.count * 100);
+              return `<tr>
+                <td style="text-align:left"><b>${tg.icon} ${esc(tg.label)}</b></td>
+                <td>${st.count}</td>
+                <td>${wr}%</td>
+                <td class="${st.pl >= 0 ? 'up' : 'dn'}"><b>${sgn(st.pl, 0)}</b></td>
+                <td class="${st.r >= 0 ? 'up' : 'dn'}">${sgn(st.r / st.count, 2)}R</td>
+                <td style="text-align:left"><small class="mut">${esc(tg.desc)}</small></td>
+              </tr>`;
+            }).join('')}
+          </table>
+        </div>
+      ` : '<p class="up" style="font-size:13px;margin:8px 0 0"><b>✔ Flawless Execution:</b> 100% of closed trades strictly adhered to predefined sizing and stops!</p>'}
+    </div>
+
+    <div class="kv">
+      <div><span>Closed trades</span><b>${J.length}</b></div>
+      <div><span>Win rate${swq('winrate')}</span><b>${Math.round(winRate * 100)}%</b></div>
+      <div><span>Expectancy${swq('expectancy')}</span><b class="${expectancy >= 0 ? 'up' : 'dn'}">${expectancy != null ? sgn(expectancy, 2) + 'R' : '–'}</b></div>
+      <div><span>Profit Factor</span><b class="${grossWin >= grossLoss ? 'up' : 'dn'}">${pf}</b></div>
+      <div><span>Average result</span><b class="${avgR >= 0 ? 'up' : 'dn'}">${sgn(avgR, 2)}R</b></div>
+      <div><span>Total P&amp;L</span><b class="${tot >= 0 ? 'up' : 'dn'}">${sgn(tot, 0)} ${ccyMode === 'usd' ? '$' : '₹'}</b></div>
+    </div>
+    <p class="mut" style="font-size:13px;margin:8px 0 4px">By setup: ${Object.entries(bySet).map(([k, a]) => `${esc(PL_SET[k] || k)} ${a.length} trade${a.length === 1 ? '' : 's'}, ${Math.round(a.filter(j => j.pl > 0).length / a.length * 100)}% won, ${sgn(a.reduce((s, j) => s + j.R, 0) / a.length, 2)}R`).join(' · ')}${J.length < 20 ? ' — under 20 trades says little; keep logging.' : ''}</p>
+    <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Discipline</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => {
       const isUS = !/\.(NS|BO)$/.test(j.t.s);
       const ccyS = isUS ? '$' : '₹';
       const pFmt = v => isUS ? ('$' + Number(v || 0).toFixed(2)) : inr2(v);
-      return `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a>${isUS ? ' <small class="mut">US</small>' : ''}<br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td><td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${pFmt(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${pFmt(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, isUS ? 2 : 0)} ${ccyS}</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`;
-    }).join('')}</table></div>` : '<p class="mut">No closed trades yet. Your win rate and average R by setup appear here.</p>';
-  const cap = +SWF.cash || 0;
+      const tg = TR_TAGS[j.tag || 'plan'] || TR_TAGS.plan;
+      return `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a>${isUS ? ' <small class="mut">US</small>' : ''}<br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td>
+        <td><span class="tag" style="font-size:11px;background:${tg.good ? '#f0fdf4' : '#fef2f2'};color:${tg.good ? '#166534' : '#991b1b'}">${tg.icon} ${tg.label}</span></td>
+        <td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${pFmt(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${pFmt(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, isUS ? 2 : 0)} ${ccyS}</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`;
+    }).join('')}</table></div>` : '<p class="mut">No closed trades yet in this currency view. Your win rate and average R appear here.</p>';
+
+  const cap = ccyMode === 'usd' ? usdCap : (ccyMode === 'inr' ? inrCap : combCap);
   const notifGranted = typeof Notification !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
   const notifHTML = typeof Notification !== 'undefined' && 'Notification' in window ? (notifGranted
     ? `<small class="up" style="font-size:12px;margin-left:8px;font-weight:600">● Desktop alerts on</small>`
     : `<button class="btn sec" id="trNotifBtn" style="padding:2px 8px;font-size:12px;margin-left:8px">🔔 Enable Desktop Alerts</button>`) : '';
   const lastSync = (typeof LS !== 'undefined' ? LS.get('mytrades_gist_synced', '') : '') || '';
 
+  // Portfolio Dashboard Tile HTML (Feature 5)
+  let portfolioSummaryHTML = '';
+  if (ccyMode === 'split') {
+    portfolioSummaryHTML = `
+      <div class="grid two" style="margin-bottom:12px">
+        <div class="card" style="margin:0;border-top:4px solid #16a34a">
+          <h3 style="margin:0 0 6px">🇮🇳 Domestic INR Portfolio <small class="mut">(NSE/BSE)</small></h3>
+          <div class="kv">
+            <div><span>Capital</span><b>${inr(inrCap)}</b></div>
+            <div><span>Invested</span><b>${inr(inrInv)}</b> <small class="mut">${inrCap ? (inrInv / inrCap * 100).toFixed(1) + '%' : ''}</small></div>
+            <div><span>Cash</span><b>${inr(inrCap - inrInv)}</b></div>
+            <div><span>Open Risk</span><b class="dn">${inr(inrRisk)}</b></div>
+            <div><span>Unrealised P&amp;L</span><b class="${inrUnr >= 0 ? 'up' : 'dn'}">${sgn(inrUnr, 0)} ₹</b></div>
+          </div>
+        </div>
+        <div class="card" style="margin:0;border-top:4px solid #2563eb">
+          <h3 style="margin:0 0 6px">🇺🇸 US Equity USD Portfolio <small class="mut">(NYSE/NASDAQ)</small></h3>
+          <div class="kv">
+            <div><span>Capital</span><b>$${usdCap.toLocaleString()}</b></div>
+            <div><span>Invested</span><b>$${usdInv.toFixed(2)}</b> <small class="mut">${usdCap ? (usdInv / usdCap * 100).toFixed(1) + '%' : ''}</small></div>
+            <div><span>Cash</span><b>$${(usdCap - usdInv).toFixed(2)}</b></div>
+            <div><span>Open Risk</span><b class="dn">$${usdRisk.toFixed(2)}</b></div>
+            <div><span>Unrealised P&amp;L</span><b class="${usdUnr >= 0 ? 'up' : 'dn'}">${sgn(usdUnr, 2)} $</b></div>
+          </div>
+        </div>
+      </div>
+    `;
+  } else if (ccyMode === 'combined') {
+    portfolioSummaryHTML = `
+      <div class="kv">
+        <div><span>Consolidated Capital</span><b>${inr(combCap)}</b></div>
+        <div><span>Total Invested</span><b>${inr(combInv)}</b> <small class="mut">${combCap ? (combInv / combCap * 100).toFixed(1) + '%' : ''}</small></div>
+        <div><span>Total Cash</span><b>${inr(combCash)}</b></div>
+        <div><span>Total Open Risk</span><b class="dn">${inr(combRisk)}</b> <small class="mut">${combCap ? (combRisk / combCap * 100).toFixed(2) + '%' : ''}</small></div>
+        <div><span>Unrealised P&amp;L</span><b class="${combUnr >= 0 ? 'up' : 'dn'}">${sgn(combUnr, 0)} ₹</b></div>
+      </div>
+      <p class="mut" style="font-size:12px;margin:6px 0 0">
+        🌐 <b>Multi-Currency Aggregation:</b> Includes ${inr(inrInv)} INR (${inrOpen.length} positions) + $${usdInv.toFixed(0)} USD (${usdOpen.length} positions) converted at benchmark exchange rate ₹${USDINR.toFixed(2)} / USD.
+      </p>
+    `;
+  } else if (ccyMode === 'usd') {
+    portfolioSummaryHTML = `
+      <div class="kv">
+        <div><span>US Capital</span><b>$${usdCap.toLocaleString()}</b></div>
+        <div><span>Invested</span><b>$${usdInv.toFixed(2)}</b> <small class="mut">${usdCap ? (usdInv / usdCap * 100).toFixed(1) + '%' : ''}</small></div>
+        <div><span>Cash</span><b>$${(usdCap - usdInv).toFixed(2)}</b></div>
+        <div><span>Open Risk</span><b class="dn">$${usdRisk.toFixed(2)}</b></div>
+        <div><span>Unrealised P&amp;L</span><b class="${usdUnr >= 0 ? 'up' : 'dn'}">${sgn(usdUnr, 2)} $</b></div>
+      </div>
+    `;
+  } else {
+    portfolioSummaryHTML = `
+      <div class="kv">
+        <div><span>INR Capital</span><b>${inr(inrCap)}</b></div>
+        <div><span>Invested</span><b>${inr(inrInv)}</b> <small class="mut">${inrCap ? (inrInv / inrCap * 100).toFixed(1) + '%' : ''}</small></div>
+        <div><span>Cash</span><b>${inr(inrCap - inrInv)}</b></div>
+        <div><span>Open Risk</span><b class="dn">${inr(inrRisk)}</b> <small class="mut">${inrCap ? (inrRisk / inrCap * 100).toFixed(2) + '%' : ''}</small></div>
+        <div><span>Unrealised P&amp;L</span><b class="${inrUnr >= 0 ? 'up' : 'dn'}">${sgn(inrUnr, 0)} ₹</b></div>
+      </div>
+    `;
+  }
+
   box.innerHTML = `${swMode()}<div class="nogq"><style>.swbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}.swbar input{padding:7px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff;width:110px}#trt td,#trt th,#trj td,#trj th{text-align:right}#trt .btn,#trj .btn{padding:4px 7px;font-size:13px}</style>
-    ${plBar()}<div class="card"><h2>📒 My trades <span class="mut">(open)</span>${notifHTML}</h2>
-     <div class="kv"><div><span>Capital</span><b>${inr(cap)}</b></div><div><span>Invested</span><b>${inr(inv)}</b> <small class="mut">${cap ? (inv / cap * 100).toFixed(1) + '%' : ''}</small></div><div><span>Cash</span><b>${inr(cap - inv)}</b></div><div><span>Open risk</span><b class="dn">${inr(risk)}</b> <small class="mut">${cap ? (risk / cap * 100).toFixed(2) + '%' : ''}</small></div><div><span>Unrealised P&amp;L</span><b class="${unr >= 0 ? 'up' : 'dn'}">${sgn(unr, 0)} ₹</b></div></div>
-     ${themeBar}
-     ${openHTML}<p style="margin:8px 0 0"><button class="btn" id="trAdd">➕ Add a trade</button></p>
-     <p class="mut" style="font-size:12.5px">"What to do" checks each trade against the management plan: stop hit → exit · up 1R → stop to breakeven · T1 → sell half · after that, trail under the 20 EMA / 5-day low · 15 sessions without +1R → time stop. Prices: latest quote; 20 EMA and 5-day low: last close.</p></div>
-    <div class="card"><h2>📊 Trade journal</h2>${jHTML}</div>
+    ${plBar()}
+    <div class="tabs" style="margin-bottom:8px">
+      ${[['combined', '🌐 Combined Portfolio (₹ &amp; $)'], ['split', '⚡ Side-by-Side (INR &amp; USD)'], ['inr', '🇮🇳 INR Only (NSE/BSE)'], ['usd', '🇺🇸 USD Only (NYSE/NASDAQ)']].map(([k, l]) =>
+        `<button data-ccymode="${k}" class="${ccyMode === k ? 'on' : ''}">${l}</button>`
+      ).join('')}
+    </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <h2 style="margin:0">📒 My trades <span class="mut">(open: ${dispOpen.length})</span>${notifHTML}</h2>
+      </div>
+      ${portfolioSummaryHTML}
+      ${themeBar}
+      ${openHTML}
+      <p style="margin:8px 0 0"><button class="btn" id="trAdd">➕ Add a trade</button></p>
+      <p class="mut" style="font-size:12.5px">"What to do" checks each trade against the management plan: stop hit → exit · up 1R → stop to breakeven · T1 → sell half · after that, trail under the 20 EMA / 5-day low · 15 sessions without +1R → time stop. Prices: latest quote; 20 EMA and 5-day low: last close.</p>
+    </div>
+    ${earnRadarHTML}
+    <div class="card"><h2>📊 Trade journal &amp; Psychology</h2>${jHTML}</div>
     ${expectancySimHTML(J, cap)}
     <div class="card"><h2>💾 Backup &amp; Cloud Sync</h2><p class="mut" style="font-size:13px">Your trades are stored on this device. Sync with 1 click to your private GitHub Gist for seamless cross-device access, export a spreadsheet for Excel / Google Sheets, or download a full JSON backup.</p>
      <p style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
@@ -877,6 +1180,7 @@ async function renderTrades(box) {
   swModeWire(box);
   const re = () => { const y = window.scrollY; renderTrades(box).then(() => window.scrollTo(0, y)); };
   plBarWire(box, re);
+  box.querySelectorAll('[data-ccymode]').forEach(b => b.onclick = () => { SWF.ccyMode = b.dataset.ccymode; swSave(); re(); });
   const nBtn = box.querySelector('#trNotifBtn');
   if (nBtn) nBtn.onclick = () => Notification.requestPermission().then(() => re());
   const gistStatus = msg => { const el = box.querySelector('#trBk'); if (el) el.innerHTML = msg; };
@@ -1131,6 +1435,122 @@ async function momCardFill(d) {
   else if (u) h = `<p><b>? Couldn't check</b> — ${esc(u.why)}. It passes the price, volume and ROCE tests (ROCE ${u.roce}%); check its profit history yourself.</p>`;
   else h = `<p><b>Not on the list</b> — it doesn't pass every test of the screen.</p>`;
   el.innerHTML = head + h + `<p class="src">Screen: ${rules}. Profits from the company's NSE results filings. Educational, not a recommendation.</p>`;
+}
+
+// ---------- Feature 2: Anchored VWAP (AVWAP) & Institutional Volume Profile Shelves ----------
+function avwapCard(d) {
+  if (!d || d.etf || !Array.isArray(d.ohlc) || d.ohlc.length < 15 || typeof IND === 'undefined' || !IND.avwap || !IND.volumeProfile) return '';
+  const ohlc = d.ohlc;
+  const p = isNum(d.price) ? d.price : ohlc[ohlc.length - 1][4];
+  const isUS = !/\.(NS|BO)$/.test(d.symbol || '');
+  const pFmt = v => isUS ? ('$' + Number(v || 0).toFixed(2)) : inr2(v);
+  const lookback = Math.min(ohlc.length, 250);
+  const sample = ohlc.slice(-lookback);
+  const offset = ohlc.length - lookback;
+
+  // 1. 52w High Anchor
+  let maxH = -Infinity, maxIdx = 0;
+  // 2. 52w Low Anchor
+  let minL = Infinity, minIdx = 0;
+  for (let i = 0; i < sample.length; i++) {
+    const b = sample[i];
+    if (b[2] > maxH) { maxH = b[2]; maxIdx = offset + i; }
+    if (b[3] < minL) { minL = b[3]; minIdx = offset + i; }
+  }
+
+  const avHi = IND.avwap(ohlc, maxIdx);
+  const avLo = IND.avwap(ohlc, minIdx);
+
+  // 3. Earnings Anchor
+  let avEarn = null;
+  if (d.profile && Array.isArray(d.profile.earnDates) && d.profile.earnDates.length) {
+    const nowSec = Date.now() / 1000;
+    const pastEarns = d.profile.earnDates.filter(t => t <= nowSec).sort((a, b) => b - a);
+    if (pastEarns.length) {
+      const latestEarn = pastEarns[0];
+      let eIdx = 0;
+      for (let i = 0; i < ohlc.length; i++) {
+        if (ohlc[i][0] <= latestEarn) eIdx = i;
+        else break;
+      }
+      avEarn = IND.avwap(ohlc, eIdx);
+    }
+  }
+
+  // 4. Volume Profile (16 bins)
+  const vp = IND.volumeProfile(ohlc, 16);
+  if (!vp || !avHi || !avLo) return '';
+
+  const dist = (target) => target > 0 ? ((p - target) / target * 100) : 0;
+  const distHi = dist(avHi.current);
+  const distLo = dist(avLo.current);
+  const distEarn = avEarn ? dist(avEarn.current) : null;
+  const distPoc = dist(vp.poc);
+
+  const aboveHi = p >= avHi.current;
+  const abovePoc = p >= vp.poc;
+  const inVA = p >= vp.val && p <= vp.vah;
+  const aboveVA = p > vp.vah;
+
+  const biasBadge = aboveHi
+    ? '<span class="tag" style="background:#dcfce7;color:#15803d;font-weight:700">Bullish · Above 52W-High AVWAP</span>'
+    : (abovePoc
+      ? '<span class="tag" style="background:#eff6ff;color:#1e40af;font-weight:700">Accumulation · Above POC</span>'
+      : '<span class="tag" style="background:#fee2e2;color:#b91c1c;font-weight:700">Below POC &amp; High AVWAP · Resistance Overhead</span>');
+
+  const maxBinVol = Math.max(...vp.bins.map(b => b.vol), 1);
+  const shelfRows = vp.bins.slice().reverse().map(b => {
+    const isPocBin = Math.abs(b.mid - vp.poc) < (vp.maxP - vp.minP) / 32;
+    const isCurBin = p >= b.low && p <= b.high;
+    const inValArea = b.mid >= vp.val && b.mid <= vp.vah;
+    const barWidth = Math.max(3, Math.round((b.vol / maxBinVol) * 100));
+    const bgCol = isPocBin ? '#f59e0b' : (inValArea ? '#3b82f6' : '#cbd5e1');
+    return `
+      <div style="display:flex;align-items:center;gap:6px;font-size:11.5px;margin:2px 0">
+        <span style="width:72px;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums">${pFmt(b.mid)}</span>
+        <div style="flex:1;background:var(--soft,#f1f5f9);height:14px;border-radius:3px;overflow:hidden;position:relative">
+          <div style="width:${barWidth}%;height:100%;background:${bgCol};border-radius:3px"></div>
+          ${isPocBin ? '<span style="position:absolute;left:4px;top:0;font-size:9.5px;font-weight:700;color:#78350f">POC</span>' : ''}
+        </div>
+        <span style="width:36px;font-size:11px;color:var(--mut,#64748b)">${b.pct.toFixed(0)}%</span>
+        <span style="width:60px;font-size:11px;font-weight:600;color:${isCurBin ? '#dc2626' : 'transparent'}">${isCurBin ? '◄ Price' : ''}</span>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="card nogq" id="avwap">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+        <h2 style="margin:0">⚓ Anchored VWAP &amp; Volume Profile</h2>
+        ${biasBadge}
+      </div>
+      <p class="mut" style="font-size:13px;margin:0 0 10px">
+        Institutional benchmark levels: AVWAPs track the average price weighted by volume from key inflection points. Volume profile identifies the <b>Point of Control (POC)</b> and 70% <b>Value Area (VA)</b> shelf.
+      </p>
+
+      <div class="kv">
+        <div><span>AVWAP (52w High)</span><b>${pFmt(avHi.current)} <small class="${distHi >= 0 ? 'up' : 'dn'}">(${sgn(distHi, 1)}%)</small></b></div>
+        <div><span>AVWAP (52w Low)</span><b>${pFmt(avLo.current)} <small class="${distLo >= 0 ? 'up' : 'dn'}">(${sgn(distLo, 1)}%)</small></b></div>
+        ${avEarn ? `<div><span>AVWAP (Earnings)</span><b>${pFmt(avEarn.current)} <small class="${distEarn >= 0 ? 'up' : 'dn'}">(${sgn(distEarn, 1)}%)</small></b></div>` : ''}
+        <div><span>Point of Control (POC)</span><b style="color:#d97706">${pFmt(vp.poc)} <small class="${distPoc >= 0 ? 'up' : 'dn'}">(${sgn(distPoc, 1)}%)</small></b></div>
+        <div><span>Value Area (VAL – VAH)</span><b>${pFmt(vp.val)} – ${pFmt(vp.vah)}</b></div>
+        <div><span>Market Structure</span><b style="font-size:13px">${aboveVA ? '<span class="up">Accepted Above Value (Expansion)</span>' : (inVA ? '<span style="color:#2563eb">Rotational Inside Value Area</span>' : '<span class="dn">Below Value (Discount / Heavy)</span>')}</b></div>
+      </div>
+
+      <details class="how" style="margin-top:10px" open>
+        <summary>📊 Volume Profile Shelves (Point of Control &amp; Value Area)</summary>
+        <div style="padding:6px 0 2px">
+          <div style="display:flex;gap:12px;font-size:11.5px;margin-bottom:6px" class="mut">
+            <span><b style="color:#f59e0b">■</b> POC (Max Volume Node)</span>
+            <span><b style="color:#3b82f6">■</b> 70% Value Area</span>
+            <span><b style="color:#94a3b8">■</b> Low Volume Node</span>
+          </div>
+          ${shelfRows}
+        </div>
+      </details>
+      <p class="src">Calculated on official closing and daily volume bars. POC = price where the largest volume traded over the last 160 sessions. Educational tool, not a recommendation.</p>
+    </div>
+  `;
 }
 
 // ---------- glossary terms used here ----------

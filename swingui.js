@@ -22,7 +22,7 @@ const SW_RULES = () => `<ul style="margin:4px 0;padding-left:18px">
   <li><b>Position size${swq('possize')}:</b> quantity = (capital × risk %) ÷ (entry − stop), so a stop-out costs about your chosen risk %${swq('riskpct')}.</li></ul>`;
 const SW_DISC = `<div class="disc" style="margin-top:8px"><b>Educational tool, not a recommendation.</b> These levels come from fixed technical rules applied to official closing prices; they don't know news, order flow or your situation. Gaps at the open can skip past a stop. Check the chart yourself, use a stop-loss, risk only a small part of your capital per trade, and consult a SEBI-registered adviser before trading.</div>`;
 
-const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['plan', '🧭 Daily plan'], ['trades', '📒 My trades']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode === 'trades' ? 'trades' : 'plan') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+const swMode = () => `<div class="tabs" style="margin-bottom:6px">${[['plan', '🧭 Daily plan'], ['trades', '📒 My trades'], ['internals', '🌡️ Market internals']].map(([k, l]) => `<button data-swmode="${k}" class="${(SWF.mode === 'trades' ? 'trades' : SWF.mode === 'internals' ? 'internals' : 'plan') === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
 const swModeWire = box => box.querySelectorAll('[data-swmode]').forEach(b => b.onclick = () => { SWF.mode = b.dataset.swmode; swSave(); renderSwing(box); });
 
 // ===== Sector grouping: stocks from one sector tend to move together, so several setups in it are really one bet =====
@@ -53,7 +53,8 @@ function swGroup(rows, trFn, ncol) {
 }
 
 async function renderSwing(box) {
-  // the tab has two views (as asked, 12 Nov 2026): 🧭 Daily plan and 📒 My trades; trend / momentum / DMA details are on each stock's page
+  // the tab has three views: 🧭 Daily plan, 📒 My trades, and 🌡️ Market internals; trend / momentum / DMA details are on each stock's page
+  if (SWF.mode === 'internals' && typeof renderMarketInternals === 'function') return renderMarketInternals(box);
   if (SWF.mode === 'trades' && typeof renderTrades === 'function') return renderTrades(box);
   if (typeof renderPlan === 'function') return renderPlan(box);
   if (SWF.mode === 'mom') return renderMomentum(box);
@@ -87,6 +88,224 @@ async function renderSwing(box) {
   box.querySelector('#swt-grp').onchange = e => { SWF.grp = e.target.value; re(); };
   box.querySelector('#swt-cash').onchange = e => { SWF.cash = Math.max(0, +e.target.value || 0); re(); };
   box.querySelector('#swt-risk').onchange = e => { SWF.riskPct = Math.min(5, Math.max(0.1, +e.target.value || 1)); re(); };
+}
+
+// ===== Market Internals & Sector Breadth Heatmap (Feature 3) =====
+async function renderMarketInternals(box) {
+  box.innerHTML = `${swMode()}<p class="mut">Loading market internals &amp; sector breadth…</p>`;
+  swModeWire(box);
+  if (typeof ensureSummary === 'function') await ensureSummary();
+  let P = null;
+  if (typeof planLoad === 'function') {
+    try { P = await planLoad(); } catch { }
+  }
+
+  const miPct = v => isNum(v) ? Math.round(v * 100) + '%' : '–';
+  const miSgn = (v, d = 1) => isNum(v) ? (v > 0 ? '+' : '') + (+v).toFixed(d) : '–';
+
+  const rows = (SUMMARY && SUMMARY.rows ? SUMMARY.rows : []).filter(r => /\.(NS|BO)$/.test(r.s) && !String(r.cap || '').startsWith('ETF'));
+  const br = (P && P.market && P.market.breadth) ? P.market.breadth : null;
+  const reg = (P && P.market && P.market.regime) ? P.market.regime : { cls: 'C', label: 'Neutral', exposure: 50 };
+  const ix = (P && P.market && P.market.indices) ? P.market.indices : [];
+  const asOf = (P && P.asOf) || (SUMMARY && SUMMARY.swingAsOf) || '';
+
+  // 1. High / Low 52-week Expansion
+  let hi52Count = 0, lo52Count = 0;
+  for (const r of rows) {
+    const p = r.p;
+    if (!isNum(p)) continue;
+    if (r.offHi != null ? r.offHi >= -3 : (r.hl52 && p >= r.hl52[0] * 0.97)) hi52Count++;
+    if (r.offLo != null ? r.offLo <= 3 : (r.hl52 && p <= r.hl52[1] * 1.03)) lo52Count++;
+  }
+  const hiLoTot = hi52Count + lo52Count || 1;
+  const expansionRatio = Math.round((hi52Count / hiLoTot) * 100);
+  const thrustBadge = expansionRatio >= 70
+    ? '<span class="tag" style="background:#dcfce7;color:#15803d;font-weight:700">🚀 Bullish Expansion Thrust</span>'
+    : (expansionRatio <= 30
+      ? '<span class="tag" style="background:#fee2e2;color:#b91c1c;font-weight:700">⚠️ Severe Contraction (Defensive)</span>'
+      : '<span class="tag" style="background:#fef9c3;color:#a16207;font-weight:700">⚖️ Mixed / Rotational Breadth</span>');
+
+  // 2. Sector Breadth Heatmap
+  const secMap = new Map();
+  for (const r of rows) {
+    const sInfo = swSec(r);
+    const secName = sInfo.sec || 'Other';
+    if (!secMap.has(secName)) secMap.set(secName, []);
+    secMap.get(secName).push(r);
+  }
+
+  const secStats = [];
+  for (const [secName, sRows] of secMap.entries()) {
+    const total = sRows.length;
+    if (total < 2) continue;
+    const ready = sRows.filter(r => r.sw && r.sw.st === 'ready').length;
+    const watch = sRows.filter(r => r.sw && r.sw.st === 'watch').length;
+    const pos1y = sRows.filter(r => isNum(r.r1y) && r.r1y > 0).length;
+    const avg1y = sRows.filter(r => isNum(r.r1y)).length ? (sRows.filter(r => isNum(r.r1y)).reduce((a, b) => a + b.r1y, 0) / sRows.filter(r => isNum(r.r1y)).length * 100) : 0;
+    const pctBull = Math.round((pos1y / total) * 100);
+    const leaders = [...sRows].sort((a, b) => (b.r1y || 0) - (a.r1y || 0));
+    const leader = leaders[0];
+    secStats.push({ sec: secName, total, ready, watch, pos1y, avg1y, pctBull, leader });
+  }
+  secStats.sort((a, b) => b.pctBull - a.pctBull || b.total - a.total);
+
+  // 3. Advancers & Decliners
+  const adv = br ? br.adv : rows.filter(r => r.p > r.pc).length;
+  const dec = br ? br.dec : rows.filter(r => r.p < r.pc).length;
+  const advRatio = (adv + dec > 0) ? Math.round(adv / (adv + dec) * 100) : 50;
+
+  const pctBar = (val, col = '#16a34a') => `
+    <div style="width:100%;height:8px;background:var(--line,#e2e8f0);border-radius:4px;overflow:hidden;margin-top:4px">
+      <div style="width:${Math.min(100, Math.max(0, val))}%;height:100%;background:${col}"></div>
+    </div>
+  `;
+
+  box.innerHTML = `${swMode()}<div class="nogq">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:6px 0 10px">
+      <p style="margin:0;font-size:15px"><b>🌡️ Market Internals &amp; Sector Breadth Heatmap</b> <span class="mut">(${asOf ? 'As of ' + swDate(asOf) : 'Live Analysis'})</span></p>
+      <div>${typeof plBadge === 'function' ? plBadge(reg.cls) : ''} <b>${esc(reg.label)} Market</b> · Max Exposure: <b>${reg.exposure}%</b></div>
+    </div>
+
+    <div class="grid two" style="margin-bottom:12px">
+      <div class="card" style="margin:0">
+        <h3 style="margin:0 0 6px">📈 52-Week High / Low Expansion Ratio</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div><b style="font-size:24px;color:${expansionRatio >= 60 ? '#15803d' : expansionRatio <= 40 ? '#b91c1c' : '#a16207'}">${expansionRatio}%</b> <small class="mut">Highs Ratio</small></div>
+          <div>${thrustBadge}</div>
+        </div>
+        ${pctBar(expansionRatio, expansionRatio >= 60 ? '#16a34a' : (expansionRatio <= 40 ? '#dc2626' : '#f59e0b'))}
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px" class="mut">
+          <span>🟢 <b>${hi52Count}</b> Near 52W High (&le; 3%)</span>
+          <span>🔴 <b>${lo52Count}</b> Near 52W Low (&le; 3%)</span>
+        </div>
+        <p class="mut" style="font-size:12px;margin:8px 0 0">Bull markets expand with &gt;70% new highs. Severe drop below 30% indicates broad distribution and warrants raising cash.</p>
+      </div>
+
+      <div class="card" style="margin:0">
+        <h3 style="margin:0 0 6px">⚖️ Advance / Decline Momentum</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <div><b style="font-size:24px;color:${advRatio >= 50 ? '#15803d' : '#b91c1c'}">${advRatio}%</b> <small class="mut">Advancing</small></div>
+          <span class="tag" style="background:${advRatio >= 50 ? '#dcfce7' : '#fee2e2'};color:${advRatio >= 50 ? '#15803d' : '#b91c1c'};font-weight:700">${adv >= dec ? 'Bulls in Control' : 'Bears Dominating'}</span>
+        </div>
+        <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--line);margin-top:4px">
+          <div style="width:${advRatio}%;background:#16a34a" title="Advancers: ${adv}"></div>
+          <div style="width:${100 - advRatio}%;background:#dc2626" title="Decliners: ${dec}"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-top:6px" class="mut">
+          <span>🟢 <b>${adv}</b> Advancers</span>
+          <span>🔴 <b>${dec}</b> Decliners</span>
+        </div>
+        <p class="mut" style="font-size:12px;margin:8px 0 0">Ratio of advancing vs declining stocks across liquid NSE equities. Breadth confirmation prevents chasing false breakouts.</p>
+      </div>
+    </div>
+
+    ${br ? `
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="margin:0 0 8px">🌊 Moving Average Participation (% of ${br.n} Liquid Stocks)</h3>
+      <div class="kv">
+        <div>
+          <span>Above 20 EMA</span>
+          <b>${miPct(br.above20)}</b>
+          ${pctBar(br.above20 * 100, br.above20 >= 0.6 ? '#16a34a' : '#f59e0b')}
+        </div>
+        <div>
+          <span>Above 50 EMA</span>
+          <b>${miPct(br.above50)}</b>
+          ${pctBar(br.above50 * 100, br.above50 >= 0.5 ? '#16a34a' : '#f59e0b')}
+        </div>
+        <div>
+          <span>Above 200 EMA</span>
+          <b>${miPct(br.above200)}</b>
+          ${pctBar(br.above200 * 100, br.above200 >= 0.5 ? '#16a34a' : '#f59e0b')}
+        </div>
+        <div>
+          <span>Bull Stack (20&gt;50&gt;200)</span>
+          <b>${miPct(br.aligned)}</b>
+          ${pctBar(br.aligned * 100, '#2563eb')}
+        </div>
+      </div>
+    </div>` : ''}
+
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+        <h3 style="margin:0">🗺️ Sector Breadth Heatmap</h3>
+        <span class="mut" style="font-size:12.5px">${secStats.length} Sectors Analyzed</span>
+      </div>
+      <p class="mut" style="font-size:13px;margin:0 0 10px">
+        Grouped by business themes. Green sectors show high relative strength and broad trend participation (&gt;60% positive). Focus swing trades in leading sectors; avoid laggards.
+      </p>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(210px, 1fr));gap:10px;margin-bottom:14px">
+        ${secStats.map(s => {
+          const bg = s.pctBull >= 65 ? '#dcfce7' : (s.pctBull >= 45 ? '#fef9c3' : '#fee2e2');
+          const col = s.pctBull >= 65 ? '#15803d' : (s.pctBull >= 45 ? '#a16207' : '#b91c1c');
+          return `
+            <div style="background:var(--card,#fff);border:1px solid var(--line);border-top:4px solid ${col};border-radius:8px;padding:10px">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <b style="font-size:13.5px">${esc(s.sec)}</b>
+                <span class="tag" style="background:${bg};color:${col};font-weight:700;margin:0;font-size:11.5px">${s.pctBull}%</span>
+              </div>
+              <div style="font-size:12px;color:var(--mut,#64748b);margin:4px 0">
+                ${s.total} stocks · ${s.ready} ready · ${s.watch} watch
+              </div>
+              <div style="font-size:12px;margin-top:4px">
+                Avg 1Y: <b class="${s.avg1y >= 0 ? 'up' : 'dn'}">${miSgn(s.avg1y, 1)}%</b>
+              </div>
+              ${s.leader ? `<div style="font-size:11.5px;color:var(--mut,#64748b);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Leader: <b>${esc(s.leader.s.replace(/\.(NS|BO)$/, ''))}</b> (${miSgn(s.leader.r1y * 100, 0)}%)</div>` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+
+      <div class="tw">
+        <table class="pt" style="font-size:13px">
+          <tr>
+            <th style="text-align:left">Sector Theme</th>
+            <th>Stocks</th>
+            <th>Ready Setups</th>
+            <th>% Positive</th>
+            <th>Avg 1Y Return</th>
+            <th style="text-align:left">Sector Leader</th>
+          </tr>
+          ${secStats.map(s => `
+            <tr>
+              <td style="text-align:left"><b>${esc(s.sec)}</b></td>
+              <td>${s.total}</td>
+              <td><span class="${s.ready > 0 ? 'up' : 'mut'}"><b>${s.ready}</b></span></td>
+              <td><b style="color:${s.pctBull >= 65 ? '#15803d' : (s.pctBull >= 45 ? '#a16207' : '#b91c1c')}">${s.pctBull}%</b></td>
+              <td class="${s.avg1y >= 0 ? 'up' : 'dn'}">${miSgn(s.avg1y, 1)}%</td>
+              <td style="text-align:left">${s.leader ? `<a href="#" data-s="${esc(s.leader.s)}"><b>${esc(s.leader.s.replace(/\.(NS|BO)$/, ''))}</b></a> <small class="mut">(${miSgn(s.leader.r1y * 100, 0)}%)</small>` : '–'}</td>
+            </tr>
+          `).join('')}
+        </table>
+      </div>
+    </div>
+
+    ${ix.length ? `
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="margin:0 0 6px">🏛️ Major Benchmark Indices Structure</h3>
+      <div class="tw"><table class="pt" style="font-size:13px">
+        <tr><th style="text-align:left">Index</th><th>Close</th><th>1 Day</th><th>&gt; 20 EMA</th><th>&gt; 50 EMA</th><th>&gt; 200 EMA</th><th>RSI</th><th>From 52w High</th><th>1 Month</th></tr>
+        ${ix.map(x => `
+          <tr>
+            <td style="text-align:left"><b>${esc(x.name)}</b></td>
+            <td>${r2s(x.close)}</td>
+            <td class="${x.chg >= 0 ? 'up' : 'dn'}">${miSgn(x.chg)}%</td>
+            <td class="${x.close > x.e20 ? 'up' : 'dn'}">${x.close > x.e20 ? '✔' : '✕'}</td>
+            <td class="${x.close > x.e50 ? 'up' : 'dn'}">${x.close > x.e50 ? '✔' : '✕'}</td>
+            <td class="${x.close > x.e200 ? 'up' : 'dn'}">${x.close > x.e200 ? '✔' : '✕'}</td>
+            <td><b>${x.rsi}</b></td>
+            <td>${miSgn(x.offHi)}%</td>
+            <td class="${x.r1m >= 0 ? 'up' : 'dn'}">${miSgn(x.r1m)}%</td>
+          </tr>
+        `).join('')}
+      </table></div>
+    </div>` : ''}
+
+    ${SW_DISC}
+  </div>`;
+
+  swModeWire(box);
 }
 
 // ===== Earnings-momentum scan (scripts/momentum.js → momentum.json; profits from scripts/results.js) =====
