@@ -1521,24 +1521,24 @@ function avwapCard(d) {
   return `
     <div class="card nogq" id="avwap">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px">
-        <h2 style="margin:0">⚓ Anchored VWAP &amp; Volume Profile</h2>
+        <h2 style="margin:0">⚓ Anchored VWAP${swq('avwap')} &amp; Volume Profile${swq('volprofile')}</h2>
         ${biasBadge}
       </div>
       <p class="mut" style="font-size:13px;margin:0 0 10px">
-        Institutional benchmark levels: AVWAPs track the average price weighted by volume from key inflection points. Volume profile identifies the <b>Point of Control (POC)</b> and 70% <b>Value Area (VA)</b> shelf.
+        Institutional benchmark levels: AVWAPs track the average price weighted by volume from key inflection points. Volume profile identifies the <b>Point of Control (POC)</b>${swq('poc')} and 70% <b>Value Area (VA)</b> shelf${swq('valuearea')}.
       </p>
 
       <div class="kv">
-        <div><span>AVWAP (52w High)</span><b>${pFmt(avHi.current)} <small class="${distHi >= 0 ? 'up' : 'dn'}">(${sgn(distHi, 1)}%)</small></b></div>
-        <div><span>AVWAP (52w Low)</span><b>${pFmt(avLo.current)} <small class="${distLo >= 0 ? 'up' : 'dn'}">(${sgn(distLo, 1)}%)</small></b></div>
-        ${avEarn ? `<div><span>AVWAP (Earnings)</span><b>${pFmt(avEarn.current)} <small class="${distEarn >= 0 ? 'up' : 'dn'}">(${sgn(distEarn, 1)}%)</small></b></div>` : ''}
-        <div><span>Point of Control (POC)</span><b style="color:#d97706">${pFmt(vp.poc)} <small class="${distPoc >= 0 ? 'up' : 'dn'}">(${sgn(distPoc, 1)}%)</small></b></div>
-        <div><span>Value Area (VAL – VAH)</span><b>${pFmt(vp.val)} – ${pFmt(vp.vah)}</b></div>
+        <div><span>AVWAP (52w High)${swq('avwap')}</span><b>${pFmt(avHi.current)} <small class="${distHi >= 0 ? 'up' : 'dn'}">(${sgn(distHi, 1)}%)</small></b></div>
+        <div><span>AVWAP (52w Low)${swq('avwap')}</span><b>${pFmt(avLo.current)} <small class="${distLo >= 0 ? 'up' : 'dn'}">(${sgn(distLo, 1)}%)</small></b></div>
+        ${avEarn ? `<div><span>AVWAP (Earnings)${swq('avwap')}</span><b>${pFmt(avEarn.current)} <small class="${distEarn >= 0 ? 'up' : 'dn'}">(${sgn(distEarn, 1)}%)</small></b></div>` : ''}
+        <div><span>Point of Control (POC)${swq('poc')}</span><b style="color:#d97706">${pFmt(vp.poc)} <small class="${distPoc >= 0 ? 'up' : 'dn'}">(${sgn(distPoc, 1)}%)</small></b></div>
+        <div><span>Value Area (VAL – VAH)${swq('valuearea')}</span><b>${pFmt(vp.val)} – ${pFmt(vp.vah)}</b></div>
         <div><span>Market Structure</span><b style="font-size:13px">${aboveVA ? '<span class="up">Accepted Above Value (Expansion)</span>' : (inVA ? '<span style="color:#2563eb">Rotational Inside Value Area</span>' : '<span class="dn">Below Value (Discount / Heavy)</span>')}</b></div>
       </div>
 
       <details class="how" style="margin-top:10px" open>
-        <summary>📊 Volume Profile Shelves (Point of Control &amp; Value Area)</summary>
+        <summary>📊 Volume Profile Shelves (Point of Control &amp; Value Area)${swq('volprofile')}</summary>
         <div style="padding:6px 0 2px">
           <div style="display:flex;gap:12px;font-size:11.5px;margin-bottom:6px" class="mut">
             <span><b style="color:#f59e0b">■</b> POC (Max Volume Node)</span>
@@ -1555,6 +1555,10 @@ function avwapCard(d) {
 
 // ---------- glossary terms used here ----------
 if (typeof GL !== 'undefined') Object.assign(GL, {
+  avwap: ['Anchored VWAP (AVWAP)', 'Volume-Weighted Average Price calculated from a chosen anchor event (such as a 52-week high, 52-week low, or quarterly earnings announcement) rather than the start of the trading day. It represents the true average cost basis of all market participants who entered the stock since that specific catalyst or turning point.', 'Stock fell from a 52-week peak of ₹1,000 to ₹800, then rallied back to ₹920. If AVWAP anchored from the ₹1,000 peak sits at ₹890, all buyers since that high are now net in profit (+₹30/share). When the stock pulls back towards ₹890, those buyers defend their gains and new institutions accumulate, turning ₹890 into strong support.', 'Good: Price holding above a rising AVWAP anchored from a major swing low or earnings gap-up — buyers are in control and pullbacks offer low-risk entries. Bad: Price stuck beneath a falling AVWAP anchored from a major high — trapped overhead buyers look to sell at breakeven, creating supply resistance.'],
+  volprofile: ['Volume profile & shelves', 'A horizontal histogram displaying the total volume of shares traded at specific price intervals over a given lookback period (here 160 sessions), rather than volume over time. Dense "volume shelves" mark where heavy institutional accumulation or distribution occurred, acting as major support and resistance zones.', 'Between ₹450 and ₹550, huge volume traded around ₹500 (Point of Control) while very little volume traded between ₹530 and ₹545 (Low Volume Node). Price moves slowly near ₹500 as orders are absorbed, but slices quickly through ₹530–545 due to lack of historical liquidity.', 'Good: Entering swing pullbacks that bounce off a high-volume shelf (support) with the primary trend. Bad: Buying directly underneath a heavy volume shelf without waiting for a breakout — the massive overhead supply will often stall momentum.'],
+  poc: ['Point of Control (POC)', 'The exact price level with the single highest traded volume within the Volume Profile period. It is the market\'s "fair value consensus" and the strongest institutional liquidity shelf.', 'In the past 160 trading sessions, more shares were exchanged at ₹2,450 than any other price → ₹2,450 is the POC.', 'Trading above POC indicates buyers have accepted higher prices and the POC acts as structural support. Trading below POC indicates sellers dominate and rallies towards the POC will meet heavy supply.'],
+  valuearea: ['Value Area (VAH / VAL)', 'The price band enclosing 70% of total traded volume during the profile period (representing 1 standard deviation in auction market theory). VAH (Value Area High) serves as the upper boundary/resistance, and VAL (Value Area Low) serves as the lower boundary/support.', 'VAL is ₹320 and VAH is ₹360. A current price of ₹340 is inside the value area (rotational equilibrium).', 'Price breaking out above VAH indicates institutional expansion and trend acceleration. Price failing at VAH and falling back inside the value area typically rotates downward toward VAL.'],
   regime: ['Market regime', 'A label for the state of the whole market — Strong Bull, Bull, Neutral, Weak or Bear — from where Nifty is versus its averages, how many stocks are rising, and how nervous traders are (India VIX). It decides how much of your money may be invested at all.', 'Nifty above a rising 200 EMA, 70% of stocks above their 50 EMA, VIX 13 → Strong Bull, up to 100% invested.', 'Good: trade more in Bull markets. Bad: buying a lot when the market is Weak or Bear — most stocks fall with it.'],
   expcap: ['Maximum exposure', 'The most of your capital that should be in stocks at once, set by the market regime: Strong Bull 100%, Bull 75%, Neutral 50%, Weak 25%, Bear 0–10%. The rest stays as cash.', '₹50,000 capital in a Neutral market → at most ₹25,000 in stocks.', 'Good: following it — cash protects you when the market turns. Bad: being fully invested in a weak market.'],
   tgrade: ['Trend grade', 'A school-style grade (A+, A, B, C, D) for how healthy a stock\'s uptrend is: averages stacked in order and rising, higher highs and lows, strength versus other stocks, closeness to its 52-week high, and a strong industry. Only A+ and A are bought.', 'Price > 20 > 50 > 200 EMA, all rising, RS 90, 2% from its high → A+.', 'Good: A+ / A. Bad: C / D — the trend is weak or broken; a "cheap" price there is often a trap.'],
