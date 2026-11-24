@@ -326,19 +326,24 @@ const trIn = (id, label, val, extra = '') => `<label class="mut" style="display:
 function tradeDialog(id, pick, done) {
   const A = TR(), t = id ? A.trades.find(x => x.id === id) : null, d = trDlg();
   const today = new Date(Date.now() + 19800e3).toISOString().slice(0, 10);
-  const v = t || (pick ? { s: pick.s, n: pick.n, setup: pick.setup, date: PLAN && PLAN.next && PLAN.next <= today ? PLAN.next : today, entry: pick.plan.E, qty: pick.q, sl: pick.plan.SL, t1: pick.plan.T1, t2: pick.plan.T2, alerts: true, note: '' } : { s: '', date: today, alerts: true });
-  d.innerHTML = `<h2 style="margin-top:0">📒 ${t ? 'Edit trade' : 'Log a trade'}</h2>
-    ${trIn('trS', 'Stock symbol (NSE)', plSym(v.s), t ? 'disabled' : 'placeholder="e.g. JSWSTEEL" autocapitalize="characters"')}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8px">${trIn('trD', 'Buy date', v.date, 'type="date"')}${trIn('trE', 'Buy price ₹', v.entry, 'inputmode="decimal"')}
-    ${trIn('trQ', 'Quantity', v.qty, 'inputmode="numeric"')}${trIn('trSL', 'Stop-loss ₹', v.sl, 'inputmode="decimal"')}
-    ${trIn('trT1', 'Target 1 ₹ (blank = 2R)', v.t1, 'inputmode="decimal"')}${trIn('trT2', 'Target 2 ₹ (blank = 3R)', v.t2, 'inputmode="decimal"')}</div>
+  const v = t || (pick ? { s: pick.s, n: pick.n, setup: pick.setup, date: (PLAN && PLAN.next && PLAN.next <= today ? PLAN.next : today), entry: pick.plan.E, qty: pick.q, sl: pick.plan.SL, t1: pick.plan.T1, t2: pick.plan.T2, alerts: true, note: '', isUS: pick.isUS } : { s: '', date: today, alerts: true });
+  const isUS = !!((v && v.isUS) || (pick && pick.isUS) || (v && v.s && !/\.(NS|BO)$/.test(v.s)));
+  const ccy = isUS ? '$' : '₹';
+  d.innerHTML = `<h2 style="margin-top:0">📒 ${t ? 'Edit trade' : 'Log a trade'} ${isUS ? '<small class="tag" style="background:#eff6ff;color:#1e40af;font-size:12px;margin-left:4px">🇺🇸 US Stock</small>' : ''}</h2>
+    ${trIn('trS', isUS ? 'Stock symbol (US)' : 'Stock symbol (NSE)', plSym(v.s), t ? 'disabled' : `placeholder="${isUS ? 'e.g. AAPL' : 'e.g. JSWSTEEL'}" autocapitalize="characters"`)}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8px">${trIn('trD', 'Buy date', v.date, 'type="date"')}${trIn('trE', `Buy price ${ccy}`, v.entry, 'inputmode="decimal"')}
+    ${trIn('trQ', 'Quantity', v.qty, 'inputmode="numeric"')}${trIn('trSL', `Stop-loss ${ccy}`, v.sl, 'inputmode="decimal"')}
+    ${trIn('trT1', `Target 1 ${ccy} (blank = 2R)`, v.t1, 'inputmode="decimal"')}${trIn('trT2', `Target 2 ${ccy} (blank = 3R)`, v.t2, 'inputmode="decimal"')}</div>
     ${trIn('trN', 'Note (why you bought)', v.note, 'maxlength="120"')}
     <label class="mut" style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13.5px"><input type="checkbox" id="trA" ${v.alerts ? 'checked' : ''}> Phone alerts: stop hit, move stop to breakeven, T1 reached${typeof AK_ON === 'function' && !AK_ON() ? ' <span class="dn">(set up the private alerts key on 🔔 Alerts first)</span>' : ''}</label>
     <p class="mut" id="trMsg" style="min-height:1.2em"></p><div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn sec" id="trX">Cancel</button><button class="btn" id="trOk">Save</button></div>`;
   d.showModal(); d.querySelector('#trX').onclick = () => d.close();
   d.querySelector('#trOk').onclick = async () => {
     const g = k => d.querySelector(k).value.trim(), nm = k => typeof parseAmount === 'function' ? parseAmount(g(k)) : +g(k).replace(/,/g, '');
-    let s = (t ? t.s : g('#trS').toUpperCase().replace(/\s+/g, '')); if (s && !/\.(NS|BO)$/.test(s)) s += '.NS';
+    let s = (t ? t.s : g('#trS').toUpperCase().replace(/\s+/g, ''));
+    if (s && !/\.(NS|BO)$/.test(s)) {
+      if (!isUS && !/^[A-Z]{1,5}$/.test(s)) s += '.NS';
+    }
     const e = nm('#trE'), q = Math.floor(nm('#trQ')), sl = nm('#trSL'), msg = d.querySelector('#trMsg');
     if (!s || !(e > 0) || !(q > 0) || !(sl > 0) || !(sl < e)) { msg.textContent = 'Fill in the stock, a buy price, a quantity and a stop-loss below the buy price.'; return; }
     const R = e - sl, t1 = nm('#trT1') > e ? nm('#trT1') : Math.round((e + 2 * R) / 0.05) * 0.05, t2 = nm('#trT2') > e ? nm('#trT2') : Math.round((e + 3 * R) / 0.05) * 0.05;
@@ -765,14 +770,18 @@ async function renderTrades(box) {
   tradeNotificationsCheck(open, X);
   const realised = t => (t.sold || []).reduce((s, x) => s + x.q * (x.p - t.entry), 0);
   let inv = 0, risk = 0, unr = 0;
-  const rowO = t => { const p = px(t), rem = trRem(t), R0 = t.R0 || (t.entry - t.sl0), x = X[t.s], [cls, adv] = trAdvice(t, x, isNum(p) ? p : t.entry);
+  const rowO = t => {
+    const isUS = !/\.(NS|BO)$/.test(t.s);
+    const ccyS = isUS ? '$' : '₹';
+    const pFmt = v => isUS ? ('$' + Number(v || 0).toFixed(2)) : inr2(v);
+    const p = px(t), rem = trRem(t), R0 = t.R0 || (t.entry - t.sl0), x = X[t.s], [cls, adv] = trAdvice(t, x, isNum(p) ? p : t.entry);
     inv += rem * t.entry; risk += Math.max(0, t.entry - t.sl) * rem; const u = isNum(p) ? rem * (p - t.entry) : 0; unr += u;
-    const sug = /raise the stop to ₹([\d,.]+)/.exec(adv) || /breakeven ₹([\d,.]+)/.exec(adv);
+    const sug = /raise the stop to [₹$]([\d,.]+)/.exec(adv) || /breakeven [₹$]([\d,.]+)/.exec(adv);
     const curR = (isNum(p) && R0 > 0) ? (p - t.entry) / R0 : 0;
     const tr = (x && isFinite(x.e20) && isFinite(x.lo5)) ? Math.max(x.e20, x.lo5) : null;
     let trailAlert = '';
     if (t.sold && t.sold.length > 0 && tr != null && isNum(p) && p > tr && (p - tr) / p <= 0.015) {
-      trailAlert = `<br><small class="flag" style="color:#d97706;font-weight:600">⚠ Within ${((p - tr) / p * 100).toFixed(1)}% of trail (${inr2(tr)})</small>`;
+      trailAlert = `<br><small class="flag" style="color:#d97706;font-weight:600">⚠ Within ${((p - tr) / p * 100).toFixed(1)}% of trail (${pFmt(tr)})</small>`;
     } else if (isNum(p) && p > t.sl && (p - t.sl) / p <= 0.015) {
       trailAlert = `<br><small class="flag" style="color:#dc2626;font-weight:600">⚠ ${((p - t.sl) / p * 100).toFixed(1)}% from stop</small>`;
     }
@@ -781,9 +790,9 @@ async function renderTrades(box) {
     const gauge = isNum(p) ? (curR >= 0
       ? `<div style="width:100%;min-width:64px;max-width:100px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px" title="Progress to T1 (+2R): ${pctT1.toFixed(0)}%"><div style="height:100%;width:${pctT1}%;background:${curR >= 2 ? '#16a34a' : curR >= 1 ? '#2563eb' : '#0891b2'}"></div></div>`
       : `<div style="width:100%;min-width:64px;max-width:100px;height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:3px" title="Distance to Stop (-1R): ${lossPct.toFixed(0)}%"><div style="height:100%;width:${lossPct}%;background:#dc2626"></div></div>`) : '';
-    return `<tr><td style="text-align:left;white-space:normal"><a href="#" data-s="${esc(t.s)}"><b>${esc(plSym(t.s))}</b></a><br><small class="mut">${esc(PL_SET[t.setup] || t.setup || '')}${t.note ? ' · ' + esc(t.note) : ''}</small></td>
-      <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${inr2(t.entry)}</small></td><td>${inr2(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, 0)} ₹ · ${isNum(p) ? sgn(curR, 1) + 'R' : ''}</small>${gauge}${trailAlert}</td>
-      <td>${inr2(t.sl)}<br><small class="mut">T1 ${inr2(t.t1)}</small></td><td style="white-space:normal;text-align:left"><span class="${cls}">${esc(adv)}</span>${t.alerts ? ' <small title="phone alerts on">🔔</small>' : ''}</td>
+    return `<tr><td style="text-align:left;white-space:normal"><a href="#" data-s="${esc(t.s)}"><b>${esc(plSym(t.s))}</b></a>${isUS ? ' <small class="mut">US</small>' : ''}<br><small class="mut">${esc(PL_SET[t.setup] || t.setup || '')}${t.note ? ' · ' + esc(t.note) : ''}</small></td>
+      <td>${swDate(t.date)}<br><small>${rem}${rem !== t.qty ? '/' + t.qty : ''} @ ${pFmt(t.entry)}</small></td><td>${pFmt(p)}<br><small class="${u >= 0 ? 'up' : 'dn'}">${sgn(u, isUS ? 2 : 0)} ${ccyS} · ${isNum(p) ? sgn(curR, 1) + 'R' : ''}</small>${gauge}${trailAlert}</td>
+      <td>${pFmt(t.sl)}<br><small class="mut">T1 ${pFmt(t.t1)}</small></td><td style="white-space:normal;text-align:left"><span class="${cls}">${esc(adv)}</span>${t.alerts ? ' <small title="phone alerts on">🔔</small>' : ''}</td>
       <td style="white-space:nowrap"><button class="btn sec" data-trstop="${t.id}" data-sug="${sug ? sug[1].replace(/,/g, '') : ''}" title="Update stop">🛡</button> <button class="btn sec" data-trpart="${t.id}" title="Sell part">➗</button> <button class="btn sec" data-trclose="${t.id}" title="Close trade">✅</button> <button class="btn sec" data-tredit="${t.id}" title="Edit">✎</button></td></tr>`; };
   const openRows = open.map(rowO);
   const openHTML = open.length ? `<div class="tw"><table class="pt" id="trt"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Now · P&amp;L</th><th>Stop · T1</th><th style="text-align:left">What to do</th><th></th></tr>${openRows.join('')}</table></div>` : '<p class="mut">No open trades. Log one from 🧭 Daily plan ("📒 Log as my trade") or add it here.</p>';
@@ -835,7 +844,12 @@ async function renderTrades(box) {
     <div><span>Total P&amp;L</span><b class="${tot >= 0 ? 'up' : 'dn'}">${sgn(tot, 0)} ₹</b></div>
   </div>
     <p class="mut" style="font-size:13px">By setup: ${Object.entries(bySet).map(([k, a]) => `${esc(PL_SET[k] || k)} ${a.length} trade${a.length === 1 ? '' : 's'}, ${Math.round(a.filter(j => j.pl > 0).length / a.length * 100)}% won, ${sgn(a.reduce((s, j) => s + j.R, 0) / a.length, 2)}R`).join(' · ')}${J.length < 20 ? ' — under 20 trades says little; keep logging.' : ''}</p>
-    <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a><br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td><td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${inr2(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${inr2(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, 0)} ₹</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`).join('')}</table></div>` : '<p class="mut">No closed trades yet. Your win rate and average R by setup appear here.</p>';
+    <div class="tw"><table class="pt" id="trj"><tr><th style="text-align:left">Stock</th><th>Bought</th><th>Sold (avg)</th><th>P&amp;L</th><th>R</th><th></th></tr>${J.map(j => {
+      const isUS = !/\.(NS|BO)$/.test(j.t.s);
+      const ccyS = isUS ? '$' : '₹';
+      const pFmt = v => isUS ? ('$' + Number(v || 0).toFixed(2)) : inr2(v);
+      return `<tr><td style="text-align:left"><a href="#" data-s="${esc(j.t.s)}">${esc(plSym(j.t.s))}</a>${isUS ? ' <small class="mut">US</small>' : ''}<br><small class="mut">${esc(PL_SET[j.t.setup] || j.t.setup || '')}</small></td><td>${swDate(j.t.date)}<br><small>${j.t.qty} @ ${pFmt(j.t.entry)}</small></td><td>${swDate(j.end)}<br><small>${pFmt(j.avgX)}</small></td><td class="${j.pl >= 0 ? 'up' : 'dn'}">${sgn(j.pl, isUS ? 2 : 0)} ${ccyS}</td><td>${sgn(j.R, 2)}</td><td><button class="btn sec" data-trdel="${j.t.id}" title="Delete">🗑</button></td></tr>`;
+    }).join('')}</table></div>` : '<p class="mut">No closed trades yet. Your win rate and average R by setup appear here.</p>';
   const cap = +SWF.cash || 0;
   const notifGranted = typeof Notification !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
   const notifHTML = typeof Notification !== 'undefined' && 'Notification' in window ? (notifGranted
@@ -926,14 +940,156 @@ async function renderTrades(box) {
     catch (x) { box.querySelector('#trBk').textContent = '⚠ ' + x.message; } };
 }
 
+// ---------- US Real-Time Swing Plan Engine (S&P 500 / Nasdaq / NYSE) ----------
+function renderUSPlanCard(d, el) {
+  if (!el || (typeof CUR !== 'undefined' && CUR && CUR !== d)) return;
+  const s = d.symbol, held = trOpen().find(t => t.s === s);
+  const head = `<h2>🧭 Real-Time Swing Plan <span class="tag" style="background:#eff6ff;color:#1e40af;font-size:12px;margin-left:6px;font-weight:700">🇺🇸 US Market</span></h2>`;
+
+  const hist = (d.hist || []).filter(h => h && h[1] > 0);
+  if (hist.length < 30) {
+    el.innerHTML = head + `<p class="mut">At least 30 daily price bars are required to calculate moving averages and swing triggers for ${esc(s)}.</p>`;
+    return;
+  }
+
+  const closes = hist.map(h => h[1]);
+  const p = isNum(d.price) ? d.price : closes[closes.length - 1];
+  const e20 = (typeof IND !== 'undefined' && IND.ema) ? IND.ema(closes, 20) : null;
+  const e50 = (typeof IND !== 'undefined' && IND.ema) ? IND.ema(closes, 50) : null;
+  const e200 = (typeof IND !== 'undefined' && IND.ema && closes.length >= 200) ? IND.ema(closes, 200) : null;
+  const rsiVal = (typeof IND !== 'undefined' && IND.rsi) ? IND.rsi(closes, 14) : null;
+  const atrVal = (typeof IND !== 'undefined' && IND.atr && d.ohlc && d.ohlc.length >= 14) ? IND.atr(d.ohlc, 14) : (p * 0.025);
+  const ws = (typeof IND !== 'undefined' && IND.weinstein) ? IND.weinstein(hist) : null;
+  const lastBar = (d.ohlc && d.ohlc.length) ? d.ohlc[d.ohlc.length - 1] : null;
+  const cdl = (typeof IND !== 'undefined' && IND.candle) ? IND.candle(lastBar, p) : null;
+
+  // Moving average analysis
+  const bullishStack = e20 && e50 && (e20 > e50) && (!e200 || e50 > e200);
+  const above50 = e50 && (p >= e50);
+  const above200 = !e200 || (p >= e200);
+  const pctFrom20 = e20 ? ((p - e20) / e20 * 100) : 0;
+  const isExtended = pctFrom20 > 7.0 || (rsiVal && rsiVal > 75);
+  const isPullback = e20 && (p >= e20 * 0.975 && p <= e20 * 1.025 && above50);
+  const isBreakout = e20 && (p > e20 * 1.025 && rsiVal && rsiVal >= 52 && rsiVal <= 74);
+
+  // Grade & Setup classification
+  let grade = 'D', setup = 'Counter-trend / Base', setupDesc = 'Price below moving averages; not suitable for swing longs.';
+  if (bullishStack && above200 && above50) {
+    if (!isExtended) {
+      grade = isPullback || isBreakout ? 'A+' : 'A';
+      setup = isPullback ? 'Pullback to 20 EMA' : (isBreakout ? 'Momentum Continuation' : 'Uptrend Consolidation');
+      setupDesc = isPullback ? `Resting directly at 20-day EMA support ($${e20.toFixed(2)}). Favorable reward-to-risk entry.` : `Orderly stacked trend (20 > 50 > 200 EMA) with healthy momentum (RSI ${rsiVal ? rsiVal.toFixed(1) : '–'}).`;
+    } else {
+      grade = 'A';
+      setup = 'Extended Momentum';
+      setupDesc = `Uptrend is very strong but extended (+${pctFrom20.toFixed(1)}% above 20 EMA). Wait for pullback to reduce risk.`;
+    }
+  } else if (above50 && above200) {
+    grade = 'B';
+    setup = 'Emerging Uptrend';
+    setupDesc = `Trading above 50 and 200 EMA, watching for 20 EMA expansion.`;
+  } else if (above50) {
+    grade = 'C';
+    setup = 'Mean Reversion';
+    setupDesc = `Above 50 EMA but below 200 EMA long-term trendline.`;
+  }
+
+  const isBuy = ['A+', 'A'].includes(grade) && !isExtended;
+
+  // Structural Sizing, Stops, and Multi-Target Projections
+  const R = Math.max(p * 0.015, (atrVal ? atrVal * 1.5 : p * 0.03));
+  const E = isBreakout ? (lastBar ? Math.max(p, lastBar[2] * 1.002) : p * 1.002) : p;
+  const SL = Math.max(0.01, E - R);
+  const Rpct = ((E - SL) / E * 100).toFixed(1);
+  const T1 = E + 2 * R;
+  const T2 = E + 3 * R;
+  const inval = `Daily close below 20 EMA ($${e20 ? e20.toFixed(2) : SL.toFixed(2)}) or Stop $${SL.toFixed(2)}`;
+
+  const stageBadge = ws && ws.stage === 2
+    ? '<span class="tag" style="background:#dcfce7;color:#166534;margin-left:4px;font-weight:700">Stage 2 Advancing</span>'
+    : (ws && ws.stage === 4 ? '<span class="tag" style="background:#fee2e2;color:#991b1b;margin-left:4px;font-weight:700">Stage 4 Declining</span>' : '');
+
+  const gradeCol = grade.startsWith('A') ? 'up' : (grade === 'B' ? 'mut' : 'dn');
+
+  const content = `
+    <p style="margin:0 0 6px">
+      ${isBuy ? '<b class="up">🟢 US Swing Setup (Active Plan)</b>' : (isExtended ? '<b style="color:#d97706">🟡 Extended (Wait for Pullback)</b>' : '<b>🟡 Watchlist / Observation</b>')}
+      · Trend <span class="${gradeCol}"><b>Grade ${grade}</b></span> · <b>${esc(setup)}</b> ${stageBadge}
+      ${rsiVal ? `· RSI <b>${rsiVal.toFixed(1)}</b>` : ''}
+    </p>
+    <p style="font-size:14px;margin:0 0 8px">${esc(setupDesc)}</p>
+
+    <div class="kv">
+      <div><span>Entry Trigger</span><b>$${E.toFixed(2)}</b></div>
+      <div><span>Stop-Loss</span><b class="dn">$${SL.toFixed(2)} <small>(−${Rpct}%)</small></b></div>
+      <div><span>Target 1 (+2R)</span><b class="up">$${T1.toFixed(2)}</b></div>
+      <div><span>Target 2 (+3R)</span><b class="up">$${T2.toFixed(2)}</b></div>
+      <div><span>Invalidation</span><b style="font-size:12.5px;font-weight:500">${esc(inval)}</b></div>
+    </div>
+
+    <div style="margin:12px 0 8px">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:4px;color:var(--ink)">US Brokerage Order Ticket (GTT / Stop-Limit)</div>
+      <div class="tw">
+        <table class="pt" style="font-size:13px">
+          <tr><th style="text-align:left">Order Type</th><th>Trigger (Stop)</th><th>Limit Price</th><th>Stop-Loss (OCO)</th><th>Target 1</th><th>Settlement</th></tr>
+          <tr>
+            <td style="text-align:left"><b>Buy Stop-Limit (GTC)</b></td>
+            <td><b>$${E.toFixed(2)}</b></td>
+            <td>$${(E * 1.004).toFixed(2)}</td>
+            <td class="dn"><b>$${SL.toFixed(2)}</b></td>
+            <td class="up"><b>$${T1.toFixed(2)}</b></td>
+            <td><small class="mut">T+1 · $0 Comm.</small></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 6px">
+      ${held ? `<span class="mut" style="font-size:13px">📒 You hold <b>${trRem(held)} shares</b> @ $${held.entry.toFixed(2)} (Stop $${held.sl.toFixed(2)})</span>`
+        : `<button class="btn" id="usLogTrade">📒 Log as my trade ($ USD)</button>`}
+      ${lastBar && cdl ? `<span class="mut" style="font-size:12px">Last bar: Close location ${cdl.cl}%, Body ${cdl.body}%</span>` : ''}
+    </div>
+
+    <p class="src">
+      <b>US Market Execution Rules:</b> Zero commission US delivery trading. Fractional shares supported on Interactive Brokers, Schwab, Fidelity, Robinhood. Structural risk unit R = $${R.toFixed(2)}/share. T+1 SEC settlement standard. Educational swing plan, not FINRA/SEC investment advice.
+    </p>
+  `;
+
+  el.innerHTML = head + content;
+
+  const logBtn = el.querySelector('#usLogTrade');
+  if (logBtn) {
+    logBtn.onclick = () => {
+      tradeDialog(null, {
+        s,
+        n: d.name || s,
+        setup,
+        isUS: true,
+        q: Math.max(1, Math.floor(1000 / p)),
+        plan: { E: +E.toFixed(2), SL: +SL.toFixed(2), T1: +T1.toFixed(2), T2: +T2.toFixed(2) }
+      }, () => {
+        if (typeof renderTrades === 'function') {
+          const v = document.getElementById('view');
+          if (v) renderTrades(v);
+        }
+      });
+    };
+  }
+}
+
 // ---------- stock page: plan card (filled after plan.json loads) ----------
 function planCardPh(d) {
-  if (!d || d.etf || !/\.NS$/.test(d.symbol || '')) return '';
+  if (!d || d.etf) return '';
   setTimeout(() => planCardFill(d), 0);
   return `<div class="card nogq" id="plancard"><h2>🧭 Daily plan${swq('regime')}</h2><p class="mut">Loading…</p></div>`;
 }
 async function planCardFill(d) {
-  const P = await planLoad(), el = document.getElementById('plancard'); if (!el || typeof CUR !== 'undefined' && CUR && CUR !== d) return;
+  const el = document.getElementById('plancard'); if (!el || typeof CUR !== 'undefined' && CUR && CUR !== d) return;
+  const isUS = !/\.(NS|BO)$/.test(d.symbol || '');
+  if (isUS) {
+    return renderUSPlanCard(d, el);
+  }
+  const P = await planLoad(); if (!el || typeof CUR !== 'undefined' && CUR && CUR !== d) return;
   if (!P || P.err || !P.g) { el.innerHTML = `<h2>🧭 Daily plan</h2><p class="mut">The daily plan isn't available yet.</p>`; return; }
   const s = d.symbol, g = P.g[s], full = P.buy.find(x => x.s === s) || P.watch.find(x => x.s === s), av = P.avoid.find(x => x.s === s), held = trOpen().find(t => t.s === s);
   const head = `<h2>🧭 Daily plan${swq('regime')} <span class="mut">(close of ${swDate(P.asOf)})</span></h2>`;
